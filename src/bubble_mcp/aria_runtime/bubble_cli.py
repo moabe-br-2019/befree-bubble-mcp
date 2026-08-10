@@ -59711,12 +59711,15 @@ class BubbleCLI:
             )
         ok = self._send_schema_payload(pb, dry_run, f"Event '{event_ref}' element set to {element_id}.")
         if ok:
-            self._merge_workflow_properties_in_discovery(
-                context_id,
-                context_type,
-                wf_key,
-                {"%ei": element_id}
-            )
+            if not dry_run:
+                # A dry run must not leave the in-memory discovery root claiming a
+                # binding that was never sent to Bubble.
+                self._merge_workflow_properties_in_discovery(
+                    context_id,
+                    context_type,
+                    wf_key,
+                    {"%ei": element_id}
+                )
             self._cache_workflow_event(
                 context_id,
                 context_type,

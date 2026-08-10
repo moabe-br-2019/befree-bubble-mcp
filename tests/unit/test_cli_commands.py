@@ -2150,7 +2150,7 @@ def test_set_event_element_dry_run_does_not_mutate_discovery_binding(
 
 
 def test_add_action_reuses_workflow_it_just_auto_created_for_a_second_action(
-    tmp_path, capsys
+    tmp_path, monkeypatch, capsys
 ) -> None:  # type: ignore[no-untyped-def]
     """Regression test for a duplicate-workflow bug: the 2nd add_action call for
     the same trigger element+event, right after the 1st call auto-created the
@@ -2164,7 +2164,14 @@ def test_add_action_reuses_workflow_it_just_auto_created_for_a_second_action(
     let the (correct) cached binding fill in the (incomplete) in-memory one, so
     the real workflow could never be matched by element again in the same
     process, and add_action fell through to auto-creating a duplicate.
+
+    Covers the normalized `pages/workflows` shape; the raw `%p3/%wf` overlay
+    shape is covered by
+    test_add_action_reuses_raw_overlay_workflow_when_normalized_page_is_stale.
     """
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(PayloadBuilder, "send_to_webhook", lambda self, _url: None)
+
     app_path = tmp_path / "app.json"
     app_path.write_text(
         json.dumps(
@@ -2204,7 +2211,7 @@ def test_add_action_reuses_workflow_it_just_auto_created_for_a_second_action(
             action_type="hide",
             action_param="Meu Botao",
             event="click",
-            dry_run=True,
+            dry_run=False,
         )
         is True
     )
@@ -2217,7 +2224,7 @@ def test_add_action_reuses_workflow_it_just_auto_created_for_a_second_action(
             action_type="show",
             action_param="Meu Botao",
             event="click",
-            dry_run=True,
+            dry_run=False,
         )
         is True
     )
