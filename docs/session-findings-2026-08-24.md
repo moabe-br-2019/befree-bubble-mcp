@@ -133,6 +133,31 @@ notes. Still open (needs real editor captures, which require a human in the edit
 2. Official encoder/decoder with editor round-trip tests — only feasible on top of those
    captured pairs, not the export.
 
+### Bug 8 RESOLVED at the knowledge level (2026-08-24, night): canonical expression form recovered from live editor memory
+
+The Chrome-extension capture path stalled (extension context invalidated after reload), so the
+raw form was extracted directly from the running editor instead: Playwright + the stored orana
+session, then `window.appquery.app().json._child('api')._child('<wf_id>').raw()` in the page.
+(`app.raw()` on the root is blocked "for performance reasons" — child nodes fetch fine.)
+
+Canonical form of the failing case (all 18 steps, editor-serialized, structurally identical —
+frozen as `tests/fixtures/expressions/api-event-parameter-golden.json`):
+
+- `APIEventParameter.properties` requires **all four**: `btype_id` ("custom.<type>"),
+  `event_id` (the API event id), `param_id` (**the parameter KEY, e.g. "Client"** — not the
+  internal `bTbgp` id), `param_name` (same key). Every failed attempt in the report sent only
+  `param_id` in isolation — without the type context nothing resolves, which also explains the
+  `[not found: ...]` Message tokens (they resolve against `btype_id`).
+- Every expression node carries `is_slidable: false`; chains link via nested `next` Messages
+  whose `name` is the internal field name or operator (`is_true`, `is_not_empty`).
+- Editor memory reads expose nodes with decoded `type`/`properties` keys; write payloads use
+  `%x`/`%p` at the node level with this same interior.
+
+Delivered: `lint_expression_warnings` now flags APIEventParameter nodes missing any of the four
+context fields with the exact fix. Remaining to harden: a `bubble_live_node_read` tool wrapping
+the appquery extraction (golden samples on demand without the Chrome extension), and one
+verification write of a fully-formed action to confirm the editor renders it.
+
 ## 3. Frictions and platform limits (not code bugs)
 
 - **Three checkouts, two config dirs.** `~/.claude.json` runs the `auton` checkout with

@@ -90,6 +90,26 @@ def _contains_expression_node(value: Any) -> bool:
     return False
 
 
+_API_EVENT_PARAMETER_REQUIRED = ("btype_id", "event_id", "param_id", "param_name")
+
+
+def _incomplete_api_event_parameters(value: Any, found: list[str]) -> None:
+    if isinstance(value, dict):
+        type_name = str(value.get("type") or value.get("%x") or "")
+        if type_name == "APIEventParameter":
+            props = value.get("properties") if isinstance(value.get("properties"), dict) else (
+                value.get("%p") if isinstance(value.get("%p"), dict) else {}
+            )
+            missing = [key for key in _API_EVENT_PARAMETER_REQUIRED if not str(props.get(key) or "").strip()]
+            if missing:
+                found.append(", ".join(missing))
+        for child in value.values():
+            _incomplete_api_event_parameters(child, found)
+    elif isinstance(value, list):
+        for child in value:
+            _incomplete_api_event_parameters(child, found)
+
+
 def lint_expression_warnings(changes: Any) -> list[str]:
     """Warn (never block) on hand-composed expression nodes inside workflow actions.
 
@@ -112,9 +132,21 @@ def lint_expression_warnings(changes: Any) -> list[str]:
         if not isinstance(body, dict):
             continue
         props = body.get("%p")
-        if not isinstance(props, dict) or not _contains_expression_node(props):
+        if not isinstance(props, dict):
             continue
         path_str = "/".join(str(part) for part in path_array)
+        incomplete: list[str] = []
+        _incomplete_api_event_parameters(props, incomplete)
+        if incomplete:
+            warnings.append(
+                f"{path_str}: APIEventParameter node is missing required context fields ({'; '.join(incomplete)}). "
+                "Confirmed against live editor memory: the parameter only resolves with btype_id + event_id + "
+                "param_id + param_name together (param_id is the parameter KEY, e.g. 'Client'), plus "
+                "is_slidable: false on every expression node. Without the type context the editor renders an "
+                "unresolved parameter and '[not found: ...]' messages."
+            )
+        if not _contains_expression_node(props):
+            continue
         expression_types = sorted(
             {t for t in _EXPRESSION_NODE_TYPES if f'"{t}"' in str(props) or f"'{t}'" in str(props)}
         )

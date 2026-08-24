@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Canonical raw form of APIEventParameter expressions recovered from live editor memory
+  (Playwright + appquery child-node raw()): the parameter only resolves with btype_id +
+  event_id + param_id (the parameter KEY, not the internal id) + param_name together, with
+  is_slidable: false on every expression node. Frozen as a golden fixture
+  (tests/fixtures/expressions/api-event-parameter-golden.json), and bubble_editor_write now
+  flags APIEventParameter nodes missing any of the four context fields with the exact fix.
 - bubble_editor_write warns on hand-composed expression nodes in workflow actions (Orana report
   bug 8): expression encodings (APIEventParameter, Message chains, param ids) are not derivable
   from the .bubble export, and /appeditor/write returns HTTP 200 for any body — results now

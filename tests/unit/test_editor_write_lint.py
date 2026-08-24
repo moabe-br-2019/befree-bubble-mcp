@@ -119,9 +119,10 @@ def test_expression_nodes_produce_warning_not_rejection() -> None:
         },
     }
     warnings = lint_expression_warnings([action_with_expression])
-    assert len(warnings) == 1
-    assert "APIEventParameter" in warnings[0] or "expression" in warnings[0].lower()
-    assert "200" in warnings[0]
+    # one generic hand-composed-expression warning + one incomplete-APIEventParameter warning
+    assert len(warnings) == 2
+    assert any("200" in w for w in warnings)
+    assert any("btype_id" in w for w in warnings)
 
     plain_action = {
         "path_array": ["%p3", "bTVso", "%wf", "bTbgi", "actions", "4"],
@@ -164,3 +165,44 @@ def test_editor_write_result_carries_expression_warnings(monkeypatch, tmp_path) 
         },
     )
     assert result.get("warnings"), "expression warning must surface in the tool result"
+
+
+def test_incomplete_api_event_parameter_is_flagged() -> None:
+    """Root cause of the Orana report bug-8 failures: APIEventParameter resolves only with
+    btype_id + event_id + param_id + param_name together (confirmed against live editor
+    memory raw). A node missing the type context renders as an unresolved parameter."""
+
+    from bubble_mcp.execution.write_lint import lint_expression_warnings
+
+    incomplete = {
+        "path_array": ["%p3", "x", "%wf", "wf1", "actions", "0"],
+        "body": {
+            "id": "a1",
+            "%x": "ChangeThing",
+            "%p": {"to_change": {"type": "APIEventParameter", "properties": {"param_id": "bTbgp"}}},
+        },
+    }
+    warnings = lint_expression_warnings([incomplete])
+    assert any("btype_id" in w and "event_id" in w for w in warnings), warnings
+
+    complete = {
+        "path_array": ["%p3", "x", "%wf", "wf1", "actions", "1"],
+        "body": {
+            "id": "a2",
+            "%x": "ChangeThing",
+            "%p": {
+                "to_change": {
+                    "type": "APIEventParameter",
+                    "is_slidable": False,
+                    "properties": {
+                        "btype_id": "custom.client",
+                        "event_id": "bTbgi",
+                        "param_id": "Client",
+                        "param_name": "Client",
+                    },
+                }
+            },
+        },
+    }
+    complete_warnings = lint_expression_warnings([complete])
+    assert not any("btype_id" in w for w in complete_warnings), complete_warnings
