@@ -522,3 +522,35 @@ def test_select_trusted_workflow_rows_prefers_noncache_then_root_then_recent_cac
         [cached_recent], exists_in_root=lambda row: False, root_source_mtime_ms=None
     )
     assert pool == [cached_recent]
+
+
+def test_runtime_environment_falls_back_to_profile_default_crawler_index(tmp_path, monkeypatch) -> None:
+    """Crawler-only profiles must work without an explicit crawler_index_path argument."""
+
+    import json as _json
+
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="crawler-profile",
+            profiles={
+                "crawler-profile": BubbleProfile(
+                    name="crawler-profile",
+                    app_id="crawler-app",
+                    appname="crawler-app",
+                    app_version="test",
+                )
+            },
+        )
+    )
+    from bubble_mcp.context.detector import default_crawler_index_path
+
+    crawler_path = default_crawler_index_path("crawler-profile", "crawler-app")
+    crawler_path.parent.mkdir(parents=True, exist_ok=True)
+    crawler_path.write_text(_json.dumps({"pages": [{"id": "p1", "name": "index", "elements": {}}]}), encoding="utf-8")
+
+    from bubble_mcp.aria_dispatch import _resolve_runtime_environment
+
+    env = _resolve_runtime_environment({"profile": "crawler-profile"})
+    assert env.crawler_index_path == str(crawler_path)

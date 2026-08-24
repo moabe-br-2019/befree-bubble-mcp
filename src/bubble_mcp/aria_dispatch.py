@@ -11,7 +11,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, cast
 
-from bubble_mcp.context.detector import default_bubble_export_path, detect_project_context
+from bubble_mcp.context.detector import default_bubble_export_path, detect_project_context, default_crawler_index_path
 from bubble_mcp.context.mutation_overlay import mutation_overlay_path, record_mutation_overlay
 from bubble_mcp.core.config import load_settings, resolve_profile
 from bubble_mcp.execution.client import BubbleEditorClient
@@ -249,23 +249,36 @@ def _resolve_runtime_environment(args: dict[str, Any]) -> AriaRuntimeEnvironment
         app_json_path and Path(app_json_path).expanduser().exists()
     )
     if should_detect:
-        detected = detect_project_context(
-            profile=profile,
-            app_id=app_id,
-            app_version=app_version,
-            force=bool(args.get("refresh_context") or args.get("force")),
-            bubble_file=Path(explicit_bubble_file).expanduser() if explicit_bubble_file else None,
-            consolelog_file=Path(str(args.get("consolelog_file"))).expanduser()
-            if str(args.get("consolelog_file") or "").strip()
-            else None,
-        )
+        try:
+            detected = detect_project_context(
+                profile=profile,
+                app_id=app_id,
+                app_version=app_version,
+                force=bool(args.get("refresh_context") or args.get("force")),
+                bubble_file=Path(explicit_bubble_file).expanduser() if explicit_bubble_file else None,
+                consolelog_file=Path(str(args.get("consolelog_file"))).expanduser()
+                if str(args.get("consolelog_file") or "").strip()
+                else None,
+            )
+        except ValueError:
+            # Detection needs a session or local artifact; a previously detected crawler
+            # index (checked below) is still a valid data source, so this is not fatal.
+            detected = None
         candidate = default_bubble_export_path(profile, app_id)
         if candidate.exists():
             app_json_path = str(candidate)
-        elif detected.source.endswith("bubble") and Path(detected.context_path).exists():
+        elif detected is not None and detected.source.endswith("bubble") and Path(detected.context_path).exists():
             app_json_path = app_json_path
 
-    if not app_json_path and not args.get("consolelog_file") and not args.get("crawler_index_path"):
+    resolved_crawler_index_path = _resolve_optional_path(args.get("crawler_index_path"))
+    if not resolved_crawler_index_path:
+        # Crawler-only profiles (the .bubble export endpoint can return 401): fall back to the
+        # profile's default crawler-index artifact so every aria tool works without explicit args.
+        default_crawler = default_crawler_index_path(profile, app_id)
+        if default_crawler.exists():
+            resolved_crawler_index_path = str(default_crawler)
+
+    if not app_json_path and not args.get("consolelog_file") and not resolved_crawler_index_path:
         raise ValueError(
             "Aria runtime dispatch requires a .bubble export, consolelog JSON, or crawler index. "
             "Run bubble-mcp context detect for this profile first."
@@ -277,7 +290,7 @@ def _resolve_runtime_environment(args: dict[str, Any]) -> AriaRuntimeEnvironment
         app_version=app_version,
         app_json_path=app_json_path,
         consolelog_json_path=_resolve_optional_path(args.get("consolelog_file")),
-        crawler_index_path=_resolve_optional_path(args.get("crawler_index_path")),
+        crawler_index_path=resolved_crawler_index_path,
         mutation_overlay_path=_resolve_optional_path(args.get("mutation_overlay_path"))
         or str(mutation_overlay_path(profile, app_id)),
     )

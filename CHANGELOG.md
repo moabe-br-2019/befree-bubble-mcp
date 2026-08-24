@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Crawler-only profiles work across the whole runtime: create_from_html no longer hard-requires a
+  .bubble export (it falls back to the crawler-index primary source), and the aria dispatch layer
+  resolves the profile's default crawler-index artifact automatically instead of requiring an
+  explicit crawler_index_path argument on every call. Context-detection failures are non-fatal
+  when a previously detected crawler index exists.
 - create_reusable_instance now mirrors editor serialization (2026-08-24 Orana bug report #1-#3):
   %p.custom_id uses the definition's inner .id (never the element_definitions dict key), created
   elements get an element-level %nm write and a computed %p.order (max sibling order + 1) so they
