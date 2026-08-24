@@ -18,6 +18,35 @@ from typing import Dict, List, Any, Optional, Union, Tuple
 
 
 # ==========================================
+# CORE: WIRE VALUE NORMALIZATION
+# ==========================================
+
+# The MCP catalog exposes the friendly enum none|color|image|gradient, while the
+# Bubble editor stores the flat-color option as "bgcolor". Writing "color" is
+# accepted by the editor API but flagged by the Issue Checker as
+# "<element> - is not a possible option".
+BACKGROUND_STYLE_WIRE_VALUES: Dict[str, str] = {
+    "none": "none",
+    "color": "bgcolor",
+    "flat color": "bgcolor",
+    "flat": "bgcolor",
+    "flatcolor": "bgcolor",
+    "bgcolor": "bgcolor",
+    "background color": "bgcolor",
+    "image": "image",
+    "gradient": "gradient",
+}
+
+
+def normalize_background_style(value: Any) -> Any:
+    """Map a catalog background style label to the Bubble wire value."""
+    if value is None or not isinstance(value, str):
+        return value
+    raw = value.strip().lower().replace("_", " ").replace("-", " ")
+    return BACKGROUND_STYLE_WIRE_VALUES.get(raw, value.strip().lower())
+
+
+# ==========================================
 # CORE: LOGGER
 # ==========================================
 
@@ -386,6 +415,17 @@ class ElementBuilder:
         if kwargs.get("border_color_bottom") is not None: properties["border_color_bottom"] = kwargs["border_color_bottom"]
         if kwargs.get("border_color_left") is not None: properties["border_color_left"] = kwargs["border_color_left"]
         if kwargs.get("border_color_right") is not None: properties["border_color_right"] = kwargs["border_color_right"]
+        # With four_border_style on, Bubble reads the per-side keys and ignores the
+        # shared %bos/%bw/%bc trio, so a border set only through the shared keys
+        # renders as no border at all. Mirror the shared values onto every side the
+        # caller did not set explicitly.
+        if properties.get("four_border_style"):
+            for side in ("top", "right", "bottom", "left"):
+                for shared_key, side_prefix in (("%bos", "border_style"), ("%bw", "border_width"), ("%bc", "border_color")):
+                    side_key = f"{side_prefix}_{side}"
+                    if properties.get(shared_key) is not None and properties.get(side_key) is None:
+                        properties[side_key] = properties[shared_key]
+
         if kwargs.get("border_roundness_top") is not None: properties["border_roundness_top"] = kwargs["border_roundness_top"]
         if kwargs.get("border_roundness_bottom") is not None: properties["border_roundness_bottom"] = kwargs["border_roundness_bottom"]
         if kwargs.get("border_roundness_left") is not None: properties["border_roundness_left"] = kwargs["border_roundness_left"]
@@ -410,9 +450,9 @@ class ElementBuilder:
             if kwargs.get("background_style") is None:
                 properties["%bas"] = "bgcolor" # Flat color style
         if kwargs.get("background_style") is not None:
-            properties["%bas"] = kwargs["background_style"]
+            properties["%bas"] = normalize_background_style(kwargs["background_style"])
         elif kwargs.get("bg_style") is not None:
-            properties["%bas"] = kwargs["bg_style"]
+            properties["%bas"] = normalize_background_style(kwargs["bg_style"])
         gradient_start = kwargs.get("gradient_start_color", kwargs.get("gradient_color1"))
         gradient_end = kwargs.get("gradient_end_color", kwargs.get("gradient_color2"))
         gradient_mid = kwargs.get("gradient_mid_color", kwargs.get("gradient_mid"))
@@ -1299,7 +1339,9 @@ class ElementBuilder:
             "font_weight": kwargs.get("font_weight", "400"),
             "horiz_alignment": kwargs.get("horiz_alignment", "flex-start"),
             "%fa": kwargs.get("font_alignment", kwargs.get("fa", "left")),
-            "order": kwargs.get("order", 0), # Ensure order is present for auto-layout
+            # Left unset when the caller did not ask for a specific slot: BubbleCLI
+            # stamps max(sibling order)+1 so creation order is preserved.
+            "order": kwargs.get("order"),
             **kwargs.get("extra_props", {})
         }
 
@@ -1384,7 +1426,7 @@ class ElementBuilder:
             "%w": width,
             "%h": height,
             "%z": kwargs.get("zindex", 10),
-            "order": kwargs.get("order", 100),
+            "order": kwargs.get("order"),
 
             # MANDATORY: button_type (documented line 106)
             "button_type": button_type,
@@ -3037,7 +3079,7 @@ class ElementBuilder:
             "%w": parsed_width,
             "%h": parsed_height,
             "%z": kwargs.get("zindex", 2),
-            "order": kwargs.get("order", 1),
+            "order": kwargs.get("order"),
             "%3": label_expr,
             "horiz_alignment": kwargs.get("horiz_alignment", "flex-start"),
             "fit_width": True,
@@ -3165,7 +3207,7 @@ class ElementBuilder:
             "%w": parsed_width,
             "%h": parsed_height,
             "%z": kwargs.get("zindex", 2),
-            "order": kwargs.get("order", 1),
+            "order": kwargs.get("order"),
             "%3": content_expr,
             "horiz_alignment": kwargs.get("horiz_alignment", "flex-start"),
             "fit_width": True,
@@ -3290,7 +3332,7 @@ class ElementBuilder:
             "min_height_css": kwargs.get("min_height_css", f"{parsed_height}px"),
             "fit_height": bool(kwargs.get("fit_height_default", False)),
             "single_height": bool(kwargs.get("single_height", True)),
-            "order": kwargs.get("order", 1),
+            "order": kwargs.get("order"),
             **kwargs.get("extra_props", {}),
         }
 

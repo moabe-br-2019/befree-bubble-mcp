@@ -206,3 +206,30 @@ def test_incomplete_api_event_parameter_is_flagged() -> None:
     }
     complete_warnings = lint_expression_warnings([complete])
     assert not any("btype_id" in w for w in complete_warnings), complete_warnings
+
+
+def test_invalid_background_style_value_is_flagged() -> None:
+    """Root cause of the mcp-test-app landing page report: the catalog enum exposes
+    "color" for flat backgrounds while the editor stores "bgcolor". Writing "color"
+    returns HTTP 200 and then shows up as "<element> - is not a possible option"
+    in the Issue Checker."""
+
+    from bubble_mcp.execution.write_lint import lint_enum_warnings
+
+    create = {
+        "path_array": ["%p3", "page", "%el", "bXYZ"],
+        "body": {"%x": "Group", "%dn": "gp_tasks", "%p": {"%bas": "color", "%bgc": "#FFFFFF"}},
+    }
+    set_data = {
+        "path_array": ["%p3", "page", "%el", "bXYZ", "%p", "%bas"],
+        "body": "color",
+    }
+    for change in (create, set_data):
+        warnings = lint_enum_warnings([change])
+        assert any("bgcolor" in w for w in warnings), (change, warnings)
+
+    ok = {
+        "path_array": ["%p3", "page", "%el", "bXYZ", "%p", "%bas"],
+        "body": "bgcolor",
+    }
+    assert lint_enum_warnings([ok]) == []

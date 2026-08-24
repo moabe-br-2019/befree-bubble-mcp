@@ -159,3 +159,67 @@ def lint_expression_warnings(changes: Any) -> list[str]:
             "traffic (bubble_tool_wizard_start), or configure one action by hand and Copy/Paste it."
         )
     return warnings
+
+
+# Property values the editor stores as a closed enum. The MCP catalog exposes
+# friendlier labels for some of them (bg_style: none|color|image|gradient), and a
+# label written verbatim is accepted by /appeditor/write with HTTP 200 while the
+# Issue Checker reports "<element> - is not a possible option".
+_ENUM_WIRE_VALUES: dict[str, dict[str, str]] = {
+    "%bas": {
+        "color": "bgcolor",
+        "flat color": "bgcolor",
+        "flat": "bgcolor",
+        "flatcolor": "bgcolor",
+        "background color": "bgcolor",
+    },
+}
+_ENUM_ALLOWED_VALUES: dict[str, set[str]] = {
+    "%bas": {"none", "bgcolor", "image", "gradient"},
+}
+
+
+def _enum_issue(wire_key: str, value: Any, path_str: str) -> str | None:
+    if not isinstance(value, str):
+        return None
+    raw = value.strip().lower().replace("_", " ").replace("-", " ")
+    allowed = _ENUM_ALLOWED_VALUES.get(wire_key, set())
+    if raw in allowed:
+        return None
+    suggestion = _ENUM_WIRE_VALUES.get(wire_key, {}).get(raw)
+    expected = ", ".join(sorted(allowed))
+    hint = f" Use '{suggestion}'." if suggestion else ""
+    return (
+        f"{path_str}: '{wire_key}' = '{value}' is not a Bubble wire value (expected one of: {expected})."
+        f"{hint} The server accepts it with HTTP 200, but the Issue Checker reports "
+        "'<element> - is not a possible option'."
+    )
+
+
+def lint_enum_warnings(changes: Any) -> list[str]:
+    """Warn (never block) on property values outside a known Bubble wire enum."""
+
+    warnings: list[str] = []
+    if not isinstance(changes, list):
+        return warnings
+    for change in changes:
+        if not isinstance(change, dict):
+            continue
+        path_array = change.get("path_array")
+        parts = [str(part) for part in path_array] if isinstance(path_array, list) else []
+        path_str = "/".join(parts) if parts else "?"
+        body = change.get("body")
+        if parts and parts[-1] in _ENUM_WIRE_VALUES:
+            issue = _enum_issue(parts[-1], body, path_str)
+            if issue:
+                warnings.append(issue)
+            continue
+        props = body.get("%p") if isinstance(body, dict) else None
+        if not isinstance(props, dict):
+            continue
+        for wire_key in _ENUM_WIRE_VALUES:
+            if wire_key in props:
+                issue = _enum_issue(wire_key, props[wire_key], path_str)
+                if issue:
+                    warnings.append(issue)
+    return warnings

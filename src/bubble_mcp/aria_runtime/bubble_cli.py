@@ -3127,6 +3127,21 @@ class BubbleCLI:
             f"Invalid scroll direction '{value}'. Use one of: vertical, horizontal, flex_row."
         )
 
+    @staticmethod
+    def _merge_extra_props(
+        kwargs: Dict[str, Any],
+        extra_props: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Fold kwargs["extra_props"] into the caller's local extra_props.
+
+        _apply_common_surface_kwargs moves border_style into kwargs["extra_props"],
+        so a builder call that also passes extra_props= explicitly would raise
+        "got multiple values for keyword argument 'extra_props'".
+        """
+        merged = dict(extra_props or {})
+        merged.update(kwargs.pop("extra_props", None) or {})
+        return merged
+
     def _supported_properties_for_tool(self, tool_name: str) -> set:
         """Capability-map backed property set for a tool name."""
         element_type = TOOL_ELEMENT_MAP.get(str(tool_name or "").strip())
@@ -28805,6 +28820,15 @@ class BubbleCLI:
                 child_ids.append(child_id)
         return child_ids
 
+    @staticmethod
+    def _parent_object_id(parent_result: Any, parent_node: Any) -> str:
+        for source in (parent_result, parent_node):
+            if isinstance(source, dict):
+                candidate = str(source.get("id") or "").strip()
+                if candidate:
+                    return candidate
+        return ""
+
     def _next_child_order(
         self,
         context_id: str,
@@ -28827,8 +28851,15 @@ class BubbleCLI:
         children = parent_node.get("elements")
         if not isinstance(children, dict):
             children = parent_node.get("%el")
-        if not isinstance(children, dict):
-            return 0
+        if not isinstance(children, dict) or not children:
+            # A parent created moments ago is not in the local element cache yet, so it
+            # looks childless and every child would be stamped order 0. The editor index
+            # tracks the sibling ids, so fall back to counting those.
+            try:
+                siblings = self._read_issues_sub_children(self._parent_object_id(parent_result, parent_node))
+            except Exception:
+                siblings = []
+            return len(siblings)
         max_order = -1
         for key, value in children.items():
             if key == "length" or not isinstance(value, dict):
@@ -28840,6 +28871,26 @@ class BubbleCLI:
             if isinstance(raw, (int, float)):
                 max_order = max(max_order, int(raw))
         return max_order + 1
+
+    def _advance_child_order(self, parent_key: str, computed_order: int) -> int:
+        """Keep sibling order strictly increasing within one CLI session.
+
+        _next_child_order reads the discovery cache, which can be cold for a parent
+        that was itself created moments ago; it then returns 0 for every child and
+        Bubble renders them in reverse creation order.
+        """
+        tracker = getattr(self, "_session_child_order", None)
+        if tracker is None:
+            tracker = {}
+            self._session_child_order = tracker
+        previous = tracker.get(parent_key)
+        # Bubble treats %p.order = 0 as "unset" and reassigns it server-side, which
+        # silently moves the first child. Stamped orders therefore start at 1.
+        order_value = max(int(computed_order), 1)
+        if previous is not None and order_value <= previous:
+            order_value = previous + 1
+        tracker[parent_key] = order_value
+        return order_value
 
     def _queue_create_element_with_index_updates(
         self,
@@ -28873,7 +28924,11 @@ class BubbleCLI:
             order_props = create_body.get("%p")
             if isinstance(order_props, dict) and order_props.get("order") is None:
                 try:
-                    order_props["order"] = self._next_child_order(context_id, context_type, parent_result)
+                    parent_key = ".".join(create_path[:-2]) if len(create_path) >= 2 else full_path_str
+                    order_props["order"] = self._advance_child_order(
+                        parent_key,
+                        self._next_child_order(context_id, context_type, parent_result),
+                    )
                 except Exception:
                     pass
 
@@ -31329,6 +31384,7 @@ class BubbleCLI:
         else:
             resolved_button_type = str(button_type).strip().lower().replace("-", "_").replace(" ", "_")
 
+        extra_props = self._merge_extra_props(kwargs, extra_props)
         full_body = eb.button(
             name=name if name else label,
             label=label,
@@ -31693,6 +31749,15 @@ class BubbleCLI:
             if horiz: kwargs["container_horiz_alignment"] = horiz
             if vert: kwargs["container_vert_alignment"] = vert
 
+        existing_page_id = self.discovery.find_page(name)
+        if existing_page_id:
+            logger.error(
+                f"Page '{name}' already exists (id '{existing_page_id}'). "
+                "Bubble keys pages by name: creating a second page with the same name hides one of them "
+                "from the editor and the runtime. Use the existing page, or pick another name."
+            )
+            return False
+
         # Generate page body
         raw_page_body = page_builder.page(
             name=name,
@@ -31751,6 +31816,12 @@ class BubbleCLI:
             "changelog_data": [],
             "session_id": pb.id_gen.session_id()
         })
+
+        # 5. Register the page name. The editor's App Manager and the runtime resolve
+        # pages through _index.page_name_to_id / page_name_to_path; a page created
+        # without these entries exists in the tree but never opens or renders.
+        pb.add_update_index(["_index", "page_name_to_id", name], page_id)
+        pb.add_update_index(["_index", "page_name_to_path", name], f"%p3.{page_slot}")
 
         if dry_run:
             logger.info("\n DRY RUN - Payload preview:")
@@ -31832,6 +31903,13 @@ class BubbleCLI:
         if page_object_id:
             pb.add_update_index(["_index", "issues_list", page_object_id], "[]")
             pb.add_update_index(["_index", "issues_sub", page_object_id], "[]")
+
+        # Drop the page name registration; leaving it behind points the editor and the
+        # runtime at a deleted page node.
+        page_display_name = str(name or "").strip()
+        if page_display_name:
+            pb.add_update_index(["_index", "page_name_to_id", page_display_name], None)
+            pb.add_update_index(["_index", "page_name_to_path", page_display_name], None)
 
         if dry_run:
             logger.info("\n DRY RUN - Payload preview:")
@@ -36868,6 +36946,7 @@ class BubbleCLI:
                     input_height = _to_int(params.get("height"), None)
                     explicit_input_style = bool(params.get("bg_color") or params.get("border_color") or params.get("border_radius"))
                     input_style = None if explicit_input_style else "Input_std_dash_"
+                    extra_props = self._merge_extra_props(visual_kwargs, extra_props)
                     full_body = eb.input(
                         _pipeline_name("in", _clean_text(str(params.get("name", ""))), "input"),
                         placeholder=_clean_text(str(params.get("placeholder", "Type here..."))),
@@ -40618,6 +40697,7 @@ class BubbleCLI:
         if "extra_props" in kwargs:
             extra_props.update(kwargs.pop("extra_props"))
 
+        extra_props = self._merge_extra_props(kwargs, extra_props)
         full_body = eb.repeating_group(
             name, resolved_data_type,
             layout=layout,
@@ -43073,7 +43153,7 @@ class BubbleCLI:
         use_aspect_ratio: Optional[bool] = None,
         aspect_ratio_width: Optional[int] = None,
         aspect_ratio_height: Optional[int] = None,
-        order: Optional[int] = 0,
+        order: Optional[int] = None,
         **kwargs
     ) -> bool:
         """Create an Image element"""
@@ -43185,7 +43265,8 @@ class BubbleCLI:
             # Include layout properties in style overrides so they aren't wiped by AssignStyle %p
             style_props = {
                 **kwargs,
-                "order": order,
+                # order is stamped by the create queue when the caller left it unset.
+                "order": order if order is not None else (full_body.get("%p") or {}).get("order"),
                 "width": width,
                 "height": None if aspect_ratio_enabled else height,
                 "fit_width": False,
@@ -43293,7 +43374,7 @@ class BubbleCLI:
         dry_run: bool = False, width_unset: bool = False, style: str = None,
         min_width: str = None, max_width: str = None, fixed_width: bool = False, fit_width: bool = False,
         min_height: str = None, max_height: str = None, fixed_height: bool = False, fit_height: bool = False,
-        order: Optional[int] = 0,
+        order: Optional[int] = None,
         create_missing: bool = False,
         **kwargs
     ) -> bool:
@@ -43382,7 +43463,8 @@ class BubbleCLI:
             # Include layout properties in style overrides so they aren't wiped by AssignStyle %p
             style_props = {
                 **kwargs,
-                "order": order,
+                # order is stamped by the create queue when the caller left it unset.
+                "order": order if order is not None else (full_body.get("%p") or {}).get("order"),
                 "fit_width": False,
                 "fit_height": False,
                 "fixed_width": fixed_width,

@@ -33,7 +33,11 @@ from bubble_mcp.context.source import load_context, save_context
 from bubble_mcp.core.config import BubbleProfile, load_settings, resolve_profile, save_settings, with_profile
 from bubble_mcp.core.redaction import redact_sensitive
 from bubble_mcp.execution.client import BubbleEditorClient, build_editor_write_headers
-from bubble_mcp.execution.write_lint import lint_editor_write_changes, lint_expression_warnings
+from bubble_mcp.execution.write_lint import (
+    lint_editor_write_changes,
+    lint_enum_warnings,
+    lint_expression_warnings,
+)
 from bubble_mcp.execution.editor_api import (
     confirm_bubble_branch_merge,
     create_bubble_branch,
@@ -1550,7 +1554,10 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                     "or pass allow_decoded_keys=true to override."
                 ),
             }
-        expression_warnings = lint_expression_warnings(write_payload.get("changes"))
+        expression_warnings = [
+            *lint_expression_warnings(write_payload.get("changes")),
+            *lint_enum_warnings(write_payload.get("changes")),
+        ]
         execute = bool(args.get("execute"))
         targeted_payload = _write_payload_for_target_version(write_payload, args)
         write_result: dict[str, Any] = BubbleEditorClient().write(
