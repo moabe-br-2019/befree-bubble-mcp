@@ -268,9 +268,23 @@ def _resolve_runtime_environment(args: dict[str, Any]) -> AriaRuntimeEnvironment
     if not app_json_path and default_export.exists():
         app_json_path = str(default_export)
 
-    should_detect = bool(args.get("refresh_context") or args.get("force")) or not (
-        app_json_path and Path(app_json_path).expanduser().exists()
+    # A crawler index registered on the profile (or sitting at its default location) is a
+    # usable data source. Without this check every tool call re-ran detection: a failing
+    # .bubble download plus a browser crawl before any work could start.
+    resolved_crawler_index_path = _resolve_optional_path(
+        args.get("crawler_index_path")
+        or (profile_config.crawler_index_path if profile_config else None)
     )
+    if not resolved_crawler_index_path:
+        default_crawler = default_crawler_index_path(profile, app_id)
+        if default_crawler.exists():
+            resolved_crawler_index_path = str(default_crawler)
+
+    has_local_artifact = bool(
+        (app_json_path and Path(app_json_path).expanduser().exists())
+        or resolved_crawler_index_path
+    )
+    should_detect = bool(args.get("refresh_context") or args.get("force")) or not has_local_artifact
     if should_detect:
         try:
             detected = detect_project_context(
@@ -293,10 +307,8 @@ def _resolve_runtime_environment(args: dict[str, Any]) -> AriaRuntimeEnvironment
         elif detected is not None and detected.source.endswith("bubble") and Path(detected.context_path).exists():
             app_json_path = app_json_path
 
-    resolved_crawler_index_path = _resolve_optional_path(args.get("crawler_index_path"))
     if not resolved_crawler_index_path:
-        # Crawler-only profiles (the .bubble export endpoint can return 401): fall back to the
-        # profile's default crawler-index artifact so every aria tool works without explicit args.
+        # Detection may have produced the index only now.
         default_crawler = default_crawler_index_path(profile, app_id)
         if default_crawler.exists():
             resolved_crawler_index_path = str(default_crawler)
@@ -399,6 +411,24 @@ def _call_custom_runtime_tool(name: str, cli: Any, args: dict[str, Any]) -> dict
     return None
 
 
+def merge_write_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Concatenate several editor write payloads into a single request.
+
+    Bubble accepts any number of changes in one /appeditor/write call, so a batch of
+    N commands does not need N round trips. Payloads must share appname/app_version;
+    the first one supplies both.
+    """
+    usable = [payload for payload in payloads if isinstance(payload, dict) and isinstance(payload.get("changes"), list)]
+    if not usable:
+        return None
+    merged = {key: value for key, value in usable[0].items() if key != "changes"}
+    changes: list[Any] = []
+    for payload in usable:
+        changes.extend(payload["changes"])
+    merged["changes"] = changes
+    return merged
+
+
 def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any] | None:
     """Execute an Aria BubbleCLI method when the standalone catalog tool maps to one."""
 
@@ -429,6 +459,8 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
     style_metadata = style_metadata_from_artifact(env.app_json_path or env.crawler_index_path or env.consolelog_json_path)
     captured_payloads: list[dict[str, Any]] = []
     captured_results: list[dict[str, Any]] = []
+    buffered_payloads: list[dict[str, Any]] = []
+    merge_writes = name == "batch"
     captured_builder_ids: set[int] = set()
     original_builder_init = bubble_sdk.PayloadBuilder.__init__
     builder_init_signature = inspect.signature(original_builder_init)
@@ -460,6 +492,10 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
 
     def send_to_local_bubble(builder: Any, _url: str = "") -> Any:
         write_payload = capture_payload(builder)
+        if execute and merge_writes:
+            # One command in a batch = one payload; they are flushed together below.
+            buffered_payloads.append(write_payload)
+            return {"ok": True, "deferred": True, "payload": write_payload}
         if not execute:
             result = {"ok": True, "dry_run": True, "payload": write_payload}
             captured_results.append({"ok": True, "executed": False, "dry_run": True, "payload": write_payload})
@@ -521,6 +557,36 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
         bubble_sdk.PayloadBuilder.__init__ = original_builder_init
         bubble_sdk.PayloadBuilder.send_to_webhook = original_send
         bubble_sdk.PayloadBuilder.to_json = original_to_json
+
+    if buffered_payloads:
+        merged_payload = merge_write_payloads(buffered_payloads)
+        if merged_payload is not None:
+            assert session is not None
+            merged_result = BubbleEditorClient().write(
+                merged_payload,
+                session,
+                dry_run=False,
+                calculate_derived=_requires_calculate_derived(name),
+            )
+            captured_results.append(
+                {
+                    "ok": bool(merged_result.get("ok")),
+                    "executed": True,
+                    "merged_from": len(buffered_payloads),
+                    "result": merged_result,
+                }
+            )
+            if merged_result.get("ok"):
+                request = merged_result.get("request")
+                request_payload = request.get("payload") if isinstance(request, dict) else None
+                overlay_payload = request_payload if isinstance(request_payload, dict) else merged_payload
+                record_mutation_overlay(
+                    profile=profile,
+                    app_id=str(overlay_payload.get("appname") or env.app_id),
+                    payload=overlay_payload,
+                    source=name,
+                    response=merged_result.get("response"),
+                )
 
     logs = "\n".join(part for part in (stdout.getvalue().strip(), stderr.getvalue().strip()) if part)
     ok = bool(return_value) if captured_results else return_value is not False
