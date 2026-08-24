@@ -26469,7 +26469,7 @@ class BubbleCLI:
         self,
         context_name: str,
         parent_name: str,
-        reusable_name: str,
+        reusable_name: Optional[str] = None,
         *,
         name: Optional[str] = None,
         data_class: Optional[str] = None,
@@ -26490,6 +26490,13 @@ class BubbleCLI:
         **kwargs,
     ) -> bool:
         """Create an instance of an existing reusable element."""
+        if not str(reusable_name or "").strip():
+            logger.error(
+                "Missing reusable_name: pass the name of the reusable definition to instantiate "
+                "(MCP argument 'source' or 'reusable_name')."
+            )
+            return False
+        reusable_name = str(reusable_name).strip()
         logger.info(f"Searching for context: {context_name}")
         context_id, context_type = self._find_context(context_name)
         if not context_id:
@@ -26502,10 +26509,14 @@ class BubbleCLI:
             return False
         parent_path = self.discovery.build_path_array(context_id, parent_result["path"], context_type=context_type)
 
-        reusable_id = self.discovery.find_reusable(reusable_name)
-        if not reusable_id:
+        reusable_found = self.discovery.find_reusable_definition(reusable_name)
+        if not reusable_found:
             logger.error(f"Reusable '{reusable_name}' not found")
             return False
+        reusable_key, reusable_definition = reusable_found
+        # Editor-created instances reference the definition's INNER id in custom_id,
+        # never the element_definitions dict key (they often differ).
+        reusable_id = str(reusable_definition.get("id") or reusable_key)
 
         instance_name = str(name or reusable_name or "").strip()
         if not instance_name:
@@ -26569,6 +26580,10 @@ class BubbleCLI:
                 prop_updates["order"] = int(order_value)
             except Exception:
                 prop_updates["order"] = order_value
+        else:
+            # Editor-created instances always carry %p.order; without it the element is
+            # accepted by the server but invisible in the editor's Elements Tree.
+            prop_updates["order"] = self._next_child_order(context_id, context_type, parent_result)
 
         id_gen = BubbleIDGenerator()
         pb = PayloadBuilder(appname=self.appname)
@@ -28736,6 +28751,42 @@ class BubbleCLI:
                 child_ids.append(child_id)
         return child_ids
 
+    def _next_child_order(
+        self,
+        context_id: str,
+        context_type: str,
+        parent_result: Dict[str, Any],
+    ) -> int:
+        """Return max(%p.order of existing children) + 1, or 0 for the first child."""
+        parent_node: Optional[Dict[str, Any]] = None
+        if isinstance(parent_result, dict):
+            candidate = parent_result.get("element")
+            if isinstance(candidate, dict):
+                parent_node = candidate
+        if parent_node is None:
+            try:
+                parent_node = self.discovery._get_context_root(context_id, context_type)
+            except Exception:
+                parent_node = None
+        if not isinstance(parent_node, dict):
+            return 0
+        children = parent_node.get("elements")
+        if not isinstance(children, dict):
+            children = parent_node.get("%el")
+        if not isinstance(children, dict):
+            return 0
+        max_order = -1
+        for key, value in children.items():
+            if key == "length" or not isinstance(value, dict):
+                continue
+            props = value.get("%p") if isinstance(value.get("%p"), dict) else value.get("properties")
+            if not isinstance(props, dict):
+                continue
+            raw = props.get("order")
+            if isinstance(raw, (int, float)):
+                max_order = max(max_order, int(raw))
+        return max_order + 1
+
     def _queue_create_element_with_index_updates(
         self,
         pb: PayloadBuilder,
@@ -28883,6 +28934,11 @@ class BubbleCLI:
 
         if text_content is not None:
             pb.add_set_data(normalized_create_path + ["%p", "%3"], text_content)
+
+        # Element-level name label. The editor writes %nm for every element it creates;
+        # without it the element does not show up in the Elements Tree / editor search.
+        if isinstance(name_value, str) and name_value.strip():
+            pb.add_set_data(normalized_create_path + ["%nm"], name_value.strip())
 
         # Bubble ignores nonant_alignment when set in the CreateElement body.
         # It must be emitted as a separate SetData on %p.nonant_alignment.

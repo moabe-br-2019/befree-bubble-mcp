@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- create_reusable_instance now mirrors editor serialization (2026-08-24 Orana bug report #1-#3):
+  %p.custom_id uses the definition's inner .id (never the element_definitions dict key), created
+  elements get an element-level %nm write and a computed %p.order (max sibling order + 1) so they
+  show up in the editor's Elements Tree, and a missing reusable name returns a clear structured
+  error instead of a Python TypeError (`source` is now required in the schema and aliases to
+  reusable_name). The %nm write applies to every create_* tool via the shared create queue.
+- bubble_editor_write lints node bodies for decoded export keys (report #7): a body under
+  %el/%wf/actions using type/properties instead of %x/%p is rejected with an explanation (the
+  server accepts such nodes but the editor renders "[missing: null]"); allow_decoded_keys=true
+  overrides.
+- bubble_context_detect returns a compact response by default (report #6); include_details=true
+  restores the full summary/attempt payloads.
+- bubble_session_login reports the MCP venv's own Python path when Playwright browser binaries
+  are missing (report #5), instead of a generic "playwright install" hint.
 - PathDiscovery now uses the editor crawler-index as a PRIMARY data source when no .bubble
   export or consolelog is available (the .bubble export endpoint returns 401 on some plans).
   Crawler-only profiles previously failed every aria-runtime tool with "No app data source

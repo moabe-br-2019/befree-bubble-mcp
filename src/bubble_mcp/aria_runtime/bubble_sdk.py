@@ -7525,19 +7525,30 @@ class PathDiscovery:
     def find_reusable(self, name: str) -> Optional[str]:
         """
         Find reusable element ID by name (case-insensitive).
-        Returns: reusable_id or None
+        Returns: reusable_id (the element_definitions dict key) or None
+        """
+        found = self.find_reusable_definition(name)
+        return found[0] if found else None
+
+    def find_reusable_definition(self, name: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """
+        Find a reusable definition by name (case-insensitive).
+        Returns: (dict_key, definition_dict) or None.
+
+        The dict key and the definition's inner "id" often differ; instances created
+        by the Bubble editor reference the INNER id in %p.custom_id, never the key.
         """
         reusables = self.data.get('element_definitions', {}) or self.data.get('%ed', {})
         if not reusables or not isinstance(reusables, dict):
             return None
 
         name_lower = self._norm_lookup(name)
-        for el_id, el_data in reusables.items():
+        for el_key, el_data in reusables.items():
             if isinstance(el_data, dict):
                 el_name = el_data.get('name') or el_data.get('%nm', '')
                 if self._norm_lookup(el_name) == name_lower:
-                    logger.info(f" [DEBUG] find_reusable: '{name}' -> '{el_id}'")
-                    return el_id
+                    logger.info(f" [DEBUG] find_reusable_definition: '{name}' -> key '{el_key}' id '{el_data.get('id')}'")
+                    return str(el_key), el_data
         return None
 
     def find_page(self, name: str) -> Optional[str]:

@@ -1469,6 +1469,11 @@ def _visual_fields_for_name(name: str) -> tuple[tuple[str, ...], tuple[str, ...]
     }
     for element, fields in create_fields.items():
         if name == f"create_{element}":
+            if element == "reusable_instance":
+                # `source` (the reusable definition name) is required by the runtime;
+                # omitting it must be a schema validation error, not a Python TypeError.
+                remaining = tuple(field for field in fields if field not in {"name", "source"})
+                return (("profile", "context", "parent", "name", "source"), ("dry_run", "settings_path", *remaining))
             return (("profile", "context", "parent", *fields[:1]), ("dry_run", "settings_path", *fields[1:]))
         if name == f"update_{element}" or name == f"update_{element}_element":
             return (("profile", "context", "element_name"), ("dry_run", "settings_path", *fields, "prefer_last"))

@@ -550,6 +550,16 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
         "Skip id-to-path lookup generation in the compact context. Leave false for normal agent workflows.",
         default=False,
     ),
+    "include_details": _prop(
+        "boolean",
+        "Return the full summary and attempt payloads instead of the compact default response.",
+        default=False,
+    ),
+    "allow_decoded_keys": _prop(
+        "boolean",
+        "Override the decoded-key lint on bubble_editor_write node bodies (type/properties instead of %x/%p). Only for intentional non-node writes that trip the lint.",
+        default=False,
+    ),
     "message": _prop(
         "string",
         "Natural language Bubble edit request to turn into a deterministic plan.",
@@ -1419,6 +1429,7 @@ def profile_session_context_tools() -> list[ToolSchema]:
                 "consolelog_file",
                 "force",
                 "skip_id_to_path",
+                "include_details",
             ],
             required=["profile"],
         ),
@@ -1562,8 +1573,8 @@ def planning_execution_tools() -> list[ToolSchema]:
         ),
         tool_schema(
             "bubble_editor_write",
-            "Send a Bubble /appeditor/write payload using a stored local session. Set execute=true to mutate Bubble; otherwise it previews the request.",
-            ["profile", "payload", "execute", "calculate_derived"],
+            "Send a Bubble /appeditor/write payload using a stored local session. Set execute=true to mutate Bubble; otherwise it previews the request. Node bodies must use encoded keys (%x/%p/%nm/%dn); decoded export keys (type/properties) are rejected unless allow_decoded_keys=true.",
+            ["profile", "payload", "execute", "calculate_derived", "allow_decoded_keys"],
             required=["profile", "payload"],
         ),
         tool_schema(

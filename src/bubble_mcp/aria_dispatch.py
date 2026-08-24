@@ -64,6 +64,7 @@ ARG_ALIASES = {
     "event_type": ("event",),
     "action_param": ("param",),
     "to_email": ("to",),
+    "reusable_name": ("source", "reusable"),
 }
 
 RUNTIME_TOOL_ALIASES = {

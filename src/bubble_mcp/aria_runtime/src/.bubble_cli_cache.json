@@ -9,9 +9,112 @@
         "option_sets": {},
         "user_types": {},
         "app_texts": {},
-        "events": {},
-        "workflow_refs": {},
-        "element_refs": {},
+        "events": {
+          "page:bTGbC:bqgPD": {
+            "context_id": "bTGbC",
+            "context_type": "page",
+            "key": "bqgPD",
+            "id": "b7Ovg",
+            "type": "ButtonClicked",
+            "name": null,
+            "element_id": "bR6Yq",
+            "event_kind": null,
+            "workflow": {
+              "id": "b7Ovg",
+              "%x": "ButtonClicked",
+              "%p": {
+                "%ei": "bR6Yq"
+              },
+              "actions": {
+                "0": {
+                  "%x": "ShowAlert",
+                  "%p": {
+                    "message": {
+                      "%x": "TextExpression",
+                      "%e": {
+                        "0": "Primeira action via MCP"
+                      }
+                    }
+                  },
+                  "id": "b1wKp"
+                },
+                "1": {
+                  "%x": "ShowAlert",
+                  "%p": {
+                    "message": {
+                      "%x": "TextExpression",
+                      "%e": {
+                        "0": "Segunda action - mesmo workflow, sem duplicar"
+                      }
+                    }
+                  },
+                  "id": "b9y0j"
+                }
+              }
+            },
+            "updated_at": 1787568636402
+          }
+        },
+        "workflow_refs": {
+          "page:bTGbC": {
+            "btn_test_mcp": {
+              "name": "btn_test_mcp",
+              "key": "bqgPD",
+              "context_id": "bTGbC",
+              "context_type": "page",
+              "updated_at": 1787568634822,
+              "id": "b7Ovg"
+            }
+          }
+        },
+        "element_refs": {
+          "page:bTGbC": {
+            "bzokd": {
+              "name": "bzoKD",
+              "id": "bR6Yq",
+              "context_id": "bTGbC",
+              "context_type": "page",
+              "key": "bzoKD",
+              "path": [
+                "%el",
+                "bzoKD"
+              ]
+            },
+            "br6yq": {
+              "name": "bR6Yq",
+              "id": "bR6Yq",
+              "context_id": "bTGbC",
+              "context_type": "page",
+              "key": "bzoKD",
+              "path": [
+                "%el",
+                "bzoKD"
+              ]
+            },
+            "btn_test_mcp": {
+              "name": "btn_test_mcp",
+              "id": "bR6Yq",
+              "context_id": "bTGbC",
+              "context_type": "page",
+              "key": "bzoKD",
+              "path": [
+                "%el",
+                "bzoKD"
+              ]
+            },
+            "test mcp": {
+              "name": "Test MCP",
+              "id": "bR6Yq",
+              "context_id": "bTGbC",
+              "context_type": "page",
+              "key": "bzoKD",
+              "path": [
+                "%el",
+                "bzoKD"
+              ]
+            }
+          }
+        },
         "components": {},
         "contexts": {
           "page": {

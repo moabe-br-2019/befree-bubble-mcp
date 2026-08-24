@@ -185,16 +185,28 @@ def capture_session_with_playwright(
         progress(f"Opening Bubble editor login browser for app '{app_id}'.")
         progress(f"Waiting up to {max(1, wait_seconds)} seconds for session cookies.")
     with sync_playwright() as playwright:
-        if user_data_dir is not None:
-            user_data_dir.mkdir(parents=True, exist_ok=True)
-            context = playwright.chromium.launch_persistent_context(
-                str(user_data_dir),
-                headless=headless,
-            )
-            browser = None
-        else:
-            browser = playwright.chromium.launch(headless=headless)
-            context = browser.new_context()
+        try:
+            if user_data_dir is not None:
+                user_data_dir.mkdir(parents=True, exist_ok=True)
+                context = playwright.chromium.launch_persistent_context(
+                    str(user_data_dir),
+                    headless=headless,
+                )
+                browser = None
+            else:
+                browser = playwright.chromium.launch(headless=headless)
+                context = browser.new_context()
+        except Exception as exc:  # playwright.Error lacks a stable import path here
+            if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
+                import sys as _sys
+
+                raise RuntimeError(
+                    "Playwright browser binaries are missing for THIS MCP server's environment. "
+                    "Install them with the MCP's own Python: "
+                    f"'{_sys.executable}' -m playwright install chromium "
+                    "(a global 'playwright install' uses a different Playwright version and does not help)."
+                ) from exc
+            raise
         page = context.pages[0] if context.pages else context.new_page()
 
         def remember_bubble_headers(request: Any) -> None:
