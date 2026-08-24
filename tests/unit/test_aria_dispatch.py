@@ -554,3 +554,28 @@ def test_runtime_environment_falls_back_to_profile_default_crawler_index(tmp_pat
 
     env = _resolve_runtime_environment({"profile": "crawler-profile"})
     assert env.crawler_index_path == str(crawler_path)
+
+
+def test_update_layout_whitelist_covers_font_order_rotation() -> None:
+    """update_layout silently returned False for font_size/order/rotation, forcing agents
+    into style workarounds. The whitelist must accept these common element properties."""
+
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    cli = object.__new__(BubbleCLI)
+    cases = {
+        "font_size": "font_size",
+        "font color": "font_color",
+        "font_family": "font_family",
+        "order": "order",
+        "rotation_angle": "rotation_angle",
+        "border_roundness": "%br",
+    }
+    for raw, expected in cases.items():
+        assert BubbleCLI._normalize_layout_property(cli, raw) == expected, raw
+    assert BubbleCLI._coerce_layout_value(cli, "font_size", "15px") == 15
+    assert BubbleCLI._coerce_layout_value(cli, "font_family", "Comic Sans MS") == "Comic Sans MS"
+    cli._resolve_color_arg = lambda value: value  # color resolution needs app context
+    assert BubbleCLI._coerce_layout_value(cli, "font_color", "#8A8A8A") == "#8A8A8A"
+    assert BubbleCLI._coerce_layout_value(cli, "order", "3") == 3
+    assert BubbleCLI._coerce_layout_value(cli, "rotation_angle", -3) == -3

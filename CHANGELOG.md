@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- update_layout accepts the common element properties agents actually need: font_size, font_color,
+  font_family, order, rotation_angle, opacity, background style/color (bgcolor), and border
+  roundness — previously these failed silently as "unsupported layout property", forcing manual
+  payloads. Color values resolve through the app color tokens; sizes/orders coerce from px strings.
 - Crawler-only profiles work across the whole runtime: create_from_html no longer hard-requires a
   .bubble export (it falls back to the crawler-index primary source), and the aria dispatch layer
   resolves the profile's default crawler-index artifact automatically instead of requiring an

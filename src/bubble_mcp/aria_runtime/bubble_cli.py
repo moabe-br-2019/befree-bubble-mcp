@@ -2976,6 +2976,19 @@ class BubbleCLI:
             "parallax": "parallax",
             "parallax factor": "parallax",
             "parallax effect factor": "parallax",
+            "font size": "font_size",
+            "font color": "font_color",
+            "font family": "font_family",
+            "text color": "font_color",
+            "order": "order",
+            "rotation angle": "rotation_angle",
+            "rotation": "rotation_angle",
+            "border roundness": "%br",
+            "opacity": "opacity",
+            "background color": "bgcolor",
+            "bg color": "bgcolor",
+            "background style": "background_style",
+            "bg style": "background_style",
         }
 
         if p in aliases:
@@ -3002,6 +3015,8 @@ class BubbleCLI:
             "border_color_top", "border_color_bottom", "border_color_left", "border_color_right",
             "border_roundness_top", "border_roundness_bottom", "border_roundness_left", "border_roundness_right",
             "four_border_style", "style",
+            "font_size", "font_color", "font_family", "order", "rotation_angle", "opacity",
+            "bgcolor", "background_style",
             "float_v_relative", "float_h_relative", "float_zindex", "parallax"
         }:
             return compact
@@ -3557,6 +3572,7 @@ class BubbleCLI:
             "%bw", "%br", "%sw",
             "border_width_top", "border_width_bottom", "border_width_left", "border_width_right",
             "border_roundness_top", "border_roundness_bottom", "border_roundness_left", "border_roundness_right",
+            "font_size", "order", "rotation_angle",
         }:
             return _parse_int(value, prop_key)
 
@@ -3634,6 +3650,25 @@ class BubbleCLI:
 
         if prop_key in {"%bc", "border_color_top", "border_color_bottom", "border_color_left", "border_color_right", "%sc"}:
             return self._resolve_color_arg(str(value).strip())
+
+        if prop_key in {"font_color", "bgcolor"}:
+            return self._resolve_color_arg(str(value).strip())
+
+        if prop_key == "background_style":
+            raw = str(value).strip().lower()
+            mapping = {"color": "bgcolor", "bgcolor": "bgcolor", "none": "none", "gradient": "gradient", "image": "image"}
+            if raw not in mapping:
+                raise ValueError(f"Invalid background_style: '{value}'. Use color, none, gradient, or image.")
+            return mapping[raw]
+
+        if prop_key == "font_family":
+            return str(value).strip()
+
+        if prop_key == "opacity":
+            try:
+                return int(float(str(value).strip().rstrip("%")))
+            except Exception:
+                raise ValueError(f"Invalid opacity value: '{value}'")
 
         if prop_key in {"%bos", "border_style_top", "border_style_bottom", "border_style_left", "border_style_right", "%ss"}:
             raw = str(value or "").strip().lower()
