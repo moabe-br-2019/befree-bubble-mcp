@@ -1573,7 +1573,7 @@ def planning_execution_tools() -> list[ToolSchema]:
         ),
         tool_schema(
             "bubble_editor_write",
-            "Send a Bubble /appeditor/write payload using a stored local session. Set execute=true to mutate Bubble; otherwise it previews the request. Node bodies must use encoded keys (%x/%p/%nm/%dn); decoded export keys (type/properties) are rejected unless allow_decoded_keys=true.",
+            "Send a Bubble /appeditor/write payload using a stored local session. Set execute=true to mutate Bubble; otherwise it previews the request. Node bodies must use encoded keys (%x/%p/%nm/%dn); decoded export keys (type/properties) are rejected unless allow_decoded_keys=true. WARNING: the endpoint returns HTTP 200 for ANY body without semantic validation, and expression encodings (APIEventParameter, Message chains, param ids) are NOT derivable from the .bubble export — compose expression-bearing actions from captured editor traffic (bubble_tool_wizard_start) or via add_action, never from export-derived bodies; results carry warnings when such nodes are detected.",
             ["profile", "payload", "execute", "calculate_derived", "allow_decoded_keys"],
             required=["profile", "payload"],
         ),

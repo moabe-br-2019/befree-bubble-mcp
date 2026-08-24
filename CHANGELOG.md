@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- bubble_editor_write warns on hand-composed expression nodes in workflow actions (Orana report
+  bug 8): expression encodings (APIEventParameter, Message chains, param ids) are not derivable
+  from the .bubble export, and /appeditor/write returns HTTP 200 for any body — results now
+  carry `warnings` steering agents to captured editor traffic (bubble_tool_wizard_start),
+  add_action, or in-editor Copy/Paste. Tool descriptions and workflow routing notes state that
+  a 200 from the endpoint is not success.
 - Every created element gets %p.order = max(sibling)+1 stamped in the shared create queue when
   the tool did not set one — batch-created siblings used to tie at no order and render in
   reverse creation order.

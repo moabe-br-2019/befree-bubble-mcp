@@ -112,6 +112,27 @@ their commit on `feat/api-connector-routing`. Open items are the backlog.
 
 ---
 
+### Orana report bug 8 (2026-08-24, evening): expression encodings are not derivable from the export
+
+Three empirical attempts to write "Make changes to thing" actions with conditions via
+`bubble_editor_write`, all HTTP 200, all broken differently in the editor: decoded node keys →
+`[missing: null]`; encoded node + export-style `param_id` ("Client") → unresolved parameter;
+real `param_id` (`bTbgp`) → `[not found: namefull_text] [not found: is_not_empty]`. Conclusion:
+the export decodes at least three layers (node keys, param ids, message tokens); the raw
+expression encoding cannot be reconstructed from it, and the endpoint performs no semantic
+validation (200 for any JSON). Confirmed in-code: `vendor/bubble_modules.py` only splits the
+export — the decoding happens server-side, so there is no local map to invert.
+
+Delivered now: `lint_expression_warnings` in `bubble_editor_write` (non-blocking `warnings` on
+expression-bearing action bodies, explaining that 200 is not success and pointing to captured
+traffic / add_action / Copy/Paste), plus warnings in the tool description and workflow routing
+notes. Still open (needs real editor captures, which require a human in the editor):
+1. Capture-based add-action runner (api_connector-pack pattern) — capture sessions via
+   `bubble_tool_wizard_start` (target: workflow_action) per action type, then template+id
+   substitution.
+2. Official encoder/decoder with editor round-trip tests — only feasible on top of those
+   captured pairs, not the export.
+
 ## 3. Frictions and platform limits (not code bugs)
 
 - **Three checkouts, two config dirs.** `~/.claude.json` runs the `auton` checkout with

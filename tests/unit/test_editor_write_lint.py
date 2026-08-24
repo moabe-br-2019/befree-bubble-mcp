@@ -98,3 +98,69 @@ def test_editor_write_tool_rejects_decoded_bodies(monkeypatch, tmp_path) -> None
     assert result["error"] == "decoded_keys_in_node_body"
     assert result["issues"]
     assert "allow_decoded_keys" in result["message"]
+
+
+def test_expression_nodes_produce_warning_not_rejection() -> None:
+    """Bug 8: expression encodings (APIEventParameter, Message chains, param_id) are NOT
+    derivable from the export, and /appeditor/write returns 200 for any body. Hand-composed
+    expression nodes must at least warn: 200 is not success, prefer captured payloads."""
+
+    from bubble_mcp.execution.write_lint import lint_expression_warnings
+
+    action_with_expression = {
+        "path_array": ["%p3", "bTVso", "%wf", "bTbgi", "actions", "3"],
+        "body": {
+            "id": "a1",
+            "%x": "MakeChangesToThing",
+            "%p": {
+                "to_change": {"%x": "APIEventParameter", "%p": {"param_id": "bTbgp"}},
+                "condition": {"%x": "Message", "%p": {"name": "is_not_empty"}},
+            },
+        },
+    }
+    warnings = lint_expression_warnings([action_with_expression])
+    assert len(warnings) == 1
+    assert "APIEventParameter" in warnings[0] or "expression" in warnings[0].lower()
+    assert "200" in warnings[0]
+
+    plain_action = {
+        "path_array": ["%p3", "bTVso", "%wf", "bTbgi", "actions", "4"],
+        "body": {"id": "a2", "%x": "ShowElement", "%p": {"element_id": "el1"}},
+    }
+    assert lint_expression_warnings([plain_action]) == []
+
+    non_node = {
+        "path_array": ["settings", "client_safe", "apiconnector2", "c1"],
+        "body": {"%x": "Message"},
+    }
+    assert lint_expression_warnings([non_node]) == []
+
+
+def test_editor_write_result_carries_expression_warnings(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    from bubble_mcp.server import tools as tools_module
+    from bubble_mcp.sessions.store import BubbleSessionData
+
+    monkeypatch.setattr(
+        tools_module,
+        "load_session",
+        lambda profile: BubbleSessionData(app_id="app-x", url="u", method="POST", headers={}, cookies="k=v", app_version="test", captured_at="2026-08-24T00:00:00Z", source="test"),
+    )
+    result = tools_module.call_tool(
+        "bubble_editor_write",
+        {
+            "profile": "p1",
+            "execute": False,
+            "payload": {
+                "appname": "app-x",
+                "changes": [
+                    {
+                        "path_array": ["%p3", "pg", "%wf", "wf1", "actions", "0"],
+                        "body": {"id": "a1", "%x": "SetState", "%p": {"value": {"%x": "PreviousStep", "%p": {}}}},
+                        "intent": {"name": "SetData"},
+                    }
+                ],
+            },
+        },
+    )
+    assert result.get("warnings"), "expression warning must surface in the tool result"

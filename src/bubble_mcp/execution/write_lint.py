@@ -66,3 +66,64 @@ def lint_editor_write_changes(changes: Any) -> list[str]:
         path_str = "/".join(str(part) for part in path_array) if isinstance(path_array, list) else "?"
         issues.extend(_body_issues(path_str, change.get("body")))
     return issues
+
+
+_EXPRESSION_NODE_TYPES = {
+    "APIEventParameter",
+    "Message",
+    "PreviousStep",
+    "GetElement",
+    "Search",
+    "TextExpression",
+    "ElementParent",
+}
+_ACTION_MARKER = "actions"
+
+
+def _contains_expression_node(value: Any) -> bool:
+    if isinstance(value, dict):
+        if str(value.get("%x") or "") in _EXPRESSION_NODE_TYPES:
+            return True
+        return any(_contains_expression_node(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_contains_expression_node(child) for child in value)
+    return False
+
+
+def lint_expression_warnings(changes: Any) -> list[str]:
+    """Warn (never block) on hand-composed expression nodes inside workflow actions.
+
+    The raw encoding of expressions (APIEventParameter, Message chains, param ids) is
+    NOT derivable from the .bubble export — the export decodes node keys, humanizes
+    param ids, and renames message tokens. /appeditor/write returns HTTP 200 for any
+    body, so a "successful" write can still render as broken in the editor.
+    """
+
+    warnings: list[str] = []
+    if not isinstance(changes, list):
+        return warnings
+    for change in changes:
+        if not isinstance(change, dict):
+            continue
+        path_array = change.get("path_array")
+        if not isinstance(path_array, list) or _ACTION_MARKER not in [str(p) for p in path_array]:
+            continue
+        body = change.get("body")
+        if not isinstance(body, dict):
+            continue
+        props = body.get("%p")
+        if not isinstance(props, dict) or not _contains_expression_node(props):
+            continue
+        path_str = "/".join(str(part) for part in path_array)
+        expression_types = sorted(
+            {t for t in _EXPRESSION_NODE_TYPES if f'"{t}"' in str(props) or f"'{t}'" in str(props)}
+        )
+        warnings.append(
+            f"{path_str}: action body contains hand-composed expression nodes "
+            f"({', '.join(expression_types) or 'expression'}). The raw expression encoding is NOT derivable "
+            "from the .bubble export (it decodes node keys, param ids, and message tokens), and the server "
+            "returns HTTP 200 for any body — a 200 is not success; verify the render in the editor. Prefer "
+            "add_action for supported action types, or compose from a payload captured from real editor "
+            "traffic (bubble_tool_wizard_start), or configure one action by hand and Copy/Paste it."
+        )
+    return warnings
