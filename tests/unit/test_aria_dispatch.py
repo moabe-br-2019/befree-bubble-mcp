@@ -579,3 +579,25 @@ def test_update_layout_whitelist_covers_font_order_rotation() -> None:
     assert BubbleCLI._coerce_layout_value(cli, "font_color", "#8A8A8A") == "#8A8A8A"
     assert BubbleCLI._coerce_layout_value(cli, "order", "3") == 3
     assert BubbleCLI._coerce_layout_value(cli, "rotation_angle", -3) == -3
+
+
+def test_fixed_size_normalizer_prefers_explicit_css_over_legacy_width() -> None:
+    """A shape created with min_width='19px', fixed_width=True was rewritten to 100px
+    because the normalizer preferred the builder's default %w=100 over the explicit CSS."""
+
+    from bubble_mcp.aria_dispatch import _normalize_fixed_size_properties
+
+    props = {"fixed_width": True, "single_width": True, "%w": 100, "min_width_css": "19px"}
+    _normalize_fixed_size_properties(props)
+    assert props["min_width_css"] == "19px"
+    assert props["max_width_css"] == "19px"
+
+    legacy = {"fixed_width": True, "%w": 40}
+    _normalize_fixed_size_properties(legacy)
+    assert legacy["min_width_css"] == "40px"
+    assert legacy["max_width_css"] == "40px"
+
+    height = {"fixed_height": True, "%h": 100, "min_height_css": "4px"}
+    _normalize_fixed_size_properties(height)
+    assert height["min_height_css"] == "4px"
+    assert height["max_height_css"] == "4px"

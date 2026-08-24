@@ -121,16 +121,20 @@ def _first_present(*values: Any) -> Any | None:
 
 
 def _normalize_fixed_size_properties(properties: dict[str, Any]) -> None:
+    # Explicit responsive CSS lengths take priority over the legacy %w/%h ints:
+    # builders default %w/%h to 100 and never sync them with min_width/min_height
+    # args, so preferring %w silently rewrote explicit sizes (a 19px dot became
+    # a 100px square). %w/%h remain the fallback for legacy fixed-size payloads.
     if properties.get("fixed_width") is True or properties.get("single_width") is True:
         width_css = _css_px(
-            _first_present(properties.get("%w"), properties.get("max_width_css"), properties.get("min_width_css"))
+            _first_present(properties.get("max_width_css"), properties.get("min_width_css"), properties.get("%w"))
         )
         if width_css is not None:
             properties["min_width_css"] = width_css
             properties["max_width_css"] = width_css
     if properties.get("fixed_height") is True or properties.get("single_height") is True:
         height_css = _css_px(
-            _first_present(properties.get("%h"), properties.get("max_height_css"), properties.get("min_height_css"))
+            _first_present(properties.get("max_height_css"), properties.get("min_height_css"), properties.get("%h"))
         )
         if height_css is not None:
             properties["min_height_css"] = height_css

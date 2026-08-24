@@ -53,6 +53,18 @@ their commit on `feat/api-connector-routing`. Open items are the backlog.
 
 ## 2. Open bugs (backlog, roughly by priority)
 
+> Update (same day): items 1, 2, and 6 below are DONE. `create_shape` sizes were actually
+> rewritten by `_normalize_fixed_size_properties` in the dispatch layer, which preferred the
+> builder's legacy `%w/%h` default (100) over explicit `min_width_css` — priority flipped so
+> explicit CSS wins. `create_group` backgrounds compiled an invalid `%bas: "color"` (valid:
+> none/bgcolor/image/gradient) — values are now normalized (`color` -> `bgcolor`) with a clear
+> error for junk. The schema-vs-runtime contract snapshot test now covers the whole catalog
+> (124 tools with known gaps frozen in `tests/fixtures/schema_runtime_contract_gaps.json`;
+> regressions and stale entries both fail). Note: the audit reports `sign_the_user_up`,
+> `signup_login_with_a_social_network`, and `update_user_credentials` as "<NO RUNTIME METHOD>"
+> — dispatch reaches them through a special path (they validate `event_ref` at runtime), so
+> treat those three entries as needing verification, not as hard failures.
+
 1. **`create_shape` ignores size args.** `min_width`/`min_height`/`fixed_*` are accepted by the
    schema but the body is written with legacy `%w: 100, %h: 100`; the responsive engine ignores
    `%w/%h`, so every shape renders ~100×100. Workaround: `update_layout min/max width/height`

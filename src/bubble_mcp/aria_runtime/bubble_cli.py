@@ -37946,6 +37946,14 @@ class BubbleCLI:
         bg_style = kwargs.pop("bg_style", None)
         if bg_style:
             kwargs["background_style"] = bg_style
+        if kwargs.get("background_style") is not None:
+            raw_bas = str(kwargs["background_style"]).strip().lower()
+            bas_aliases = {"color": "bgcolor", "bg_color": "bgcolor", "solid": "bgcolor"}
+            raw_bas = bas_aliases.get(raw_bas, raw_bas)
+            if raw_bas not in {"none", "bgcolor", "image", "gradient"}:
+                logger.error("Invalid bg_style. Use one of: none, color/bgcolor, image, gradient.")
+                return False
+            kwargs["background_style"] = raw_bas
 
         bg_color = kwargs.pop("bg_color", None)
         if bg_color is not None and str(bg_color).strip():

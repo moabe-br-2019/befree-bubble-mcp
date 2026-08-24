@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Catalog-wide schema-vs-runtime contract snapshot test: every argument a tool schema
+  advertises must reach the runtime (name, alias, or **kwargs). Known gaps for 124 tools are
+  frozen in tests/fixtures/schema_runtime_contract_gaps.json; new drops and stale entries both
+  fail, so the baseline can only shrink.
+- create_shape sizes are honored: the dispatch fixed-size normalizer preferred the builder's
+  legacy %w/%h default (100) over explicit min/max_width_css, silently rewriting a 19px dot to
+  a 100px square. Explicit CSS lengths now win; %w/%h stay as the legacy fallback.
+- create_group normalizes bg_style values (color -> bgcolor) instead of compiling an invalid
+  %bas that the editor ignores (transparent group), and rejects junk values with a clear error.
 - update_layout accepts the common element properties agents actually need: font_size, font_color,
   font_family, order, rotation_angle, opacity, background style/color (bgcolor), and border
   roundness — previously these failed silently as "unsupported layout property", forcing manual
