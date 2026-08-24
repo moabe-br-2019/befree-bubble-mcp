@@ -7407,12 +7407,20 @@ class PathDiscovery:
             # Enrich with crawler-index if available
             # We now do this for ALL sources, including .bubble, to ensure the most
             # recent discovery findings from Aria are integrated.
-            if self._data is not None and self.crawler_index_path and os.path.exists(self.crawler_index_path):
+            if self.crawler_index_path and os.path.exists(self.crawler_index_path):
                 crawler = self._load_crawler_index(self.crawler_index_path)
                 if crawler:
-                    self._data = self._merge_crawler_into_data(self._data, crawler)
-                    self._data_source = f"{self._data_source}+crawler"
-                    logger.info(f"[PathDiscovery] Merged crawler-index into {self._data_source} data")
+                    if self._data is None:
+                        # Crawler-only profile (e.g. the .bubble export endpoint returned 401,
+                        # common on free plans): use the crawler-index as the PRIMARY source
+                        # instead of failing with "No app data source found".
+                        self._data = self._merge_crawler_into_data({}, crawler)
+                        self._data_source = "crawler"
+                        logger.info("[PathDiscovery] Using crawler-index as primary data source")
+                    else:
+                        self._data = self._merge_crawler_into_data(self._data, crawler)
+                        self._data_source = f"{self._data_source}+crawler"
+                        logger.info(f"[PathDiscovery] Merged crawler-index into {self._data_source} data")
 
             if self._data is not None and self.mutation_overlay_path and os.path.exists(self.mutation_overlay_path):
                 overlay_entries = self._load_mutation_overlay(self.mutation_overlay_path)

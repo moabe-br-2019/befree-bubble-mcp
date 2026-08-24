@@ -1,0 +1,34 @@
+{
+  "colors": {},
+  "fonts": {},
+  "styles": {},
+  "components": {},
+  "schema": {
+    "profiles": {
+      "mcp-test": {
+        "option_sets": {},
+        "user_types": {},
+        "app_texts": {},
+        "events": {},
+        "workflow_refs": {},
+        "element_refs": {},
+        "components": {},
+        "contexts": {
+          "page": {
+            "index": {
+              "name": "index",
+              "context_id": "bTGbC",
+              "object_id": ""
+            },
+            "btgbc": {
+              "name": "index",
+              "context_id": "bTGbC",
+              "object_id": ""
+            }
+          },
+          "reusable": {}
+        }
+      }
+    }
+  }
+}

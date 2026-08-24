@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- PathDiscovery now uses the editor crawler-index as a PRIMARY data source when no .bubble
+  export or consolelog is available (the .bubble export endpoint returns 401 on some plans).
+  Crawler-only profiles previously failed every aria-runtime tool with "No app data source
+  found" even though context detection had succeeded via the crawler.
 - The anti-stale workflow guard in add_action/replace_action no longer discards workflows that
   were created via MCP and exist only in the local cache (created after the last .bubble
   download): cache rows newer than the root snapshot (15 min tolerance) are trusted instead of
