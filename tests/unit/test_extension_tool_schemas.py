@@ -177,7 +177,7 @@ def test_generated_api_connector_extension_tool_previews_and_executes(
     generated = generate_authoring_extension_pack(
         session.id,
         extension_id=extension_id,
-        tool_name="local.toolwiz.api_connector.test.create_api_connector_resource",
+        tool_name="create_api_connector_resource_test",
     )
     assert generated["ok"] is True
     import_extension(Path(str(generated["pack_path"])))

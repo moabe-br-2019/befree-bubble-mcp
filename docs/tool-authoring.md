@@ -77,6 +77,24 @@ ${BUBBLE_MCP_CONFIG_DIR:-~/.config/bubble-mcp}/tool-authoring/generated-packs/<e
 Use `--extension-id`, `--tool-name`, and `--output-dir` only when a stable pack id,
 tool name, or artifact location is needed.
 
+### Tool name and description rules
+
+- The generated tool name is flat and MCP-client safe: it must match
+  `^[a-zA-Z0-9_-]{1,64}$` (no dots). By default it is the slug of the session
+  intent, e.g. `Create an API Connector call` -> `create_an_api_connector_call`.
+  Dotted names such as `local.pack.create_call` are rejected because Claude and
+  other MCP clients cannot expose them as direct callables.
+- Prefer a short canonical `--tool-name` for well-known capabilities so routing
+  and docs can reference it, e.g. `--tool-name create_api_connector_call` for
+  the API Connector pack (this is the name `bubble_task_runbook` and
+  `bubble_agent_guide` point to for "API call / chamada de API" requests).
+- The generated description starts with the session intent, adds a
+  family-specific hint (for `api_connector` it explains the plugin and warns
+  against `create_api_token`), lists required/optional arguments, and states the
+  `execute=false` preview contract. The session id stays in the evidence file,
+  not in the agent-facing description, so `bubble_tool_search` can match by
+  outcome.
+
 ## MCP Usage
 
 Start:
@@ -218,8 +236,8 @@ A reviewed session can inform an extension tool like:
 
 ```json
 {
-  "name": "local.api-pack.create_api_connector_call",
-  "description": "Create one reviewed API Connector call template.",
+  "name": "create_api_connector_call",
+  "description": "Create an API Connector call. Creates or reuses an API collection in the Bubble API Connector plugin and adds one API call with HTTP method, URL, headers, body/query parameters and publish_as. Do NOT use create_api_token for this. Required arguments: profile, name, method, url. execute=false previews the /appeditor/write payload; execute=true writes it to Bubble through the api_connector_resource_v1 runner.",
   "risk": "mutating",
   "inputSchema": {
     "type": "object",

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Catalog: every exposed tool now has its own description (323 unique / 323 tools, was 194 unique
+  with 13 workflow tools, 15 data tools, 41 metadata tools sharing one category blurb). Legacy
+  boilerplate ("This is an Aria-compatible Bubble MCP tool. Use it when the user's intent matches...")
+  was dropped; per-tool text lives in `server/tool_descriptions.py`.
+- API Connector routing: `bubble_agent_guide`, `bubble_task_recipe`, `bubble_task_runbook`, and
+  `bubble_tool_search` now route "API call / API Connector call / chamada de API" requests to the
+  `create_api_connector_call` extension tool (new `manage_api_connector` route and `api_connector`
+  recipe), report whether it is enabled, and explicitly steer away from `create_api_token`
+  (Data API tokens) and visual element tools. The `create_api_call` language intent resolves to
+  `create_api_connector_call`.
+- Tool wizard: generated tool names are flat and MCP-client safe (`^[a-zA-Z0-9_-]{1,64}$`, no dots)
+  so clients can expose them as direct callables; generated descriptions state the intent, family
+  hint, arguments, and preview contract instead of "Generated candidate tool from session ...".
+- API token tools state they manage Data API tokens, not API Connector calls.
+
 ## 0.1.0
 
 - Bootstrap package metadata.

@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -106,7 +107,8 @@ def test_authoring_session_generate_creates_valid_extension_pack(tmp_path, monke
 
     assert result["ok"] is True
     assert result["extension_id"].startswith("local.toolwiz.api_connector.")
-    assert result["tool_name"].endswith(".create_an_api_connector_call")
+    assert result["tool_name"] == "create_an_api_connector_call"
+    assert re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", result["tool_name"])
     pack_path = Path(str(result["pack_path"]))
     assert (pack_path / "extension.json").exists()
     assert Path(str(result["tool_path"])).exists()
@@ -234,3 +236,67 @@ def test_authoring_session_rejects_capture_without_write_payload(tmp_path, monke
 
     with pytest.raises(ValueError, match="does not contain a Bubble editor write body"):
         append_capture_to_authoring_session(session.id, no_payload)
+
+
+def _api_connector_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    session = create_authoring_session(
+        intent="Create an API Connector call",
+        target="api_connector",
+        profile="client",
+    )
+    append_capture_to_authoring_session(
+        session.id,
+        Path("tests/fixtures/tool-authoring/api-connector-write-capture.json"),
+    )
+    return session
+
+
+def test_generated_tool_description_explains_capability_not_session(tmp_path, monkeypatch) -> None:
+    session = _api_connector_session(tmp_path, monkeypatch)
+
+    result = generate_authoring_extension_pack(session.id)
+    tool_payload = json.loads(Path(str(result["tool_path"])).read_text(encoding="utf-8"))
+    description = tool_payload["description"]
+
+    # Starts with the human intent so tool search and agents can match by outcome.
+    assert description.startswith("Create an API Connector call.")
+    assert "API Connector" in description
+    # Family-specific disambiguation against the Data API token tools.
+    assert "create_api_token" in description
+    # Required arguments are listed so agents know what to pass.
+    assert "name, method, url" in description
+    assert "execute=false" in description
+    # Session id stays in the evidence/template, not in the agent-facing description.
+    assert session.id not in description
+    assert len(description) <= 800
+
+
+def test_generated_tool_name_is_mcp_client_safe(tmp_path, monkeypatch) -> None:
+    session = _api_connector_session(tmp_path, monkeypatch)
+
+    result = generate_authoring_extension_pack(session.id)
+
+    assert re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", result["tool_name"])
+    assert "." not in result["tool_name"]
+    assert result["extension_id"].startswith("local.toolwiz.api_connector.")
+
+
+def test_generate_rejects_tool_name_with_dots_or_too_long(tmp_path, monkeypatch) -> None:
+    session = _api_connector_session(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError, match="tool_name"):
+        generate_authoring_extension_pack(session.id, tool_name="local.pack.create_call")
+    with pytest.raises(ValueError, match="tool_name"):
+        generate_authoring_extension_pack(session.id, tool_name="x" * 65)
+
+
+def test_generate_accepts_explicit_short_tool_name(tmp_path, monkeypatch) -> None:
+    session = _api_connector_session(tmp_path, monkeypatch)
+
+    result = generate_authoring_extension_pack(session.id, tool_name="create_api_connector_call")
+
+    assert result["ok"] is True
+    assert result["tool_name"] == "create_api_connector_call"
+    assert Path(str(result["tool_path"])).name == "create_api_connector_call.tool.json"
+    assert result["next_mcp_calls"][3]["arguments"]["tool"] == "create_api_connector_call"

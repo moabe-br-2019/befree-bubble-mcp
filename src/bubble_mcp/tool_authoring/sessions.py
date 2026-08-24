@@ -170,8 +170,94 @@ def _default_extension_id(session: ToolAuthoringSession) -> str:
     return f"local.toolwiz.{_slug(session.target, fallback='tool')}.{session.id[-8:]}"
 
 
+_TOOL_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
 def _default_tool_name(session: ToolAuthoringSession, extension_id: str) -> str:
-    return f"{extension_id}.{_slug(session.intent, fallback=session.target)}"
+    """Short, dot-free name so MCP clients can expose the tool as a direct callable.
+
+    Claude/Anthropic tool names must match ``^[a-zA-Z0-9_-]{1,64}$``; a dotted
+    ``<extension_id>.<slug>`` name is rejected or hidden by those clients, which is
+    why generated tools used to be reachable only through bubble_extension_call.
+    The pack keeps its namespaced ``extension_id``; only the tool name is flat.
+    """
+
+    return _slug(session.intent, fallback=session.target)[:64].strip("_") or _slug(session.target, fallback="tool")
+
+
+def _validate_tool_name(tool_name: str) -> str:
+    name = str(tool_name or "").strip()
+    if not name:
+        raise ValueError("tool_name is required.")
+    if "/" in name or "\\" in name:
+        raise ValueError(f"tool_name must not contain path separators: {name}")
+    if not _TOOL_NAME_PATTERN.match(name):
+        raise ValueError(
+            "tool_name must match ^[a-zA-Z0-9_-]{1,64}$ (letters, digits, _ or -, no dots, max 64 chars) "
+            f"so MCP clients can expose it as a direct callable: {name}"
+        )
+    return name
+
+
+FAMILY_DESCRIPTION_HINTS: dict[str, str] = {
+    "api_connector": (
+        "Creates or reuses an API collection in the Bubble API Connector plugin (Settings > API Connector, "
+        "settings.client_safe.apiconnector2) and adds one API call with HTTP method, URL, headers, body/query "
+        "parameters and publish_as (data or action). Use it when the user asks for an API call, API Connector call, "
+        "external/REST/HTTP request, or 'chamada de API'. Do NOT use create_api_token for this; that tool manages "
+        "Data API tokens, not API Connector calls."
+    ),
+    "workflow": "Creates or edits Bubble workflow events/actions captured from the editor.",
+    "data_schema": "Creates or edits Bubble data types, fields or privacy rules captured from the editor.",
+    "visual_editor": "Creates or edits Bubble visual elements captured from the editor.",
+}
+
+
+def _sentence(text: str) -> str:
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return ""
+    return cleaned if cleaned[-1] in ".!?" else f"{cleaned}."
+
+
+def _generated_tool_description(
+    session: ToolAuthoringSession,
+    input_schema: dict[str, object],
+    runner_id: str | None,
+) -> str:
+    """Agent-facing description: outcome first, then family hint, arguments and execution contract."""
+
+    raw_properties = input_schema.get("properties")
+    properties = raw_properties if isinstance(raw_properties, dict) else {}
+    raw_required = input_schema.get("required")
+    required = [str(name) for name in raw_required] if isinstance(raw_required, list) else []
+    required_args = [name for name in required if name != "profile"]
+    optional_args = [name for name in properties if name not in required and name not in {"profile", "execute"}]
+
+    family = _slug(session.target, fallback="tool")
+    hint = FAMILY_DESCRIPTION_HINTS.get(family) or FAMILY_DESCRIPTION_HINTS.get(session.target) or (
+        f"Bubble MCP extension tool for the '{session.target}' family, generated from reviewed Bubble editor write captures."
+    )
+    parts = [_sentence(session.intent), _sentence(hint)]
+    if required_args:
+        parts.append(f"Required arguments: profile, {', '.join(required_args)}.")
+    else:
+        parts.append("Required arguments: profile.")
+    if runner_id:
+        parts.append(
+            "execute=false previews the /appeditor/write payload; execute=true writes it to Bubble through the "
+            f"{runner_id} runner."
+        )
+    else:
+        parts.append("execute=false previews only; execution stays disabled until a runner is defined for this capture.")
+    if optional_args:
+        shown = optional_args[:6]
+        suffix = ", ..." if len(optional_args) > len(shown) else ""
+        parts.append(f"Optional: {', '.join(shown)}{suffix}.")
+    description = " ".join(part for part in parts if part)
+    if len(description) > 800:
+        description = description[:797].rstrip() + "..."
+    return description
 
 
 def _safe_tool_filename(tool_name: str) -> str:
@@ -594,11 +680,9 @@ def generate_authoring_extension_pack(
     session = _load_session(session_id)
     requested_extension_id = str(extension_id or "").strip() or _default_extension_id(session)
     safe_extension_id = _validate_safe_segment(requested_extension_id, label="extension_id")
-    requested_tool_name = str(tool_name or "").strip() or _default_tool_name(session, safe_extension_id)
-    if not requested_tool_name:
-        raise ValueError("tool_name is required.")
-    if "/" in requested_tool_name or "\\" in requested_tool_name:
-        raise ValueError(f"tool_name must not contain path separators: {requested_tool_name}")
+    requested_tool_name = _validate_tool_name(
+        str(tool_name or "").strip() or _default_tool_name(session, safe_extension_id)
+    )
 
     base = output_dir.expanduser() if output_dir else _generated_packs_dir()
     if base.exists() and base.is_symlink():
@@ -658,10 +742,7 @@ def generate_authoring_extension_pack(
     }
     tool_payload = {
         "name": requested_tool_name,
-        "description": (
-            f"Generated candidate tool from tool-authoring session {session.id}. "
-            "Use execute=false for preview and review the captured evidence before enabling execute=true."
-        ),
+        "description": _generated_tool_description(session, input_schema, runner_id),
         "risk": "mutating",
         "inputSchema": input_schema,
         "annotations": {
