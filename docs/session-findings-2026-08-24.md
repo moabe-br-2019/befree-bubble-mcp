@@ -64,6 +64,10 @@ their commit on `feat/api-connector-routing`. Open items are the backlog.
 > `signup_login_with_a_social_network`, and `update_user_credentials` as "<NO RUNTIME METHOD>"
 > — dispatch reaches them through a special path (they validate `event_ref` at runtime), so
 > treat those three entries as needing verification, not as hard failures.
+> Later same day: items 3, 4, and 5 are DONE too — auto-order stamped in the shared create
+> queue (max sibling + 1; dry-runs still don't persist sibling state between calls by design),
+> icon libraries validated with dashed-prefix mapping (ion-checkmark -> "ion checkmark"), and
+> ok=false results now carry a structured `error` extracted from the runtime failure line.
 
 1. **`create_shape` ignores size args.** `min_width`/`min_height`/`fixed_*` are accepted by the
    schema but the body is written with legacy `%w: 100, %h: 100`; the responsive engine ignores

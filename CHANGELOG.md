@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Every created element gets %p.order = max(sibling)+1 stamped in the shared create queue when
+  the tool did not set one — batch-created siblings used to tie at no order and render in
+  reverse creation order.
+- Icon values are validated: dashed library prefixes (ion-checkmark, feather-check) map to the
+  canonical "<library> <name>" form, and unknown libraries fail with the accepted formats
+  instead of writing a glyph the editor cannot render.
+- Aria tool failures now carry a structured `error` field in the MCP result (extracted from the
+  runtime failure line) instead of burying the reason in `logs` with a bare ok=false.
 - Catalog-wide schema-vs-runtime contract snapshot test: every argument a tool schema
   advertises must reach the runtime (name, alias, or **kwargs). Known gaps for 124 tools are
   frozen in tests/fixtures/schema_runtime_contract_gaps.json; new drops and stale entries both

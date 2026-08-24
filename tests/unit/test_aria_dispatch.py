@@ -601,3 +601,60 @@ def test_fixed_size_normalizer_prefers_explicit_css_over_legacy_width() -> None:
     _normalize_fixed_size_properties(height)
     assert height["min_height_css"] == "4px"
     assert height["max_height_css"] == "4px"
+
+
+def test_create_queue_assigns_incremental_child_order() -> None:
+    """Batch-created siblings all got order 0 (renderer showed them reversed): the
+    create queue must stamp %p.order = max(sibling)+1 when the body has none."""
+
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+    from bubble_mcp.aria_runtime.bubble_sdk import PayloadBuilder
+
+    cli = object.__new__(BubbleCLI)
+    cli._canonicalize_context_prefix_on_path = lambda path, context_id, context_type: path
+    parent = {"id": "pg1", "element": {"id": "pg1", "%el": {"a": {"id": "a", "%p": {"order": 4}}}}}
+    pb = PayloadBuilder(appname="t")
+    body = {"id": "n1", "%x": "Shape", "%dn": "s", "%p": {"%w": 10}}
+    BubbleCLI._queue_create_element_with_index_updates(
+        cli, pb=pb, context_id="pg1", context_type="page", parent_result=parent,
+        create_path=["%p3", "pg1", "%el", "k1"], create_body=body, full_path_str="x",
+    )
+    assert body["%p"]["order"] == 5
+
+    # explicit order is preserved
+    pb2 = PayloadBuilder(appname="t")
+    body2 = {"id": "n2", "%x": "Shape", "%dn": "s2", "%p": {"order": 9}}
+    BubbleCLI._queue_create_element_with_index_updates(
+        cli, pb=pb2, context_id="pg1", context_type="page", parent_result=parent,
+        create_path=["%p3", "pg1", "%el", "k2"], create_body=body2, full_path_str="x",
+    )
+    assert body2["%p"]["order"] == 9
+
+
+def test_icon_normalization_maps_dashed_libs_and_rejects_unknown() -> None:
+    """ion-checkmark was written verbatim and rendered nothing. Dashed library prefixes
+    must map to the canonical '<lib> <name>' form; unknown libraries must return None so
+    callers can fail with the accepted formats instead of writing a dead glyph."""
+
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    cli = object.__new__(BubbleCLI)
+    norm = lambda v: BubbleCLI._normalize_icon_value_for_write(cli, v)
+    assert norm("ion-checkmark") == "ion checkmark"
+    assert norm("feather-check") == "feather check"
+    assert norm("fa fa-check") == "fa fa-check"
+    assert norm("phosphor regular check-circle") == "phosphor regular check-circle"
+    assert norm("wingdings-star") is None
+    assert norm("checkmark") is None
+
+
+def test_extract_error_from_logs_surfaces_last_failure_line() -> None:
+    from bubble_mcp.aria_dispatch import _extract_error_from_logs
+
+    logs = "Searching for context: index\n\u274c Element 'foo' not found\nSearching again"
+    assert _extract_error_from_logs(logs) == "Element 'foo' not found"
+    assert _extract_error_from_logs("all fine here") is None
+    assert _extract_error_from_logs("") is None
+    assert "Unsupported layout property" in _extract_error_from_logs(
+        "info line\nUnsupported layout property: 'bogus'"
+    )

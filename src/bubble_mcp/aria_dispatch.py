@@ -164,6 +164,25 @@ def _normalize_fixed_size_create_payload(
     return payload
 
 
+_ERROR_LOG_MARKERS = ("\u274c", "Unsupported", "Invalid", "not found", "Missing", "required", "Failed", "Refusing")
+
+
+def _extract_error_from_logs(logs: str) -> str | None:
+    """Surface the most recent human-readable failure line from captured runtime logs.
+
+    Aria tools report failures by printing and returning False; without this, the MCP
+    result carries ok=false with no reason and agents must parse raw logs.
+    """
+
+    for line in reversed(str(logs or "").splitlines()):
+        text = line.strip()
+        if not text:
+            continue
+        if any(marker in text for marker in _ERROR_LOG_MARKERS):
+            return text.lstrip("\u274c \u26a0\ufe0f").strip() or text
+    return None
+
+
 def _requires_calculate_derived(tool_name: str) -> bool:
     """Return true for schema writes that Bubble finalizes through calculate_derived."""
     return tool_name in {
@@ -507,8 +526,10 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
     ok = bool(return_value) if captured_results else return_value is not False
     if captured_results:
         ok = all(bool(item.get("ok")) for item in captured_results)
+    error = None if ok else _extract_error_from_logs(logs)
     return {
         "ok": ok,
+        **({"error": error} if error else {}),
         "engine": "aria_runtime",
         "tool_name": name,
         "profile": profile,

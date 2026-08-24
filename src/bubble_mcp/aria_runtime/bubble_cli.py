@@ -16512,6 +16512,9 @@ class BubbleCLI:
 
         normalized = raw.replace("/", " ").replace(":", " ")
         normalized = re.sub(r"\s+", " ", normalized).strip()
+        # Accept dashed library prefixes ("ion-checkmark", "feather-check") by mapping
+        # them to the canonical "<library> <name>" form the editor stores.
+        normalized = re.sub(r"^(ion|feather|phosphor|material|heroicons)-", r"\1 ", normalized)
 
         explicit_prefix = self._resolve_icon_prefix(normalized, allow_fallback=False)
         if explicit_prefix:
@@ -16564,7 +16567,12 @@ class BubbleCLI:
         if inherited_prefix:
             return f"{inherited_prefix} {self._slug_icon_name(normalized)}"
 
-        return normalized
+        logger.error(
+            f"Unsupported icon '{incoming}'. Use 'fa fa-<name>' (FontAwesome), "
+            "'phosphor <variant> <name>', 'material <variant> <name>', "
+            "'heroicons <variant> <name>', 'feather <name>', or 'ion <name>'."
+        )
+        return None
 
     def update_icon(self, context_name: str, element_name: str, new_icon: str, dry_run: bool = False, prefer_last: bool = False) -> bool:
         """Update icon for Icon/Button elements."""
@@ -16591,6 +16599,8 @@ class BubbleCLI:
             new_icon,
             existing_icon=existing_icon,
         )
+        if new_icon is not None and resolved_icon is None:
+            return False
 
         # Bubble expects icon updates through %9i in SetData payloads.
         key = "%9i"
@@ -22733,7 +22743,10 @@ class BubbleCLI:
                 return False
             prop_updates["button_type"] = normalized_button_type
         if icon is not None:
-            prop_updates["%9i"] = self._normalize_icon_value_for_write(icon)
+            normalized_button_icon = self._normalize_icon_value_for_write(icon)
+            if normalized_button_icon is None:
+                return False
+            prop_updates["%9i"] = normalized_button_icon
         if icon_size is not None:
             prop_updates["icon_size"] = int(icon_size)
         if raw_kwargs.get("icon_color") is not None:
@@ -23282,7 +23295,10 @@ class BubbleCLI:
 
         prop_updates: Dict[str, Any] = {}
         if icon is not None:
-            prop_updates["%9i"] = self._normalize_icon_value_for_write(icon)
+            normalized_button_icon = self._normalize_icon_value_for_write(icon)
+            if normalized_button_icon is None:
+                return False
+            prop_updates["%9i"] = normalized_button_icon
         if raw_kwargs.get("icon_color") is not None:
             prop_updates["%ic"] = self._resolve_color_arg(
                 raw_kwargs.get("icon_color"),
@@ -23715,7 +23731,10 @@ class BubbleCLI:
         if show_icon is not None:
             prop_updates["show_icon"] = bool(show_icon)
         if icon is not None:
-            prop_updates["%9i"] = self._normalize_icon_value_for_write(icon)
+            normalized_button_icon = self._normalize_icon_value_for_write(icon)
+            if normalized_button_icon is None:
+                return False
+            prop_updates["%9i"] = normalized_button_icon
 
         if font_family is not None:
             prop_updates["font_family"] = str(font_family)
@@ -28847,6 +28866,17 @@ class BubbleCLI:
         if not isinstance(object_id, str) or not object_id:
             raise ValueError("Create element body must include a valid 'id'.")
 
+        # Every editor-created element carries %p.order; without it siblings tie and
+        # Bubble renders them in reverse creation order. Stamp max(sibling)+1 for all
+        # create tools that did not set an explicit order.
+        if isinstance(create_body, dict):
+            order_props = create_body.get("%p")
+            if isinstance(order_props, dict) and order_props.get("order") is None:
+                try:
+                    order_props["order"] = self._next_child_order(context_id, context_type, parent_result)
+                except Exception:
+                    pass
+
         # Bubble frequently treats explicit nulls in CreateElement as overrides.
         # Strip null-valued properties centrally for all create tools.
         if isinstance(create_body, dict):
@@ -31292,6 +31322,8 @@ class BubbleCLI:
         while len(label) >= 2 and ((label[0] == label[-1] and label[0] in {'"', "'"}) or (label[0], label[-1]) in {("“", "”"), (""", "”"), ("“", """)}):
             label = label[1:-1].strip()
         normalized_icon = self._normalize_icon_value_for_write(icon)
+        if icon is not None and normalized_icon is None:
+            return False
         if button_type is None:
             resolved_button_type = "label_icon" if normalized_icon else "label"
         else:
@@ -43308,6 +43340,8 @@ class BubbleCLI:
         if "fit_height" not in supported_props:
             fit_height = False
         normalized_icon_name = self._normalize_icon_value_for_write(icon_name)
+        if icon_name is not None and normalized_icon_name is None:
+            return False
         if not self._apply_common_surface_kwargs(
             kwargs,
             dry_run=dry_run,
