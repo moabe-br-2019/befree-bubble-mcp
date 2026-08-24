@@ -31,7 +31,7 @@ import shutil
 import subprocess
 import tempfile
 from urllib.parse import urljoin
-from typing import Optional, Dict, List, Any, Tuple, Union
+from typing import Optional, Dict, List, Any, Tuple, Union, Callable
 try:
     import inquirer
 except ImportError:
@@ -30593,16 +30593,17 @@ class BubbleCLI:
                             return True
                 return False
             if strict_rows:
-                strict_rows_noncache = [row for row in strict_rows if not row.get("from_cache")]
-                if strict_rows_noncache:
-                    pool = strict_rows_noncache
-                else:
-                    pool = [row for row in strict_rows if _workflow_exists_in_root(row)]
-                    if not pool:
-                        logger.warning(
-                            "Ignoring cached workflow match because local context root is stale. "
-                            "A fresh workflow will be created instead."
-                        )
+                pool = self._select_trusted_workflow_rows(
+                    strict_rows,
+                    exists_in_root=_workflow_exists_in_root,
+                    root_source_mtime_ms=self._context_root_source_mtime_ms(),
+                )
+                if not pool:
+                    logger.warning(
+                        "Ignoring cached workflow match: the ref is absent from the local context root "
+                        "and older than the root snapshot (likely deleted or a ghost ref). "
+                        "A fresh workflow will be created instead; pass event_ref to force a specific workflow."
+                    )
                 def _rank_row(row_obj: Dict[str, Any]) -> Tuple[int, int]:
                     raw_updated = row_obj.get("updated_at")
                     updated = int(raw_updated) if isinstance(raw_updated, (int, float)) else 0
@@ -56589,6 +56590,54 @@ class BubbleCLI:
             return module_payload
         return None
 
+    # Cached workflow refs recorded up to this long before the local .bubble export was
+    # downloaded may still be missing from that export (generation lag); newer ones always are.
+    _WORKFLOW_CACHE_ROOT_TOLERANCE_MS = 15 * 60 * 1000
+
+    @staticmethod
+    def _select_trusted_workflow_rows(
+        strict_rows: List[Dict[str, Any]],
+        *,
+        exists_in_root: Callable[[Dict[str, Any]], bool],
+        root_source_mtime_ms: Optional[int],
+    ) -> List[Dict[str, Any]]:
+        """Decide which matched workflow rows are safe to append to.
+
+        Order of trust: (1) rows read from the context root itself; (2) cache-only rows the
+        root confirms; (3) cache-only rows NEWER than the root snapshot (minus a tolerance) —
+        a workflow created via MCP after the .bubble download cannot appear in that download,
+        so the root cannot refute it. Only cache rows older than the root stay untrusted
+        (deleted workflows / ghost refs), which is when auto-create is legitimate.
+        """
+
+        noncache = [row for row in strict_rows if not row.get("from_cache")]
+        if noncache:
+            return noncache
+        confirmed = [row for row in strict_rows if exists_in_root(row)]
+        if confirmed:
+            return confirmed
+
+        def _updated_ms(row: Dict[str, Any]) -> int:
+            raw = row.get("updated_at")
+            return int(raw) if isinstance(raw, (int, float)) else 0
+
+        if root_source_mtime_ms is None:
+            threshold = 0
+        else:
+            threshold = int(root_source_mtime_ms) - BubbleCLI._WORKFLOW_CACHE_ROOT_TOLERANCE_MS
+        return [row for row in strict_rows if _updated_ms(row) > threshold]
+
+    def _context_root_source_mtime_ms(self) -> Optional[int]:
+        """Mtime (ms epoch) of the raw .bubble export backing the context root, if known."""
+
+        path = getattr(self.discovery, "app_json_path", None)
+        try:
+            if path and os.path.exists(path):
+                return int(os.path.getmtime(path) * 1000)
+        except OSError:
+            pass
+        return None
+
     def _cache_event_key(self, context_type: str, context_id: str, workflow_key: str) -> str:
         return f"{context_type}:{context_id}:{workflow_key}"
 
@@ -60453,18 +60502,17 @@ class BubbleCLI:
                             return True
                 return False
             if strict_rows:
-                strict_rows_noncache = [row for row in strict_rows if not row.get("from_cache")]
-                if strict_rows_noncache:
-                    pool = strict_rows_noncache
-                else:
-                    # Cache-only workflow refs can be stale (webhook accepted, local cache updated,
-                    # but event not actually present in context root). Ignore those and auto-create.
-                    pool = [row for row in strict_rows if _workflow_exists_in_root(row)]
-                    if not pool:
-                        logger.warning(
-                            "Ignoring cached workflow match because local context root is stale. "
-                            "A fresh workflow will be created instead."
-                        )
+                pool = self._select_trusted_workflow_rows(
+                    strict_rows,
+                    exists_in_root=_workflow_exists_in_root,
+                    root_source_mtime_ms=self._context_root_source_mtime_ms(),
+                )
+                if not pool:
+                    logger.warning(
+                        "Ignoring cached workflow match: the ref is absent from the local context root "
+                        "and older than the root snapshot (likely deleted or a ghost ref). "
+                        "A fresh workflow will be created instead; pass event_ref to force a specific workflow."
+                    )
                 def _rank_row(row_obj: Dict[str, Any]) -> Tuple[int, int]:
                     raw_updated = row_obj.get("updated_at")
                     updated = int(raw_updated) if isinstance(raw_updated, (int, float)) else 0

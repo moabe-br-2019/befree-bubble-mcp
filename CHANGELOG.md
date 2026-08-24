@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The anti-stale workflow guard in add_action/replace_action no longer discards workflows that
+  were created via MCP and exist only in the local cache (created after the last .bubble
+  download): cache rows newer than the root snapshot (15 min tolerance) are trusted instead of
+  auto-creating a duplicate workflow. Cache rows older than the root (deleted/ghost refs) are
+  still ignored. The decision lives in BubbleCLI._select_trusted_workflow_rows with unit tests.
 - add_action honors the event_ref/event_type/ref_kind arguments its MCP schema always advertised
   (they were silently dropped by the dispatch layer): when given, it delegates to the existing
   add_event_action by-ref path, so actions can be appended to any existing workflow — including

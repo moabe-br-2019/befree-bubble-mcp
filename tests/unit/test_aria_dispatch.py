@@ -475,3 +475,50 @@ def test_add_action_without_element_or_ref_fails_with_guidance(capsys) -> None:
     assert ok is False
     out = capsys.readouterr().out
     assert "event_ref" in out
+
+
+def test_select_trusted_workflow_rows_prefers_noncache_then_root_then_recent_cache() -> None:
+    """Guard regression: a workflow created via MCP lives only in the local cache until the
+    .bubble export is re-downloaded. The old guard discarded such rows and auto-created a
+    duplicate workflow. Cached rows newer than (root mtime - tolerance) must be trusted."""
+
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    noncache = {"key": "a", "from_cache": False, "updated_at": 10}
+    cached_in_root = {"key": "b", "from_cache": True, "updated_at": 20}
+    cached_recent = {"key": "c", "from_cache": True, "updated_at": 1_000_000}
+    cached_stale = {"key": "d", "from_cache": True, "updated_at": 100}
+
+    # 1. Non-cache rows always win.
+    pool = BubbleCLI._select_trusted_workflow_rows(
+        [noncache, cached_recent], exists_in_root=lambda row: False, root_source_mtime_ms=2_000_000
+    )
+    assert pool == [noncache]
+
+    # 2. Cache-only rows that the root confirms are kept.
+    pool = BubbleCLI._select_trusted_workflow_rows(
+        [cached_in_root, cached_stale], exists_in_root=lambda row: row is cached_in_root, root_source_mtime_ms=2_000_000
+    )
+    assert pool == [cached_in_root]
+
+    # 3. Cache-only rows newer than the root snapshot (minus tolerance) are trusted even when
+    #    the root does not (yet) contain them — the root cannot refute what it predates.
+    tolerance = BubbleCLI._WORKFLOW_CACHE_ROOT_TOLERANCE_MS
+    pool = BubbleCLI._select_trusted_workflow_rows(
+        [cached_recent, cached_stale],
+        exists_in_root=lambda row: False,
+        root_source_mtime_ms=1_000_000 + tolerance - 1,
+    )
+    assert pool == [cached_recent]
+
+    # 4. Cache-only rows older than the root snapshot stay untrusted (deleted/ghost refs).
+    pool = BubbleCLI._select_trusted_workflow_rows(
+        [cached_stale], exists_in_root=lambda row: False, root_source_mtime_ms=10_000_000
+    )
+    assert pool == []
+
+    # 5. Unknown root mtime: fall back to trusting recent-cache rows rather than duplicating.
+    pool = BubbleCLI._select_trusted_workflow_rows(
+        [cached_recent], exists_in_root=lambda row: False, root_source_mtime_ms=None
+    )
+    assert pool == [cached_recent]
