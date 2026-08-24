@@ -117,7 +117,7 @@ ROUTES: tuple[dict[str, Any], ...] = (
         "intent": "manage_workflows",
         "when": "The user asks to create events, add actions, wire buttons, change conditions, or inspect workflow refs.",
         "tools": ["create_workflow", "create_event", "add_action", "list_events", "resolve_refs", "map_workflow_ref"],
-        "notes": "For page load workflows, target element_name='Page'. For element events, resolve the element first when ambiguous.",
+        "notes": "For page load workflows, target element_name='Page'. For element events, resolve the element first when ambiguous. To add actions to an existing workflow (including ConditionTrue/CustomEvent/DoEvery), pass event_ref (workflow key/id/name/alias) to add_action instead of element_name; never fall back to manual bubble_editor_write payloads.",
     },
     {
         "intent": "manage_data_schema",

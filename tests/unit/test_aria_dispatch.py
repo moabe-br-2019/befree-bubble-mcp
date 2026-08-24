@@ -398,3 +398,80 @@ def test_aria_runtime_applies_project_default_styles_to_created_elements(tmp_pat
     radio_body = payload["changes"][4]["body"]
     assert input_body["%s1"] == "Input_runtime_default"
     assert radio_body["%s1"] == "Radio_runtime_default"
+
+
+def test_add_action_schema_args_are_accepted_by_runtime_signature() -> None:
+    """Every arg the MCP schema advertises for add_action must reach BubbleCLI.add_action.
+
+    Regression: the schema advertised event_ref/event_type/ref_kind but the runtime
+    signature lacked them, so _method_kwargs silently dropped the workflow reference
+    and add_action fell back to element/event matching (auto-creating duplicates).
+    """
+
+    import inspect
+
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+    from bubble_mcp.server.agent_catalog import _legacy_fields_for_name
+    from bubble_mcp.aria_dispatch import ARG_ALIASES, CONTROL_ARG_KEYS
+
+    fields = _legacy_fields_for_name("add_action")
+    assert fields is not None
+    required, optional = fields
+    signature = inspect.signature(BubbleCLI.add_action)
+    accepted = set(signature.parameters)
+    alias_targets = {alias: param for param, aliases in ARG_ALIASES.items() for alias in aliases}
+    ignorable = set(CONTROL_ARG_KEYS) | {"profile", "context", "dry_run", "settings_path"}
+
+    missing = []
+    for field in (*required, *optional):
+        if field in ignorable:
+            continue
+        if field in accepted:
+            continue
+        if alias_targets.get(field) in accepted:
+            continue
+        missing.append(field)
+    assert missing == [], f"schema args dropped by BubbleCLI.add_action: {missing}"
+
+
+def test_add_action_delegates_to_add_event_action_for_event_ref() -> None:
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    cli = object.__new__(BubbleCLI)
+    captured: dict = {}
+
+    def fake_add_event_action(**kwargs):
+        captured.update(kwargs)
+        return True
+
+    cli.add_event_action = fake_add_event_action
+
+    ok = BubbleCLI.add_action(
+        cli,
+        "dashboard",
+        None,
+        "show_alert",
+        event_ref="bTYJT0",
+        ref_kind="key",
+        message="hello",
+        dry_run=True,
+    )
+
+    assert ok is True
+    assert captured["context_name"] == "dashboard"
+    assert captured["event_ref"] == "bTYJT0"
+    assert captured["ref_kind"] == "key"
+    assert captured["action_type"] == "show_alert"
+    assert captured["message"] == "hello"
+    assert captured["dry_run"] is True
+
+
+def test_add_action_without_element_or_ref_fails_with_guidance(capsys) -> None:
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    cli = object.__new__(BubbleCLI)
+    ok = BubbleCLI.add_action(cli, "dashboard", None, "show_alert", message="x", dry_run=True)
+
+    assert ok is False
+    out = capsys.readouterr().out
+    assert "event_ref" in out

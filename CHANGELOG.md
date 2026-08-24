@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- add_action honors the event_ref/event_type/ref_kind arguments its MCP schema always advertised
+  (they were silently dropped by the dispatch layer): when given, it delegates to the existing
+  add_event_action by-ref path, so actions can be appended to any existing workflow — including
+  ConditionTrue, CustomEvent, and DoEvery — without element+event matching, duplicate auto-created
+  workflows, or manual /appeditor/write payloads. `to` now aliases to `to_email`, and the
+  unsupported query_result_type argument was removed from the add_action schema. A contract test
+  guards schema-vs-runtime argument drift.
 - Catalog: every exposed tool now has its own description (323 unique / 323 tools, was 194 unique
   with 13 workflow tools, 15 data tools, 41 metadata tools sharing one category blurb). Legacy
   boilerplate ("This is an Aria-compatible Bubble MCP tool. Use it when the user's intent matches...")

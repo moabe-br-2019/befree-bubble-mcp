@@ -60172,8 +60172,8 @@ class BubbleCLI:
     def add_action(
         self,
         context_name: str,
-        element_name: str,
-        action_type: str,
+        element_name: Optional[str] = None,
+        action_type: str = "",
         action_param: Optional[str] = None,
         event: str = "click",
         dry_run: bool = False,
@@ -60204,8 +60204,64 @@ class BubbleCLI:
         query_ignore_empty_constraints: bool = False,
         element_ref_kind: str = "auto",
         match_index: int = 1,
+        event_ref: Optional[str] = None,
+        event_type: Optional[str] = None,
+        ref_kind: str = "auto",
     ) -> bool:
-        """Add an action to an element's workflow"""
+        """Add an action to an element's workflow.
+
+        When event_ref (workflow key/id/name/alias/shorthand) or event_type is given,
+        the target workflow is resolved directly via add_event_action instead of
+        element+event matching. This keeps the MCP schema contract: event_ref must
+        never be silently dropped (it used to be, causing duplicate workflows or
+        manual /appeditor/write fallbacks for ConditionTrue/CustomEvent workflows).
+        """
+        event_ref_text = str(event_ref or "").strip()
+        event_type_text = str(event_type or "").strip()
+        element_text = str(element_name or "").strip()
+        # Arg aliasing can copy `event` into `event_type`; honor event_type routing
+        # only when no element target was given (element+event stays the legacy path).
+        if event_ref_text or (event_type_text and not element_text):
+            return self.add_event_action(
+                context_name=context_name,
+                action_type=action_type,
+                action_param=action_param,
+                event_ref=event_ref_text or None,
+                event_type=event_type_text or None,
+                ref_kind=ref_kind,
+                dry_run=dry_run,
+                data_type=data_type,
+                fields=fields,
+                thing=thing,
+                to_email=to_email,
+                subject=subject,
+                body=body,
+                message=message,
+                title=title,
+                pause_ms=pause_ms,
+                hide_status_bar=hide_status_bar,
+                open_in_new_tab=open_in_new_tab,
+                animation=animation,
+                duration_ms=duration_ms,
+                customize_duration=customize_duration,
+                offset=offset,
+                custom_state=custom_state,
+                value=value,
+                query_json=query_json,
+                query_source_type=query_source_type,
+                query_result_from_field=query_result_from_field,
+                query_constraints_json=query_constraints_json,
+                query_sort_field=query_sort_field,
+                query_sort_desc=query_sort_desc,
+                query_ignore_empty_constraints=query_ignore_empty_constraints,
+            )
+        if not element_text:
+            print("❌ Provide element_name (with event) or event_ref/event_type to target the workflow.")
+            return False
+        if not str(action_type or "").strip():
+            print("❌ Missing action_type")
+            return False
+        element_name = element_text
         print(f" Searching for context: {context_name}")
         context_id, context_type = self._find_context(context_name)
         if not context_id: return False

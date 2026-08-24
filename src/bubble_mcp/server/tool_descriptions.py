@@ -83,8 +83,10 @@ LEGACY_TOOL_DESCRIPTIONS: dict[str, str] = {
     ),
     "add_action": (
         "Add one action (action_type such as create_thing, make_changes, navigate, show/hide, send_email, set_state, "
-        "schedule_api_workflow, custom_event) to an existing workflow identified by event_ref/element_name/event. "
-        "Reuses the workflow; does not create a new one when the event already exists."
+        "schedule_api_workflow, custom_event) to an existing workflow. Target it by element_name+event for "
+        "click/change/load, or by event_ref (workflow key/id/name/alias, or shorthand like 'ButtonClicked my-button') "
+        "for any workflow, including ConditionTrue, CustomEvent, and DoEvery. Reuses the workflow; does not create a "
+        "new one when the event already exists. Prefer event_ref over manual bubble_editor_write payloads."
     ),
     "replace_action": "Replace an existing action in a workflow (by event/element and action_type) with new parameters, keeping its position.",
     "delete_action": "Delete one action (action_ref) from a workflow after explicit confirm=true. Does not delete the event.",
