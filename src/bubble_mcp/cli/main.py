@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 from bubble_mcp.catalog_quality import catalog_quality_report
 from bubble_mcp.browser_automation import (
@@ -17,7 +18,12 @@ from bubble_mcp.browser_automation import (
 from bubble_mcp.compiler.payload import compile_plan_to_write_payloads
 from bubble_mcp.converters.html.converter import html_to_plan
 from bubble_mcp.context.importers import import_context_artifact
-from bubble_mcp.context.detector import detect_project_context
+from bubble_mcp.context.detector import (
+    default_bubble_export_path,
+    detect_project_context,
+    hydrate_profile_reusables,
+)
+from bubble_mcp.context.export_inspect import inspect_bubble_export
 from bubble_mcp.context.freshness import context_freshness, load_context_with_overlay
 from bubble_mcp.context.queries import context_find_payload
 from bubble_mcp.context.source import load_context, save_context
@@ -97,7 +103,8 @@ from bubble_mcp.skills.store import (
     list_skills,
 )
 from bubble_mcp.skills.validator import describe_skill_file, validate_skill_file
-from bubble_mcp.sessions.browser import DEFAULT_LOGIN_WAIT_SECONDS, capture_session_with_playwright
+from bubble_mcp.sessions.browser import capture_session_with_playwright
+from bubble_mcp.sessions.constants import DEFAULT_LOGIN_WAIT_SECONDS, MIN_LOGIN_WAIT_SECONDS
 from bubble_mcp.sessions.store import list_sessions, load_session, save_session, session_from_payload
 from bubble_mcp.tool_authoring.sessions import (
     append_capture_to_authoring_session,
@@ -115,6 +122,13 @@ from bubble_mcp.validators.semantic import validate_plan
 
 def emit_json(payload: object) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < MIN_LOGIN_WAIT_SECONDS:
+        raise argparse.ArgumentTypeError(f"must be at least {MIN_LOGIN_WAIT_SECONDS}")
+    return parsed
 
 
 def command_init(args: argparse.Namespace) -> int:
@@ -385,6 +399,42 @@ def command_context_detect(args: argparse.Namespace) -> int:
         include_id_to_path=not args.skip_id_to_path,
     )
     emit_json(result.to_dict())
+    return 0
+
+
+def command_context_hydrate_reusables(args: argparse.Namespace) -> int:
+    ids = [item.strip() for item in str(args.ids or "").split(",") if item.strip()]
+    report = hydrate_profile_reusables(
+        profile=args.profile,
+        app_id=args.app_id or None,
+        app_version=args.app_version,
+        ids=ids or None,
+        batch_size=args.batch_size,
+        bubble_file=Path(args.file) if args.file else None,
+    )
+    emit_json({"ok": not report.get("failed"), **report})
+    return 0 if not report.get("failed") else 1
+
+
+def command_context_inspect_bubble(args: argparse.Namespace) -> int:
+    explicit = str(args.file or "").strip()
+    if explicit:
+        target = Path(explicit).expanduser()
+    else:
+        profile_name = str(args.profile or "").strip()
+        if not profile_name:
+            raise ValueError("context inspect-bubble requires --file or --profile.")
+        settings = load_settings()
+        configured = resolve_profile(settings, profile_name)
+        app_id = str(args.app_id or (configured.app_id if configured else "")).strip()
+        if not app_id:
+            raise ValueError("context inspect-bubble requires --app-id or a profile with app_id.")
+        target = default_bubble_export_path(configured.name if configured else profile_name, app_id)
+    if not target.exists():
+        emit_json({"ok": False, "error": "bubble_export_not_found", "file": str(target)})
+        return 1
+    report = inspect_bubble_export(target, sample_limit=max(int(args.sample_limit or 20), 0))
+    emit_json({"ok": True, **report})
     return 0
 
 
@@ -884,12 +934,20 @@ def command_branch_merge_conflicts_describe(args: argparse.Namespace) -> int:
 
 
 def command_branch_merge_resolve_conflicts(args: argparse.Namespace) -> int:
+    changelog_data: list[dict[str, Any]] | None = None
+    if args.changelog_data:
+        raw_changelog_data = _load_optional_json_object(args.changelog_data).get("changelog_data")
+        if not isinstance(raw_changelog_data, list) or not all(
+            isinstance(item, dict) for item in raw_changelog_data
+        ):
+            raise ValueError("branch merge-resolve-conflicts requires changelog_data to be an array of objects.")
+        changelog_data = cast(list[dict[str, Any]], raw_changelog_data)
     emit_json(
         resolve_bubble_branch_merge_conflicts(
             profile=args.profile,
             app_id=args.app_id or None,
             merge_app_version=args.merge_app_version,
-            changelog_data=_load_optional_json_object(args.changelog_data).get("changelog_data") if args.changelog_data else None,
+            changelog_data=changelog_data,
             session_id=args.session_id or None,
             execute=args.execute,
         )
@@ -988,8 +1046,11 @@ def command_metrics_logs(args: argparse.Namespace) -> int:
             start=args.start,
             end=args.end,
             messages=messages,
+            contains=args.contains or None,
             ascending=not args.descending,
             is_state_ar=not args.no_state_ar,
+            paginate=args.paginate,
+            max_pages=args.max_pages,
             limit=args.limit,
             include_raw=args.include_raw,
         )
@@ -1733,12 +1794,15 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser.add_argument(
         "--app-json-path",
         default="",
-        help="Path to a local .bubble export. Used before consolelog/crawler context fallbacks.",
+        help="Path to a local .bubble export. This is the authoritative context source when available.",
     )
     add_parser.add_argument(
         "--consolelog-json-path",
         default="",
-        help="Path to a local console.log(app) JSON/text capture. Used after .bubble and before crawler.",
+        help=(
+            "Path to a local console.log(app) JSON/text capture. It may complement .bubble; "
+            "without .bubble it is combined with the editor crawler."
+        ),
     )
     add_parser.set_defaults(func=command_profile_add)
 
@@ -1896,17 +1960,55 @@ def build_parser() -> argparse.ArgumentParser:
 
     detect_context_parser = context_subparsers.add_parser(
         "detect",
-        help="Detect and materialize context using .bubble/consolelog fallback and editor crawler.",
+        help=(
+            "Detect context from authoritative .bubble, or combine console.log(app) with the editor crawler."
+        ),
     )
     detect_context_parser.add_argument("--profile", required=True)
     detect_context_parser.add_argument("--app-id", default="")
-    detect_context_parser.add_argument("--app-version", default="test")
+    detect_context_parser.add_argument(
+        "--app-version",
+        default="",
+        help="Bubble version/branch id (e.g. test, live, or a branch id). Defaults to the profile's app_version, then the captured session's, then 'test'.",
+    )
     detect_context_parser.add_argument("--output", default="")
     detect_context_parser.add_argument("--bubble-file", default="")
     detect_context_parser.add_argument("--consolelog-file", default="")
     detect_context_parser.add_argument("--force", action="store_true")
     detect_context_parser.add_argument("--skip-id-to-path", action="store_true")
     detect_context_parser.set_defaults(func=command_context_detect)
+
+    inspect_bubble_parser = context_subparsers.add_parser(
+        "inspect-bubble",
+        help=(
+            "Diagnose a .bubble export: sections, version provenance, and whether reusable "
+            "definitions are material or only inferred from _index.id_to_path (sparse export)."
+        ),
+    )
+    inspect_bubble_parser.add_argument("--file", default="", help="Path to a .bubble export. Defaults to the profile's cached export.")
+    inspect_bubble_parser.add_argument("--profile", default="")
+    inspect_bubble_parser.add_argument("--app-id", default="")
+    inspect_bubble_parser.add_argument("--sample-limit", type=int, default=20)
+    inspect_bubble_parser.set_defaults(func=command_context_inspect_bubble)
+
+    hydrate_parser = context_subparsers.add_parser(
+        "hydrate-reusables",
+        help=(
+            "Deterministically fetch missing reusable definitions from the editor path API, "
+            "merge them into the cached .bubble export, re-split modules, and refresh context."
+        ),
+    )
+    hydrate_parser.add_argument("--profile", required=True)
+    hydrate_parser.add_argument("--app-id", default="")
+    hydrate_parser.add_argument(
+        "--app-version",
+        default="",
+        help="Bubble version/branch id. Defaults to the profile's app_version, then the session's, then 'test'.",
+    )
+    hydrate_parser.add_argument("--ids", default="", help="Comma-separated reusable ids. Defaults to every index-only id.")
+    hydrate_parser.add_argument("--batch-size", type=int, default=10)
+    hydrate_parser.add_argument("--file", default="", help="Explicit .bubble path. Defaults to the profile's cached export.")
+    hydrate_parser.set_defaults(func=command_context_hydrate_reusables)
 
     plan_parser = subparsers.add_parser("plan", help="Create a Bubble plan.")
     plan_parser.add_argument("message")
@@ -2103,7 +2205,7 @@ def build_parser() -> argparse.ArgumentParser:
     session_login_parser.add_argument("--app-version", default="")
     session_login_parser.add_argument(
         "--wait-seconds",
-        type=int,
+        type=positive_int,
         default=DEFAULT_LOGIN_WAIT_SECONDS,
         help=(
             "Maximum time to keep the browser open while polling and saving the latest Bubble cookies. "
@@ -2343,8 +2445,11 @@ def build_parser() -> argparse.ArgumentParser:
     logs_parser.add_argument("--start", required=True)
     logs_parser.add_argument("--end", required=True)
     logs_parser.add_argument("--message", action="append", default=[], help="Log message tag to include. Repeatable.")
+    logs_parser.add_argument("--contains", default="", help="Filter by workflow or action display name.")
     logs_parser.add_argument("--descending", action="store_true")
     logs_parser.add_argument("--no-state-ar", action="store_true")
+    logs_parser.add_argument("--paginate", action="store_true", help="Walk capped log pages across the time window.")
+    logs_parser.add_argument("--max-pages", type=int, default=10, help="Pagination request limit (1-25).")
     logs_parser.add_argument("--limit", type=int, default=100)
     logs_parser.add_argument("--include-raw", action="store_true")
     logs_parser.set_defaults(func=command_metrics_logs)

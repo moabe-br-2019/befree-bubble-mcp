@@ -9,12 +9,13 @@ import json
 import random
 import string
 import requests
-import copy
-import pickle
 import tempfile
+from copy import deepcopy
 from datetime import datetime
 import re
 from typing import Dict, List, Any, Optional, Union, Tuple
+
+from bubble_mcp.runtime_discovery import DiscoveryDataBoundary
 
 
 # ==========================================
@@ -1282,100 +1283,6 @@ class ElementBuilder:
             body["%s1"] = style
         return body
 
-    def text(
-        self,
-        name: str,
-        content: Union[str, Dict],
-        font_size: int = 16,
-        min_width: str = None, max_width: str = None, fixed_width: bool = False, fit_width: bool = False,
-        min_height: str = None, max_height: str = None, fixed_height: bool = False, fit_height: bool = False,
-        width_unset: bool = True,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """Cria um Text"""
-        element_id = self.id_gen.element_id()
-
-        # Check if content is already a full TextExpression dict
-        if isinstance(content, dict) and content.get("%x") == "TextExpression":
-             text_prop = content
-        elif isinstance(content, str) and content.startswith("current_cell_field:"):
-             # Handle "current_cell_field:title"
-             field_name = content.split(":")[1]
-             # Construct Bubble Expression: ParentGroup -> Field
-             text_prop = {
-                 "%x": "TextExpression",
-                 "%e": {
-                     "0": "", # Pre-text
-                     "1": {
-                         "%x": "ElementParent",
-                         "%p": None,
-                         "%n": {
-                             "%x": "Message",
-                             "%nm": f"{field_name}_text", # Heuristic: field_text? Or just field?
-                             # Actually for "Parent Group's Project's Title"
-                             # It is ElementParent -> .title (Message?)
-                             # Let's try mimicking the structure
-                             # The user payload showed: ElementParent -> Message(title_text)
-                             "%n": None,
-                             "%a": None,
-                             "is_slidable": False
-                         },
-                         "is_slidable": False
-                     },
-                     "2": "" # Post-text
-                 }
-             }
-        else:
-             text_prop = {
-                "%x": "TextExpression",
-                "%e": {"0": content}
-             }
-
-        properties = {
-            "%3": text_prop,
-            "%fs": font_size,
-            "font_size": font_size,
-            "color": kwargs.get("font_color") or kwargs.get("text_color") or kwargs.get("color", "#000000"),
-            "font_weight": kwargs.get("font_weight", "400"),
-            "horiz_alignment": kwargs.get("horiz_alignment", "flex-start"),
-            "%fa": kwargs.get("font_alignment", kwargs.get("fa", "left")),
-            # Left unset when the caller did not ask for a specific slot: BubbleCLI
-            # stamps max(sibling order)+1 so creation order is preserved.
-            "order": kwargs.get("order"),
-            **kwargs.get("extra_props", {})
-        }
-
-        # Apply new dimension logic
-        dim_args = {
-            "min_width": min_width, "max_width": max_width, "fixed_width": fixed_width, "fit_width": fit_width,
-            "min_height": min_height, "max_height": max_height, "fixed_height": fixed_height, "fit_height": fit_height
-        }
-        self._apply_dimensions(properties, dim_args)
-
-        self._add_visual_props(properties, kwargs)
-        self._prune_typography_overrides_for_style(
-            properties,
-            kwargs,
-            style_applied=bool(self._resolve_style_ref(kwargs)),
-        )
-
-        if width_unset:
-             properties = self._apply_width_unset(properties)
-
-        # Clean up internal markers
-        properties.pop("__explicit_dims", None)
-
-        body = {
-            "id": element_id,
-            "type": "Text",
-            "%x": "Text",
-            "%dn": name,
-            "%p": properties
-        }
-        style_ref = self._resolve_default_text_style_ref(properties, kwargs)
-        if style_ref:
-            body["%s1"] = style_ref
-        return body
 
     # Valid button_type values - MANDATORY from docs/bubble-api-elements.md
     VALID_BUTTON_TYPES = ["label", "label_icon", "icon"]
@@ -1546,9 +1453,7 @@ class ElementBuilder:
         }
         initial_content_canonical = initial_content_expr
         if isinstance(initial_content_expr, dict):
-            if initial_content_expr.get("type") == "TextExpression" and isinstance(initial_content_expr.get("entries"), dict):
-                initial_content_canonical = initial_content_expr
-            elif initial_content_expr.get("%x") == "TextExpression" and isinstance(initial_content_expr.get("%e"), dict):
+            if initial_content_expr.get("%x") == "TextExpression" and isinstance(initial_content_expr.get("%e"), dict):
                 initial_content_canonical = {
                     "type": "TextExpression",
                     "entries": dict(initial_content_expr.get("%e") or {}),
@@ -1621,119 +1526,6 @@ class ElementBuilder:
             "%p": properties
         }
 
-    def checkbox(
-        self,
-        name: str,
-        label: str = "Checkbox",
-        checked: bool = False,
-        required: bool = False,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """Cria um Checkbox"""
-        element_id = self.id_gen.element_id()
-
-        properties = {
-            "%lab": {
-                "%x": "TextExpression",
-                "%e": {"0": label}
-            },
-            "%ct": "checked" if checked else "unchecked",
-            "%1m": required,
-            "disabled": kwargs.get("disabled", False),
-            "%9i": kwargs.get("icon", "feather square"),
-            "min_height_css": "36px",
-            "min_width_css": "150px",
-            "fit_height": True,
-            "fit_width": True,
-            **kwargs.get("extra_props", {})
-        }
-
-        self._add_visual_props(properties, kwargs)
-        self._prune_typography_overrides_for_style(
-            properties,
-            kwargs,
-            style_applied=bool(self._resolve_style_ref(kwargs)),
-        )
-
-        return {
-            "id": element_id,
-            "%x": "Checkbox",
-            "%dn": name,
-            "%s1": kwargs.get("style", "Checkbox_standard"),
-            "%p": properties
-        }
-
-    def radio_button(
-        self,
-        name: str,
-        label: str = "Radio",
-        group_name: str = "radio_group",
-        selected: bool = False,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """Cria um Radio Button"""
-        element_id = self.id_gen.element_id()
-
-        properties = {
-            "%lab": {
-                "%x": "TextExpression",
-                "%e": {"0": label}
-            },
-            "radio_group": group_name,
-            "%ct": "checked" if selected else "unchecked",
-            "%9i": kwargs.get("icon", "feather circle"),
-            "min_height_css": "36px",
-            "min_width_css": "150px",
-            "fit_height": True,
-            "fit_width": True,
-            **kwargs.get("extra_props", {})
-        }
-
-        self._add_visual_props(properties, kwargs)
-
-        return {
-            "id": element_id,
-            "%x": "RadioButton",
-            "%dn": name,
-            "%s1": kwargs.get("style", "RadioButton_standard"),
-            "%p": properties
-        }
-
-    def date_picker(
-        self,
-        name: str,
-        placeholder: str = "Select date...",
-        show_time: bool = False,
-        required: bool = False,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """Cria um Date/Time Picker"""
-        element_id = self.id_gen.element_id()
-
-        properties = {
-            "%w": kwargs.get("width", 250),
-            "%h": kwargs.get("height", 48),
-            "min_width_css": "250px",
-            "min_height_css": "48px",
-            "placeholder": {
-                "%x": "TextExpression",
-                "%e": {"0": placeholder}
-            },
-            "input_type": "date_time" if show_time else "date",
-            "%1m": required,
-            "fit_width": True,
-            **kwargs.get("extra_props", {})
-        }
-
-        self._add_visual_props(properties, kwargs)
-
-        return {
-            "id": element_id,
-            "%x": "DateInput",
-            "%dn": name,
-            "%s1": kwargs.get("style", "DateInput_standard"),
-            "%p": properties
-        }
 
     def file_uploader(
         self,
@@ -2206,57 +1998,6 @@ class ElementBuilder:
             "%p": properties
         }
 
-    def checkbox(
-        self,
-        name: str,
-        label: str = "Checkbox",
-        checked: bool = False,
-        required: bool = False,
-        disabled: bool = False,
-        min_width: str = None, max_width: str = None, fixed_width: bool = False, fit_width: bool = False,
-        min_height: str = None, max_height: str = None, fixed_height: bool = False, fit_height: bool = False,
-        width_unset: bool = False,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """Cria um Checkbox"""
-        element_id = self.id_gen.element_id()
-
-        properties = {
-            "%lab": {
-                "%x": "TextExpression",
-                "%e": {"0": label}
-            },
-            "%ct": "checked" if checked else "unchecked",
-            "%1m": required,
-            "disabled": disabled,
-            "%9i": kwargs.get("icon", "feather square"),
-            "min_height_css": "36px",
-            "min_width_css": "150px",
-            **kwargs.get("extra_props", {})
-        }
-
-        # Apply new dimension logic
-        dim_args = {
-            "min_width": min_width, "max_width": max_width, "fixed_width": fixed_width, "fit_width": fit_width,
-            "min_height": min_height, "max_height": max_height, "fixed_height": fixed_height, "fit_height": fit_height
-        }
-        self._apply_dimensions(properties, dim_args)
-
-        self._add_visual_props(properties, kwargs)
-
-        if width_unset:
-             properties = self._apply_width_unset(properties)
-
-        # Clean up internal markers
-        properties.pop("__explicit_dims", None)
-
-        return {
-            "id": element_id,
-            "%x": "Checkbox",
-            "%dn": name,
-            "%s1": kwargs.get("style", "Checkbox_standard"),
-            "%p": properties
-        }
 
     def date_picker(
         self,
@@ -2769,8 +2510,6 @@ class ElementBuilder:
         self._add_visual_props(properties, kwargs)
         if vimeo_control_color is not None:
             properties["control_color_vimeo"] = vimeo_control_color
-        elif kwargs.get("vimeo_control_color") is not None:
-            properties["control_color_vimeo"] = kwargs.get("vimeo_control_color")
 
         if width_unset:
              properties = self._apply_width_unset(properties)
@@ -5080,6 +4819,23 @@ class StyleBuilder:
     Handles creation and property mapping for various Bubble elements.
     """
 
+    TRANSITION_PROP_MAPPING = {
+        "background_style": "%bas",
+        "background_color": "%bas",
+        "bg_color": "%bas",
+        "font_color": "%fc",
+        "icon_color": "%ic",
+        "border_color": "%bc",
+        "border_radius": "%br",
+        "border_width": "%bw",
+        "shadow_style": "%bs",
+        "box_shadow": "%bs",
+        "opacity": "opacity",
+        "width": "%w",
+        "height": "%h",
+    }
+    AUTO_TRANSITION_KEYS = {"%bas", "%fc", "%ic", "%bc", "%br", "%bs", "opacity"}
+
     def __init__(self, id_gen: 'BubbleIDGenerator' = None):
         self.id_gen = id_gen or BubbleIDGenerator()
 
@@ -5199,10 +4955,7 @@ class StyleBuilder:
         # Use kwargs to pass all properties to a temporary update_style call to generate the changes
         # Then convert the changes to a properties dict
 
-        # 1. Base props
-        props = {}
-
-        # 2. Use update_style logic to resolve all keys
+        # 1. Use update_style logic to resolve all keys
         # We'll create a dummy update_style result and extract the %p values
         temp_builder = StyleBuilder(self.id_gen)
         # Pass all known arguments plus kwargs
@@ -5272,7 +5025,7 @@ class StyleBuilder:
 
         changes = temp_builder.update_style(inject_defaults=False, **update_args)
 
-        # 3. Extract properties from changes
+        # 2. Extract properties from changes
         transitions_payload = {}
         props = {}
         for change in changes:
@@ -5359,7 +5112,7 @@ class StyleBuilder:
         border_style: str = None,              # %bos (shared)
 
         # Independent Borders
-        border_type: str = None,               # four_border_style: true (shared) / false (independent)
+        border_type: str = None,               # four_border_style: true (independent) / false (shared)
         border_style_top: str = None,          # border_style_top
         border_style_bottom: str = None,       # border_style_bottom
         border_style_left: str = None,         # border_style_left
@@ -5414,11 +5167,6 @@ class StyleBuilder:
             val = kwargs.pop("background_color")
             if bg_color is None:
                 bg_color = val
-        if "slider_background_color" in kwargs:
-            val = kwargs.pop("slider_background_color")
-            if slider_background_color is None:
-                slider_background_color = val
-
         # RepeatingGroup separator aliases.
         separator_style = kwargs.pop("separator_style", None)
         separator_width = kwargs.pop("separator_width", None)
@@ -5609,25 +5357,8 @@ class StyleBuilder:
 
         # Transitions Logic
         if transitions:
-            # Map friendly names to keys
-            prop_map = {
-                "background_style": "%bas",
-                "background_color": "%bas",
-                "bg_color": "%bas",
-                "font_color": "%fc",
-                "icon_color": "%ic",
-                "border_color": "%bc",
-                "border_radius": "%br",
-                "border_width": "%bw",
-                "shadow_style": "%bs",
-                "box_shadow": "%bs",
-                "opacity": "opacity",
-                "width": "%w",
-                "height": "%h"
-            }
-
             for prop, settings in transitions.items():
-                bubble_key = prop_map.get(prop, prop) # Fallback to prop if not in map
+                bubble_key = self.TRANSITION_PROP_MAPPING.get(prop, prop)
                 changes.append({
                     "intent": "AddTransition",
                     "path": ["styles", style_id, "transitions", bubble_key],
@@ -5635,6 +5366,25 @@ class StyleBuilder:
                 })
 
         return changes
+
+    def build_state_transition_intents(
+        self,
+        style_id: str,
+        properties: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Build ordered automatic state transitions through SDK-owned wire mappings."""
+        transitions: Dict[str, Dict[str, Any]] = {}
+        for property_name in properties:
+            bubble_key = (
+                property_name
+                if property_name.startswith("%")
+                else self.TRANSITION_PROP_MAPPING.get(property_name)
+            )
+            if bubble_key in self.AUTO_TRANSITION_KEYS and bubble_key not in transitions:
+                transitions[bubble_key] = {"duration": 200, "fn": "ease"}
+        if not transitions:
+            return []
+        return self.update_style(style_id=style_id, transitions=transitions)
 
     def apply_theme(
         self,
@@ -5688,35 +5438,20 @@ class StyleBuilder:
 
         # 3. Automatic Transitions Rule
         # If any state change affects transitionable properties, add them to the base style
-        transitionable_props = {
-            "%bgc": "background_color",
-            "%fc": "font_color",
-            "%ic": "icon_color",
-            "%bc": "border_color",
-            "%br": "border_radius",
-            "%bs": "shadow_style",
-            "opacity": "opacity"
-        }
-
-        needed_transitions = {}
+        state_transition_properties = {}
         for state_key, state_props in theme.items():
-            if state_key == "base": continue
+            if state_key == "base":
+                continue
             for prop in state_props.keys():
-                # Map prop to bubble key
-                bkey = prop if prop.startswith("%") else None
-                if not bkey:
-                    # Try to find in reverse mapping or common names
-                    for bk, pk in transitionable_props.items():
-                        if prop == pk or prop == bk:
-                            bkey = bk
-                            break
+                state_transition_properties.setdefault(prop, None)
 
-                if bkey in transitionable_props:
-                    needed_transitions[bkey] = {"duration": 200, "fn": "ease"}
-
-        if needed_transitions:
-            logger.info(f"Auto-injecting {len(needed_transitions)} transitions for style {style_id}")
-            all_changes.extend(self.update_style(style_id=style_id, transitions=needed_transitions))
+        transition_intents = self.build_state_transition_intents(
+            style_id,
+            state_transition_properties,
+        )
+        if transition_intents:
+            logger.info(f"Auto-injecting {len(transition_intents)} transitions for style {style_id}")
+            all_changes.extend(transition_intents)
 
         return all_changes
 
@@ -5754,7 +5489,7 @@ class StyleBuilder:
             return {}
 
         # 1. Create the root condition node
-        root_type, root_op = condition_chain[0]
+        root_type, _ = condition_chain[0]
         root = {
             "%x": "ThisElement",
             "%n": StyleBuilder._build_condition_node(root_type),
@@ -5768,8 +5503,8 @@ class StyleBuilder:
         # We process item i's operator, which wraps item i+1.
 
         for i in range(len(condition_chain) - 1):
-            current_type, op = condition_chain[i]
-            next_type, next_op = condition_chain[i+1]
+            _, op = condition_chain[i]
+            next_type, _ = condition_chain[i+1]
 
             # Use provided operator or default to or_ if missing (fallback)
             clean_op = op if op in ["and_", "or_"] else "or_"
@@ -5798,7 +5533,7 @@ class StyleBuilder:
     def add_style_condition(
         style_id: str,
         condition_id: str, # e.g. bTUud0
-        condition_type: Union[str, List[str], List[Tuple[str, str]]], # "hover", ["hover", "focus"], [('hover', 'and_'), ('focus', None)]
+        condition_type: Union[str, List[str], List[Tuple[str, Optional[str]]]], # "hover", ["hover", "focus"], [('hover', 'and_'), ('focus', None)]
         properties: Dict[str, Any],
         is_new: bool = True
     ) -> List[Dict[str, Any]]:
@@ -6452,8 +6187,6 @@ class PayloadBuilder:
 
         return self, id_mapping
 
-        return self, id_mapping
-
 
     def add_create_style(
         self,
@@ -6736,20 +6469,19 @@ class PayloadBuilder:
         """Retorna JSON string"""
         return json.dumps(self.build(), indent=indent)
 
-    def to_json(self, indent: int = 2) -> str:
-        """Retorna JSON string"""
-        return json.dumps(self.build(), indent=indent)
-
     def save(self, filename: str):
         """Salva em arquivo JSON"""
         with open(filename, 'w') as f:
             json.dump(self.build(), f, indent=2)
         logger.success(f"Payload salvo em {filename}")
 
-    def send_to_webhook(self, url: str = "local://bubble-mcp"):
+    def send_to_webhook(self, url: str = "local://bubble-mcp", *, sensitive: bool = False):
         """Envia para o webhook do editor"""
         payload = self.build()
-        client = WebhookClient(url=url, app_name=self.appname)
+        if sensitive:
+            client = WebhookClient(url=url, app_name=self.appname, sensitive=True)
+        else:
+            client = WebhookClient(url=url, app_name=self.appname)
         return client.send(payload)
 
 
@@ -6769,38 +6501,61 @@ class BubbleAppMapper:
         self.elements = {} # {page_name: {element_name: element_id}}
         self._load_map()
 
+    @staticmethod
+    def _read_mapping_source(path: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Read one mapping artifact, failing closed so fallback sources remain usable."""
+        if not path or not os.path.exists(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(f"Could not read app mapping source {path}: {exc}")
+            return None
+        if not isinstance(data, dict):
+            logger.warning(f"App mapping source must contain a JSON object: {path}")
+            return None
+        return data
+
 
     def _load_map(self):
         """Carrega e indexa o JSON do app (Auto-detect format with fallback)"""
-        data = None
+        seen_paths = set()
+        for path in (self.app_json_path, self.consolelog_json_path):
+            if not path or path in seen_paths:
+                continue
+            seen_paths.add(path)
 
-        # Try primary source
-        if self.app_json_path and os.path.exists(self.app_json_path):
-            try:
-                with open(self.app_json_path, 'r') as f:
-                    data = json.load(f)
-            except FileNotFoundError:
-                pass
+            data = self._read_mapping_source(path)
+            if data is None:
+                continue
 
-        # Fallback to console.log
-        if data is None and self.consolelog_json_path and os.path.exists(self.consolelog_json_path):
-            try:
-                with open(self.consolelog_json_path, 'r') as f:
-                    data = json.load(f)
-            except FileNotFoundError:
-                pass
+            self.pages.clear()
+            self.elements.clear()
 
-        if not data:
-            logger.warning("No app data found for mapping")
-            return
+            if 'pages' in data:
+                pages = data.get('pages')
+                element_definitions = data.get('element_definitions', {})
+                if isinstance(pages, dict) and isinstance(element_definitions, dict):
+                    self._load_native_map(data)
+                else:
+                    logger.warning(f"Invalid native app mapping format: {path}")
+            elif '%p3' in data:
+                if isinstance(data.get('%p3'), dict):
+                    self._load_legacy_map(data)
+                else:
+                    logger.warning(f"Invalid legacy app mapping format: {path}")
+            else:
+                logger.warning(f"Unknown app format: {path}")
 
-        # Auto-detect format
-        if 'pages' in data:
-            self._load_native_map(data)
-        elif '%p3' in data:
-            self._load_legacy_map(data)
-        else:
-            logger.warning(f"Unknown app format")
+            if self.pages:
+                return
+
+            logger.warning(f"App mapping source produced no usable mappings: {path}")
+
+        self.pages.clear()
+        self.elements.clear()
+        logger.warning("No app data found for mapping")
 
     def _load_native_map(self, data: Dict[str, Any]):
         """Carrega formato nativo (app.bubble)"""
@@ -6852,6 +6607,8 @@ class BubbleAppMapper:
         """Carrega formato legacy/export (consolelog-app.json)"""
         p3 = data.get('%p3', {})
         for page_id, page_data in p3.items():
+            if not isinstance(page_data, dict):
+                continue
             if page_data.get('%x') in ['Page', 'ReusableElement']:
                 page_name = page_data.get('%nm') or page_data.get('%dn')
                 if page_name:
@@ -6861,7 +6618,11 @@ class BubbleAppMapper:
                     # Legacy is usually flat in %el ? Or need recursion too?
                     # Assuming flat based on previous observations, but recursion is safer if structure varies.
                     elements = page_data.get('%el', {})
+                    if not isinstance(elements, dict):
+                        continue
                     for el_id, el_data in elements.items():
+                        if not isinstance(el_data, dict):
+                            continue
                         el_name = el_data.get('%dn')
                         if el_name:
                             self.elements[page_name][el_name] = el_id
@@ -6879,7 +6640,7 @@ class BubbleAppMapper:
 # PATH DISCOVERY ENGINE
 # ==========================================
 
-class PathDiscovery:
+class PathDiscovery(DiscoveryDataBoundary):
     """
     Auto-discovers element paths in app.bubble file.
     Eliminates manual path lookup for CLI operations.
@@ -6893,12 +6654,71 @@ class PathDiscovery:
         mutation_overlay_path: Optional[str] = None,
     ):
         print(f"[PathDiscovery] INIT: app_path={app_json_path}, console_path={consolelog_json_path}, crawler_path={crawler_index_path}, overlay_path={mutation_overlay_path}")
-        self.app_json_path = app_json_path
-        self.consolelog_json_path = consolelog_json_path
-        self.crawler_index_path = crawler_index_path
-        self.mutation_overlay_path = mutation_overlay_path
-        self._data = None
-        self._data_source = None  # Track which source was used
+        super().__init__(
+            app_json_path=app_json_path,
+            consolelog_json_path=consolelog_json_path,
+            crawler_index_path=crawler_index_path,
+            mutation_overlay_path=mutation_overlay_path,
+            logger=logger,
+        )
+
+    @staticmethod
+    def _read_alias_mapping(
+        obj: Any,
+        preferred_key: str,
+        alternate_key: str,
+    ) -> Dict[str, Any]:
+        """Resolve two mapping aliases without mutating their source object."""
+        if not isinstance(obj, dict):
+            return {}
+
+        preferred = obj.get(preferred_key)
+        alternate = obj.get(alternate_key)
+        preferred_mapping = preferred if isinstance(preferred, dict) else None
+        alternate_mapping = alternate if isinstance(alternate, dict) else None
+
+        if preferred_mapping is None:
+            return alternate_mapping if alternate_mapping is not None else {}
+        if alternate_mapping is None or preferred_mapping is alternate_mapping:
+            return preferred_mapping
+
+        # Preserve alternate-only records before the preferred mapping, which
+        # retains preferred values and its insertion order on collisions.
+        return {
+            **{key: value for key, value in alternate_mapping.items() if key not in preferred_mapping},
+            **preferred_mapping,
+        }
+
+    @staticmethod
+    def _read_nonempty_alias_mapping(
+        obj: Any,
+        preferred_key: str,
+        alternate_key: str,
+    ) -> Dict[str, Any]:
+        """Resolve property-like aliases, falling back when the preferred map is empty."""
+        if not isinstance(obj, dict):
+            return {}
+
+        preferred = obj.get(preferred_key)
+        alternate = obj.get(alternate_key)
+        if isinstance(preferred, dict) and preferred:
+            return preferred
+        if isinstance(alternate, dict):
+            return alternate
+        return preferred if isinstance(preferred, dict) else {}
+
+    @classmethod
+    def _sync_alias_mapping(
+        cls,
+        obj: Dict[str, Any],
+        preferred_key: str,
+        alternate_key: str,
+    ) -> Dict[str, Any]:
+        """Install one shared mutable mapping under both aliases and return it."""
+        resolved = cls._read_alias_mapping(obj, preferred_key, alternate_key)
+        obj[preferred_key] = resolved
+        obj[alternate_key] = resolved
+        return resolved
 
     def _load_crawler_index(self, path: Optional[str]) -> Optional[Dict[str, Any]]:
         """
@@ -6984,125 +6804,6 @@ class PathDiscovery:
             "backend_workflows": backend_workflows_by_id,
             "api_connector_collections": collections_by_id,
         }
-
-    def _load_mutation_overlay(self, path: Optional[str]) -> List[Dict[str, Any]]:
-        if not path or not os.path.exists(path):
-            return []
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-        except Exception as exc:
-            logger.warning(f"[PathDiscovery] Could not read mutation overlay at {path}: {exc}")
-            return []
-
-        entries = raw.get("entries") if isinstance(raw, dict) else None
-        if not isinstance(entries, list):
-            return []
-        return [entry for entry in entries if isinstance(entry, dict) and isinstance(entry.get("changes"), list)]
-
-    @staticmethod
-    def _normalize_overlay_path_array(path_array: Any) -> List[str]:
-        if not isinstance(path_array, list):
-            return []
-        normalized: List[str] = []
-        for segment in path_array:
-            if isinstance(segment, (str, int, float)):
-                text = str(segment)
-                if text:
-                    normalized.append(text)
-        return normalized
-
-    @staticmethod
-    def _set_nested_overlay_value(target: Dict[str, Any], path_parts: List[str], value: Any) -> None:
-        if not path_parts:
-            return
-        cur: Dict[str, Any] = target
-        for token in path_parts[:-1]:
-            nxt = cur.get(token)
-            if not isinstance(nxt, dict):
-                nxt = {}
-                cur[token] = nxt
-            cur = nxt
-        cur[path_parts[-1]] = copy.deepcopy(value)
-
-    @staticmethod
-    def _delete_nested_overlay_value(target: Dict[str, Any], path_parts: List[str]) -> None:
-        if not path_parts:
-            return
-        cur: Dict[str, Any] = target
-        for token in path_parts[:-1]:
-            nxt = cur.get(token)
-            if not isinstance(nxt, dict):
-                return
-            cur = nxt
-        cur.pop(path_parts[-1], None)
-
-    @staticmethod
-    def _delete_aliased_overlay_record(target: Dict[str, Any], bucket_names: List[str], key: str) -> None:
-        aliases = {key}
-        for bucket_name in bucket_names:
-            bucket = target.get(bucket_name)
-            if not isinstance(bucket, dict):
-                continue
-            direct = bucket.get(key)
-            if not isinstance(direct, dict):
-                continue
-            for alias in (direct.get("id"), direct.get("%nm"), direct.get("name"), direct.get("%d")):
-                if isinstance(alias, str) and alias.strip():
-                    aliases.add(alias.strip())
-
-        for bucket_name in bucket_names:
-            bucket = target.get(bucket_name)
-            if not isinstance(bucket, dict):
-                continue
-            for candidate_key, value in list(bucket.items()):
-                should_delete = candidate_key in aliases
-                if not should_delete and isinstance(value, dict):
-                    for alias in (value.get("id"), value.get("%nm"), value.get("name"), value.get("%d")):
-                        if isinstance(alias, str) and alias.strip() in aliases:
-                            should_delete = True
-                            break
-                if should_delete:
-                    bucket.pop(candidate_key, None)
-
-    def _delete_overlay_value(self, target: Dict[str, Any], path_parts: List[str]) -> None:
-        if len(path_parts) == 2 and path_parts[0] in {"%p3", "pages", "all_pages"}:
-            self._delete_aliased_overlay_record(target, ["%p3", "pages", "all_pages"], path_parts[1])
-            return
-        if len(path_parts) == 2 and path_parts[0] in {"%ed", "element_definitions", "CustomDefinition", "custom_definitions"}:
-            self._delete_aliased_overlay_record(target, ["%ed", "element_definitions", "CustomDefinition", "custom_definitions"], path_parts[1])
-            return
-        self._delete_nested_overlay_value(target, path_parts)
-
-    def _apply_mutation_overlay(self, data: Dict[str, Any], entries: List[Dict[str, Any]]) -> Dict[str, Any]:
-        if not isinstance(data, dict) or not entries:
-            return data
-        for entry in entries:
-            changes = entry.get("changes") if isinstance(entry, dict) else None
-            if not isinstance(changes, list):
-                continue
-            for change in changes:
-                if not isinstance(change, dict):
-                    continue
-                path_parts = self._normalize_overlay_path_array(change.get("path_array"))
-                if not path_parts:
-                    continue
-                intent = change.get("intent") if isinstance(change.get("intent"), dict) else {}
-                intent_name = str(intent.get("name") or "").strip()
-                lowered_intent = intent_name.lower()
-                is_delete = (
-                    intent_name == "RemoveElement"
-                    or lowered_intent.startswith("delete")
-                    or lowered_intent == "removeelement"
-                    or (len(path_parts) > 0 and path_parts[-1] == "%del")
-                )
-                if is_delete:
-                    delete_path = path_parts[:-1] if path_parts and path_parts[-1] == "%del" else path_parts
-                    self._delete_overlay_value(data, delete_path)
-                    continue
-                if "body" in change:
-                    self._set_nested_overlay_value(data, path_parts, change.get("body"))
-        return data
 
     def _merge_crawler_into_data(
         self,
@@ -7294,13 +6995,6 @@ class PathDiscovery:
 
         return data
 
-    def _cache_enabled(self) -> bool:
-        raw = str(os.getenv("BUBBLE_CLI_DISCOVERY_CACHE", "1")).strip().lower()
-        return raw not in {"0", "false", "no", "off"}
-
-    def _cache_path_for_source(self, source_path: str) -> str:
-        return f"{source_path}.parsed-cache.pkl"
-
     def _normalize_api_connector_collections(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalize API Connector collections from consolelog/app data into a stable alias.
@@ -7368,201 +7062,38 @@ class PathDiscovery:
                 data["plugin_special"] = collections
         return data
 
-    def _load_json_with_disk_cache(self, source_path: str) -> Dict[str, Any]:
-        """
-        Load JSON source using a persistent pickle cache keyed by mtime+size.
-        This avoids expensive full JSON parsing on every CLI/MCP subprocess call.
-        """
-        if not source_path:
-            return {}
-        if not self._cache_enabled():
-            with open(source_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-
-        try:
-            stat = os.stat(source_path)
-            source_mtime = float(getattr(stat, "st_mtime", 0.0))
-            source_size = int(getattr(stat, "st_size", 0))
-        except Exception:
-            with open(source_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-
-        cache_path = self._cache_path_for_source(source_path)
-        try:
-            if os.path.exists(cache_path):
-                with open(cache_path, "rb") as cf:
-                    payload = pickle.load(cf)
-                if isinstance(payload, dict):
-                    meta = payload.get("__meta__", {})
-                    cached_mtime = float(meta.get("mtime", -1))
-                    cached_size = int(meta.get("size", -1))
-                    cached_data = payload.get("data")
-                    if (
-                        cached_mtime == source_mtime
-                        and cached_size == source_size
-                        and isinstance(cached_data, dict)
-                        and cached_data # Valid dict
-                    ):
-                        return cached_data
-        except Exception:
-            # Cache is best-effort; fallback to source parse.
-            pass
-
-        with open(source_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        try:
-            cache_payload = {
-                "__meta__": {"mtime": source_mtime, "size": source_size},
-                "data": data,
-            }
-            with open(cache_path, "wb") as cf:
-                pickle.dump(cache_payload, cf, protocol=pickle.HIGHEST_PROTOCOL)
-        except Exception:
-            # Ignore cache write failures.
-            pass
-        return data
-
-    @property
-    def data(self) -> Dict[str, Any]:
-        """Lazy load app data with fallback logic"""
-        if self._data is None:
-            # Try primary source first
-            if self.app_json_path and os.path.exists(self.app_json_path):
-                try:
-                    self._data = self._load_json_with_disk_cache(self.app_json_path)
-                    self._data = self._normalize_api_connector_collections(self._data)
-                    self._data_source = "app.bubble"
-                except FileNotFoundError:
-                    pass
-
-            # Fallback to console.log JSON
-            if self._data is None and self.consolelog_json_path and os.path.exists(self.consolelog_json_path):
-                try:
-                    print(f"[PathDiscovery] Opening consolelog: {self.consolelog_json_path}")
-                    self._data = self._load_json_with_disk_cache(self.consolelog_json_path)
-                    self._data = self._normalize_api_connector_collections(self._data)
-                    self._data_source = "consolelog"
-                    logger.info(f"Using console.log fallback: {self.consolelog_json_path}")
-                except FileNotFoundError:
-                    pass
-
-            # Enrich with crawler-index if available
-            # We now do this for ALL sources, including .bubble, to ensure the most
-            # recent discovery findings from Aria are integrated.
-            if self.crawler_index_path and os.path.exists(self.crawler_index_path):
-                crawler = self._load_crawler_index(self.crawler_index_path)
-                if crawler:
-                    if self._data is None:
-                        # Crawler-only profile (e.g. the .bubble export endpoint returned 401,
-                        # common on free plans): use the crawler-index as the PRIMARY source
-                        # instead of failing with "No app data source found".
-                        self._data = self._merge_crawler_into_data({}, crawler)
-                        self._data_source = "crawler"
-                        logger.info("[PathDiscovery] Using crawler-index as primary data source")
-                    else:
-                        self._data = self._merge_crawler_into_data(self._data, crawler)
-                        self._data_source = f"{self._data_source}+crawler"
-                        logger.info(f"[PathDiscovery] Merged crawler-index into {self._data_source} data")
-
-            if self._data is not None and self.mutation_overlay_path and os.path.exists(self.mutation_overlay_path):
-                overlay_entries = self._load_mutation_overlay(self.mutation_overlay_path)
-                if overlay_entries:
-                    self._data = self._apply_mutation_overlay(self._data, overlay_entries)
-                    self._data_source = f"{self._data_source}+overlay"
-                    logger.info(f"[PathDiscovery] Applied mutation overlay into {self._data_source} data")
-
-            # No data source found
-            if self._data is None:
-                logger.warning("No app data source found")
-                self._data = {}
-                self._data_source = "none"
-
-            logger.info(f" [DEBUG] load_discovery_cache: data loaded from {self._data_source}. Keys: {list(self._data.keys())}")
-
-        return self._data
-
-    def refresh(self) -> Dict[str, Any]:
-        """Force reload app data from disk"""
-        self._data = None
-        return self.data
-
-    @property
-    def source_path(self) -> str:
-        """Returns the path of the source currently being used"""
-        if self._data is None:
-            _ = self.data # Trigger load
-
-        if self._data_source == "consolelog":
-            return self.consolelog_json_path
-        return self.app_json_path
-
-    def persist_disk_cache(self) -> bool:
-        """
-        Persist the current in-memory discovery snapshot to the parsed-cache pickle
-        associated with the active source JSON file.
-
-        This keeps CLI/MCP-created or updated elements discoverable across
-        subprocesses without forcing a full profile refresh.
-        """
-        if self._data is None or not isinstance(self._data, dict):
-            return False
-        source_path = self.source_path
-        if not source_path or not self._cache_enabled():
-            return False
-        try:
-            stat = os.stat(source_path)
-            source_mtime = float(getattr(stat, "st_mtime", 0.0))
-            source_size = int(getattr(stat, "st_size", 0))
-        except Exception:
-            source_mtime = 0.0
-            source_size = 0
-
-        cache_path = self._cache_path_for_source(source_path)
-        try:
-            cache_payload = {
-                "__meta__": {"mtime": source_mtime, "size": source_size},
-                "data": self._data,
-            }
-            with open(cache_path, "wb") as cf:
-                pickle.dump(cache_payload, cf, protocol=pickle.HIGHEST_PROTOCOL)
-            return True
-        except Exception:
-            return False
-
     def _get_context_root(self, context_id: str, context_type: str) -> Optional[Dict]:
         """Get the root object for a context, handling standard and raw formats."""
         if context_type == "reusable":
             standard = self.data.get('element_definitions', {})
             raw = self.data.get('%ed', {})
-            res = None
-            if isinstance(standard, dict):
-                res = standard.get(context_id)
-            if not res and isinstance(raw, dict):
-                res = raw.get(context_id)
-            if not res:
+            if isinstance(standard, dict) and isinstance(standard.get(context_id), dict):
+                return standard[context_id]
+            if isinstance(raw, dict) and isinstance(raw.get(context_id), dict):
+                return raw[context_id]
+            else:
                 reusable_ids: List[str] = []
                 if isinstance(standard, dict):
                     reusable_ids.extend(list(standard.keys()))
                 if isinstance(raw, dict):
                     reusable_ids.extend([rid for rid in raw.keys() if rid not in reusable_ids])
                 logger.info(f" [DEBUG] _get_context_root: '{context_id}' not found in reusables. IDs: {reusable_ids}")
-            return res
+            return None
         else:
             standard = self.data.get('pages', {})
             raw = self.data.get('%p3', {})
-            res = None
-            if isinstance(standard, dict):
-                res = standard.get(context_id)
-            if not res and isinstance(raw, dict):
-                res = raw.get(context_id)
-            if not res:
+            if isinstance(standard, dict) and isinstance(standard.get(context_id), dict):
+                return standard[context_id]
+            if isinstance(raw, dict) and isinstance(raw.get(context_id), dict):
+                return raw[context_id]
+            else:
                 page_ids: List[str] = []
                 if isinstance(standard, dict):
                     page_ids.extend(list(standard.keys()))
                 if isinstance(raw, dict):
                     page_ids.extend([pid for pid in raw.keys() if pid not in page_ids])
                 logger.info(f" [DEBUG] _get_context_root: '{context_id}' not found in pages. IDs: {page_ids}")
-            return res
+            return None
 
     def find_reusable(self, name: str) -> Optional[str]:
         """
@@ -7580,17 +7111,20 @@ class PathDiscovery:
         The dict key and the definition's inner "id" often differ; instances created
         by the Bubble editor reference the INNER id in %p.custom_id, never the key.
         """
-        reusables = self.data.get('element_definitions', {}) or self.data.get('%ed', {})
-        if not reusables or not isinstance(reusables, dict):
-            return None
-
         name_lower = self._norm_lookup(name)
-        for el_key, el_data in reusables.items():
-            if isinstance(el_data, dict):
-                el_name = el_data.get('name') or el_data.get('%nm', '')
-                if self._norm_lookup(el_name) == name_lower:
-                    logger.info(f" [DEBUG] find_reusable_definition: '{name}' -> key '{el_key}' id '{el_data.get('id')}'")
-                    return str(el_key), el_data
+        seen_keys = set()
+        for reusables in (self.data.get('element_definitions'), self.data.get('%ed')):
+            if not isinstance(reusables, dict):
+                continue
+            for el_key, el_data in reusables.items():
+                if el_key in seen_keys:
+                    continue
+                seen_keys.add(el_key)
+                if isinstance(el_data, dict):
+                    el_name = el_data.get('name') or el_data.get('%nm', '')
+                    if self._norm_lookup(el_name) == name_lower:
+                        logger.info(f" [DEBUG] find_reusable_definition: '{name}' -> key '{el_key}' id '{el_data.get('id')}'")
+                        return str(el_key), el_data
         return None
 
     def find_page(self, name: str) -> Optional[str]:
@@ -7598,16 +7132,19 @@ class PathDiscovery:
         Find page ID by name (case-insensitive).
         Returns: page_id or None
         """
-        pages = self.data.get('pages') or self.data.get('%p3')
-        if not pages or not isinstance(pages, dict):
-            return None
-
         name_lower = self._norm_lookup(name)
-        for page_id, page_data in pages.items():
-            if isinstance(page_data, dict):
-                page_name = page_data.get('name') or page_data.get('%nm', '')
-                if self._norm_lookup(page_name) == name_lower:
-                    return page_id
+        seen_ids = set()
+        for pages in (self.data.get('pages'), self.data.get('%p3')):
+            if not isinstance(pages, dict):
+                continue
+            for page_id, page_data in pages.items():
+                if page_id in seen_ids:
+                    continue
+                seen_ids.add(page_id)
+                if isinstance(page_data, dict):
+                    page_name = page_data.get('name') or page_data.get('%nm', '')
+                    if self._norm_lookup(page_name) == name_lower:
+                        return page_id
         return None
 
     def find_element_by_text(self, context_id: str, text: str, context_type: str = "reusable") -> Optional[Dict]:
@@ -7617,7 +7154,7 @@ class PathDiscovery:
         """
         root = self._get_context_root(context_id, context_type)
 
-        if not root:
+        if root is None:
             return None
 
         needle = self._norm_lookup(text)
@@ -7630,7 +7167,7 @@ class PathDiscovery:
                         return {'path': path_parts, 'id': obj.get('id'), 'element': obj}
 
                 # Search children
-                elements = obj.get('elements') or obj.get('%el', {})
+                elements = self._read_alias_mapping(obj, 'elements', '%el')
                 if isinstance(elements, dict):
                     for key, value in elements.items():
                         if key == "length": continue
@@ -7665,7 +7202,7 @@ class PathDiscovery:
         """
         root = self._get_context_root(context_id, context_type)
 
-        if not root:
+        if root is None:
             return None
 
         name_lower = self._norm_lookup(name)
@@ -7686,7 +7223,7 @@ class PathDiscovery:
                 elif any(name_lower in candidate for candidate in normalized_candidates):
                     fuzzy_matches.append(match)
 
-                elements = obj.get('elements') or obj.get('%el', {})
+                elements = self._read_alias_mapping(obj, 'elements', '%el')
                 if isinstance(elements, dict):
                     for key, value in elements.items():
                         if key == "length": continue
@@ -7710,7 +7247,7 @@ class PathDiscovery:
         Returns: {'path': [...], 'id': str, 'element': dict} or None
         """
         root = self._get_context_root(context_id, context_type)
-        if not root:
+        if root is None:
             logger.warning(f" [DEBUG] find_element_by_id: root not found for {context_id}")
             return None
 
@@ -7722,7 +7259,7 @@ class PathDiscovery:
                 if str(obj.get('id')) == str(element_id):
                     return {'path': path_parts, 'id': obj.get('id'), 'element': obj}
 
-                elements = obj.get('elements') or obj.get('%el', {})
+                elements = self._read_alias_mapping(obj, 'elements', '%el')
                 if isinstance(elements, dict):
                     for key, value in elements.items():
                         if key == "length": continue
@@ -7744,7 +7281,7 @@ class PathDiscovery:
         """
         root = self._get_context_root(context_id, context_type)
 
-        if not root:
+        if root is None:
             return None
 
         name_lower = self._norm_lookup(name)
@@ -7758,7 +7295,7 @@ class PathDiscovery:
                         return {'path': path_parts, 'id': obj.get('id'), 'element': obj}
 
                 # Search children
-                elements = obj.get('elements') or obj.get('%el', {})
+                elements = self._read_alias_mapping(obj, 'elements', '%el')
                 if isinstance(elements, dict):
                     for key, value in elements.items():
                         if key == "length": continue
@@ -7806,7 +7343,7 @@ class PathDiscovery:
         """
         if not isinstance(obj, dict):
             return []
-        props = obj.get("properties", {}) if isinstance(obj.get("properties"), dict) else {}
+        props = self._read_nonempty_alias_mapping(obj, "properties", "%p")
         el_type = obj.get("type") or obj.get("%x") or ""
         el_type_norm = str(el_type).strip()
 
@@ -7814,6 +7351,8 @@ class PathDiscovery:
         base_names = [
             obj.get("name", ""),
             obj.get("default_name", ""),
+            obj.get("%nm", ""),
+            obj.get("%dn", ""),
             props.get("element_name", "")
         ]
         for value in base_names:
@@ -7823,15 +7362,16 @@ class PathDiscovery:
                     candidates.append(f"{el_type_norm} {value}")
 
         # Label/content-like values shown by Bubble UI
-        text_plain = self._plain_text_from_expr(props.get("text"))
-        if text_plain:
-            candidates.append(text_plain)
-            if el_type_norm:
-                candidates.append(f"{el_type_norm} {text_plain}")
-            if el_type_norm.lower() == "button":
-                candidates.append(f"Button {text_plain}")
-            if el_type_norm.lower() == "text":
-                candidates.append(f"Text {text_plain}")
+        for text_expr in (props.get("text"), props.get("%3")):
+            text_plain = self._plain_text_from_expr(text_expr)
+            if text_plain:
+                candidates.append(text_plain)
+                if el_type_norm:
+                    candidates.append(f"{el_type_norm} {text_plain}")
+                if el_type_norm.lower() == "button":
+                    candidates.append(f"Button {text_plain}")
+                if el_type_norm.lower() == "text":
+                    candidates.append(f"Text {text_plain}")
 
         # Icon values shown in Icon and some Button editors
         icon_value = props.get("icon") or props.get("%9i")
@@ -7923,7 +7463,7 @@ class PathDiscovery:
         # Get Root
         root = self._get_context_root(context_id, context_type)
 
-        if not root:
+        if root is None:
             # Auto-create context root for newly created reusables/pages
             # This handles the case where create_reusable sends via webhook
             # but the local JSON hasn't been refreshed yet.
@@ -7931,28 +7471,16 @@ class PathDiscovery:
             # Also try raw format keys
             raw_key = '%ed' if context_type == "reusable" else '%p3'
 
-            # Determine which top-level key exists in data, prefer standard format
-            if container_key in self.data:
-                target_key = container_key
-            elif raw_key in self.data:
-                target_key = raw_key
-            else:
-                # Create standard format container
-                self.data[container_key] = {}
-                target_key = container_key
+            contexts = self._sync_alias_mapping(self.data, container_key, raw_key)
 
             # Create a minimal root entry
-            self.data[target_key][context_id] = {
+            contexts[context_id] = {
                 "id": context_id,
                 "name": element_data.get('%dn', '') or element_data.get('name', ''),
                 "elements": {}
             }
-            root = self.data[target_key][context_id]
-            logger.info(f"Auto-created context root for {context_id} in {target_key}")
-
-        # Determine children key based on root format
-        # In raw format, it's %el. In standard format, it's elements.
-        children_key = "%el" if "%el" in root or "%x" in root else "elements"
+            root = contexts[context_id]
+            logger.info(f"Auto-created context root for {context_id} in {container_key}")
 
         # Prepare element structure for discovery (simplified)
         # discovery looks for 'name', 'default_name', 'id'
@@ -7983,66 +7511,48 @@ class PathDiscovery:
 
         # If parent_id is None or same as context (Root), add to root elements
         if not parent_id or parent_id == context_id:
-             # Check if we are updating the root itself
-             # We need to make sure we're updating the PERSISTENT self.data
-             container_key = 'element_definitions' if context_type == "reusable" else 'pages'
-             if container_key not in self.data and (container_key == 'element_definitions' and '%ed' in self.data):
-                 container_key = '%ed'
-             elif container_key not in self.data and (container_key == 'pages' and '%p3' in self.data):
-                 container_key = '%p3'
+            # Root creations use no distinct element slot. Child creations do.
+            if not element_key or element_key == context_id or element_key == extracted_name:
+                root.update({key: value for key, value in new_el.items() if key != "elements"})
+                self._sync_alias_mapping(root, "elements", "%el")
+                self.persist_disk_cache()
+                logger.info(f" Updated context root {context_id} with name '{extracted_name}'")
+                return
 
-             if container_key not in self.data:
-                 self.data[container_key] = {}
-
-             container = self.data[container_key]
-
-             # If this is the root itself or if it has the same ID, update it
-             if context_id in container and (not element_key or element_key == context_id or element_key == extracted_name):
-                 container[context_id].update(new_el)
-                 self.persist_disk_cache()
-                 logger.info(f" Updated context root {context_id} with name '{extracted_name}'")
-                 return
-
-             # Fallback: if it's the root but not in container, add it!
-             if context_id not in container:
-                 container[context_id] = new_el
-                 self.persist_disk_cache()
-                 logger.info(f" Added new context root {context_id} with name '{extracted_name}'")
-                 return
-
-             if children_key not in root:
-                 root[children_key] = {}
-             root[children_key][dict_key] = new_el
-             self.persist_disk_cache()
-             logger.info(f" Injected {new_el['default_name']} ({dict_key}) into {context_id} root")
-             return
+            children = self._sync_alias_mapping(root, "elements", "%el")
+            children[dict_key] = new_el
+            self.persist_disk_cache()
+            logger.info(f" Injected {new_el['default_name']} ({dict_key}) into {context_id} root")
+            return
 
         # If parent_id provided, find it first
         # We can reuse find_element_by_name logic but we need ID search
         # Quick search
-        def find_node(obj):
+        def find_node_chain(obj):
             if isinstance(obj, dict):
                 if obj.get('id') == parent_id:
-                    return obj
-                elements = obj.get('elements') or obj.get('%el')
-                if isinstance(elements, dict):
-                    for k, v in elements.items():
-                        if k == "length": continue
-                        res = find_node(v)
-                        if res: return res
+                    return [obj]
+                elements = self._read_alias_mapping(obj, 'elements', '%el')
+                for k, v in elements.items():
+                    if k == "length": continue
+                    chain = find_node_chain(v)
+                    if chain:
+                        return [obj, *chain]
             return None
 
-        parent_node = find_node(root)
-        if parent_node:
-             # Match children key of the parent
-             node_children_key = "%el" if "%el" in parent_node or "%x" in parent_node else "elements"
-             if node_children_key not in parent_node:
-                 parent_node[node_children_key] = {}
-             parent_node[node_children_key][dict_key] = new_el
-             self.persist_disk_cache()
-             logger.info(f" Injected {new_el['default_name']} ({dict_key}) into parent {parent_id}")
+        parent_chain = find_node_chain(root)
+        if parent_chain:
+            for ancestor in parent_chain:
+                if 'elements' in ancestor or '%el' in ancestor:
+                    self._sync_alias_mapping(ancestor, "elements", "%el")
+            parent_node = parent_chain[-1]
+            # Match children key of the parent
+            parent_children = self._sync_alias_mapping(parent_node, "elements", "%el")
+            parent_children[dict_key] = new_el
+            self.persist_disk_cache()
+            logger.info(f" Injected {new_el['default_name']} ({dict_key}) into parent {parent_id}")
         else:
-             logger.warning(f"Injection failed: Parent {parent_id} not found")
+            logger.warning(f"Injection failed: Parent {parent_id} not found")
 
     def find_workflow_for_element(self, context_id: str, element_id: str, event_type: str = "click", context_type: str = "reusable") -> Optional[Dict]:
         """
@@ -8051,7 +7561,7 @@ class PathDiscovery:
         """
         root = self._get_context_root(context_id, context_type)
 
-        if not root:
+        if root is None:
             return None
 
         # Workflows are usually in 'workflows' dict or equivalent
@@ -8063,11 +7573,7 @@ class PathDiscovery:
                 # Check if it's a workflow event
                 obj_type = obj.get('%x') or obj.get('type')
                 if obj_type:
-                    props = obj.get('%p', {})
-                    if not isinstance(props, dict):
-                        props = obj.get('properties', {})
-                    if not isinstance(props, dict):
-                        props = {}
+                    props = self._read_nonempty_alias_mapping(obj, '%p', 'properties')
                     target_el = props.get('%ei') or props.get('element_id')
                     event_kind = props.get('%et') or props.get('event_type')
 
@@ -8088,7 +7594,7 @@ class PathDiscovery:
                             return {'path': path_parts, 'id': obj.get('id'), 'workflow': obj}
 
                 # Search children
-                elements = obj.get('elements') or obj.get('%el')
+                elements = self._read_alias_mapping(obj, 'elements', '%el')
                 if isinstance(elements, dict):
                     for key, value in elements.items():
                         if key == "length": continue
@@ -8097,9 +7603,9 @@ class PathDiscovery:
                         if result: return result
 
                 # Search workflows direct list if any
-                workflows = obj.get('workflows') or obj.get('%wf')
+                workflows = self._read_alias_mapping(obj, 'workflows', '%wf')
                 if isinstance(workflows, dict):
-                    for key, value in workflows.items():
+                    for key, value in reversed(list(workflows.items())):
                         if key == "length": continue
                         child_path = path_parts + (['%wf', key] if '%wf' in obj or '%x' in obj else ['workflows', key])
                         result = search_workflow(value, child_path)
@@ -8107,24 +7613,22 @@ class PathDiscovery:
             return None
 
         # Optimization: Look in 'workflows' key first if it exists
-        if 'workflows' in root:
-             # Iterate newest first so action writes target the latest workflow.
-             for wf_id, wf_data in reversed(list(root['workflows'].items())):
-                 result = search_workflow(wf_data, ['workflows', wf_id]) # Path structure might vary
-                 if result:
-                     return result
+        root_workflows = self._read_alias_mapping(root, 'workflows', '%wf')
+        if root_workflows:
+            # Iterate newest first so action writes target the latest workflow.
+            for wf_id, wf_data in reversed(list(root_workflows.items())):
+                path_key = '%wf' if '%wf' in root or '%x' in root else 'workflows'
+                result = search_workflow(wf_data, [path_key, wf_id])
+                if result:
+                    return result
 
         # Fallback to full search (legacy structure)
         return search_workflow(root)
 
     def list_elements(self, context_id: str, context_type: str = "reusable") -> List[Dict]:
         """List all elements with their paths in a context."""
-        if context_type == "reusable":
-            root = self.data.get('element_definitions', {}).get(context_id)
-        else:
-            root = self.data.get('pages', {}).get(context_id)
-
-        if not root:
+        root = self._get_context_root(context_id, context_type)
+        if root is None:
             return []
 
         results = []
@@ -8140,9 +7644,11 @@ class PathDiscovery:
                     "id": value.get("id"),
                     "element": value
                 })
-                walk(value.get("elements", {}), path_parts + ["%el", key])
+                children = self._read_alias_mapping(value, "elements", "%el")
+                walk(children, path_parts + ["%el", key])
 
-        walk(root.get("elements", {}), [])
+        root_elements = self._read_alias_mapping(root, "elements", "%el")
+        walk(root_elements, [])
         return results
 
     def inject_workflow(
@@ -8155,19 +7661,15 @@ class PathDiscovery:
         workflow_obj: Optional[Dict] = None
     ):
         """Inject workflow into discovery"""
-        if context_type == "reusable":
-            root = self.data.get('element_definitions', {}).get(context_id)
-        else:
-            root = self.data.get('pages', {}).get(context_id)
+        root = self._get_context_root(context_id, context_type)
+        if root is None:
+            return
 
-        if not root: return
-
-        if 'workflows' not in root:
-            root['workflows'] = {}
+        workflows = self._sync_alias_mapping(root, "workflows", "%wf")
 
         # Keep injected workflow shape aligned with what was created.
         if isinstance(workflow_obj, dict):
-            wf_obj = dict(workflow_obj)
+            wf_obj = deepcopy(workflow_obj)
             wf_obj.setdefault("id", wf_id)
             wf_obj.setdefault("actions", {})
         else:
@@ -8181,7 +7683,8 @@ class PathDiscovery:
                 "actions": {}
             }
 
-        root['workflows'][wf_id] = wf_obj
+        workflows[wf_id] = wf_obj
+        self.persist_disk_cache()
         logger.info(f" Injected Workflow {wf_id} for element {element_id}")
 
     def build_path_array(self, context_id: str, element_path: List[str], context_type: str = "reusable") -> List[str]:
@@ -8212,7 +7715,7 @@ class PathDiscovery:
 
     def get_element_properties(self, element: Dict) -> Dict:
         """Extract all properties from element"""
-        return element.get('properties', {})
+        return self._read_nonempty_alias_mapping(element, 'properties', '%p')
 
 
 # ==========================================
@@ -8261,9 +7764,10 @@ class BubbleClient:
 class WebhookClient:
     """Cliente para enviar requisições ao gateway do editor (Webhook)"""
 
-    def __init__(self, url: str = "local://bubble-mcp", app_name: str = "synthetic-page"):
+    def __init__(self, url: str = "local://bubble-mcp", app_name: str = "synthetic-page", *, sensitive: bool = False):
         self.url = url
         self.app_name = app_name
+        self.sensitive = sensitive
         try:
             self.timeout_seconds = int(str(os.getenv("BUBBLE_CLI_WEBHOOK_TIMEOUT_SEC", "15")).strip())
         except Exception:
@@ -8297,20 +7801,21 @@ class WebhookClient:
                 **(payload if isinstance(payload, dict) else {})
             }
 
-        try:
-            debug_dir = os.path.join(tempfile.gettempdir(), "bubble-webhook-debug")
-            os.makedirs(debug_dir, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            with open(os.path.join(debug_dir, "last_payload.json"), "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
-            with open(os.path.join(debug_dir, "last_envelope.json"), "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            with open(os.path.join(debug_dir, f"payload_{timestamp}.json"), "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
-            with open(os.path.join(debug_dir, f"envelope_{timestamp}.json"), "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        if not self.sensitive:
+            try:
+                debug_dir = os.path.join(tempfile.gettempdir(), "bubble-webhook-debug")
+                os.makedirs(debug_dir, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                with open(os.path.join(debug_dir, "last_payload.json"), "w", encoding="utf-8") as f:
+                    json.dump(payload, f, ensure_ascii=False, indent=2)
+                with open(os.path.join(debug_dir, "last_envelope.json"), "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                with open(os.path.join(debug_dir, f"payload_{timestamp}.json"), "w", encoding="utf-8") as f:
+                    json.dump(payload, f, ensure_ascii=False, indent=2)
+                with open(os.path.join(debug_dir, f"envelope_{timestamp}.json"), "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
 
         logger.info(f" Enviando para Webhook: {self.url}...")
 
@@ -8320,8 +7825,11 @@ class WebhookClient:
             logger.success("Webhook enviado com sucesso!")
             return response
         except Exception as e:
-            logger.error(f"Erro ao enviar para Webhook: {e}")
-            if hasattr(e, 'response') and e.response:
+            if self.sensitive:
+                logger.error("Erro ao enviar para Webhook: sensitive payload failed")
+            else:
+                logger.error(f"Erro ao enviar para Webhook: {e}")
+            if not self.sensitive and getattr(e, "response", None) is not None:
                 print(f"Response: {e.response.text}")
             raise
 
@@ -8331,7 +7839,7 @@ class WebhookClient:
 # EXAMPLE USAGE
 # ==========================================
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - illustrative manual example
     print("=" * 70)
     print("BUBBLE SDK - Examples")
     print("=" * 70)

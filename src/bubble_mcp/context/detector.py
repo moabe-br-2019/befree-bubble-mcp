@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import time
 from contextlib import redirect_stdout
@@ -13,12 +15,22 @@ from typing import Any
 
 import requests
 
-from bubble_mcp.context.importers import import_context_artifact
+from bubble_mcp.context.composition import COMPLETE, PARTIAL, merge_project_contexts, with_provenance
+from bubble_mcp.context.hydration import hydrate_bubble_export_file
+from bubble_mcp.context.importers import (
+    context_from_bubble_export,
+    context_from_bubble_payload,
+    context_from_crawler_payload,
+)
+from bubble_mcp.context.models import BubbleProjectContext
 from bubble_mcp.context.path_api import BubblePathApiClient, PathResult, decode_bubble_path
 from bubble_mcp.context.source import load_context, save_context
 from bubble_mcp.core.config import BubbleProfile, get_config_dir, load_settings, save_settings, with_profile
 from bubble_mcp.sessions.store import BubbleSessionData, load_session
 from bubble_mcp.vendor.bubble_modules import split_app
+
+MAX_CONSOLE_APP_CHARS = 64 * 1024 * 1024
+CONSOLE_APP_WAIT_MS = 15_000
 
 
 @dataclass(frozen=True)
@@ -32,15 +44,37 @@ class DetectionResult:
     attempts: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
+        metadata = self.summary.get("metadata")
+        safe_metadata = metadata if isinstance(metadata, dict) else {}
+        provenance = safe_metadata.get("provenance")
+        safe_provenance = provenance if isinstance(provenance, dict) else None
         return {
             "ok": self.ok,
             "app_id": self.app_id,
             "source": self.source,
+            "completeness": str(safe_provenance.get("completeness") or "") if safe_provenance else None,
+            "provenance": safe_provenance,
             "context_path": str(self.context_path),
             "crawler_index_path": str(self.crawler_index_path) if self.crawler_index_path else None,
             "summary": self.summary,
             "attempts": self.attempts,
         }
+
+
+def _resolve_app_version(
+    requested: str,
+    configured_profile: BubbleProfile | None,
+    session: BubbleSessionData | None,
+) -> str:
+    """Resolve the export/crawl app version: explicit arg > profile > session > test."""
+    requested = str(requested or "").strip()
+    if requested:
+        return requested
+    if configured_profile and str(configured_profile.app_version or "").strip():
+        return str(configured_profile.app_version).strip()
+    if session and str(session.app_version or "").strip():
+        return str(session.app_version).strip()
+    return "test"
 
 
 def context_cache_dir() -> Path:
@@ -57,6 +91,12 @@ def default_crawler_index_path(profile: str, app_id: str) -> Path:
     safe_profile = _safe_name(profile or "default")
     safe_app = _safe_name(app_id)
     return context_cache_dir() / safe_profile / f"{safe_app}-crawler-index.json"
+
+
+def default_consolelog_app_path(profile: str, app_id: str) -> Path:
+    safe_profile = _safe_name(profile or "default")
+    safe_app = _safe_name(app_id)
+    return context_cache_dir() / safe_profile / f"{safe_app}-consolelog-app.json"
 
 
 def default_bubble_export_path(profile: str, app_id: str) -> Path:
@@ -114,11 +154,51 @@ def register_detected_artifacts(
     return True
 
 
+def refresh_bubble_export(*, profile: str, app_id: str, app_version: str) -> Path:
+    """Download a fresh authoritative .bubble export without browser fallback."""
+
+    session = load_session(profile)
+    if session is None:
+        raise ValueError(f"No Bubble session stored for profile '{profile}'.")
+    attempts: list[dict[str, Any]] = []
+    downloaded = _try_download_bubble_export(
+        session=session,
+        app_id=app_id,
+        app_version=app_version,
+        profile=profile,
+        attempts=attempts,
+    )
+    if downloaded is None:
+        raise ValueError(
+            "A fresh .bubble export is required for permanent data type deletion; "
+            "the authenticated export download failed."
+        )
+    _hydrate_sparse_export(
+        downloaded,
+        session=session,
+        app_id=app_id,
+        app_version=app_version,
+        attempts=attempts,
+    )
+    _split_bubble_export(
+        downloaded,
+        app_id=app_id,
+        modules_dir=default_bubble_modules_dir(profile, app_id),
+        attempts=attempts,
+    )
+    _save_profile_app_json_path(
+        profile=profile,
+        app_id=app_id,
+        app_json_path=downloaded,
+    )
+    return downloaded
+
+
 def detect_project_context(
     *,
     profile: str,
     app_id: str | None = None,
-    app_version: str = "test",
+    app_version: str = "",
     force: bool = False,
     output: Path | None = None,
     bubble_file: Path | None = None,
@@ -139,17 +219,29 @@ def detect_project_context(
     if not resolved_app_id:
         raise ValueError("Context detection requires --app-id or a profile/session with app_id.")
 
-    context_path = output or default_context_path(profile, resolved_app_id)
-    if context_path.exists() and not force:
-        context = load_context(context_path)
+    requested_app_version = str(app_version or "").strip()
+    app_version = _resolve_app_version(requested_app_version, configured_profile, session)
+    attempts.append(
+        {
+            "source": "app_version_resolution",
+            "ok": True,
+            "app_version": app_version,
+            "requested": requested_app_version or None,
+        }
+    )
+
+    canonical_context_path = default_context_path(profile, resolved_app_id)
+    if canonical_context_path.exists() and not force:
+        context = load_context(canonical_context_path)
+        result_path = _copy_cached_context_output(canonical_path=canonical_context_path, output=output)
         return DetectionResult(
             ok=True,
             app_id=resolved_app_id,
             source="cached_context",
-            context_path=context_path,
+            context_path=result_path,
             crawler_index_path=None,
-            summary=context.summary(),
-            attempts=[{"source": "cached_context", "ok": True, "path": str(context_path)}],
+            summary=_safe_detection_summary(context),
+            attempts=[{"source": "cached_context", "ok": True, "path": str(canonical_context_path)}],
         )
 
     bubble_candidates = _candidate_bubble_files(
@@ -160,16 +252,21 @@ def detect_project_context(
         app_id=resolved_app_id,
     )
     if force and session and bubble_file is None:
+        # A forced refresh must never be satisfied by the previously downloaded
+        # export cache, no matter which candidate slot it entered through
+        # (profile_app_json_path or local_bubble_candidate) — otherwise a stale
+        # cache silently wins and the fresh download never happens.
         default_export = default_bubble_export_path(profile, resolved_app_id).expanduser().resolve()
         bubble_candidates = [
             candidate
             for candidate in bubble_candidates
             if not (
-                candidate.get("source") == "profile_app_json_path"
-                and isinstance(candidate.get("path"), Path)
+                isinstance(candidate.get("path"), Path)
                 and candidate["path"].expanduser().resolve() == default_export
             )
         ]
+    bubble_context: BubbleProjectContext | None = None
+    bubble_source = ""
     for candidate in bubble_candidates:
         attempts.append(
             {
@@ -179,54 +276,30 @@ def detect_project_context(
             }
         )
         if candidate["path"].exists():
-            return _persist_imported_context(
-                candidate["path"],
-                kind="bubble",
+            candidate_path = candidate["path"]
+            default_export = default_bubble_export_path(profile, resolved_app_id).expanduser().resolve()
+            if candidate_path.expanduser().resolve() == default_export and _hydrate_sparse_export(
+                candidate_path,
+                session=session,
                 app_id=resolved_app_id,
-                source=str(candidate["source"]),
-                context_path=context_path,
+                app_version=app_version,
                 attempts=attempts,
-                profile=profile,
-            )
-
-    consolelog_candidates = _candidate_consolelog_files(
-        explicit=consolelog_file,
-        configured=configured_profile.consolelog_json_path if configured_profile else None,
-        settings_dir=settings.config_dir,
-        profile=profile,
-        app_id=resolved_app_id,
-    )
-    for candidate in consolelog_candidates:
-        attempts.append(
-            {
-                "source": candidate["source"],
-                "path": str(candidate["path"]),
-                "ok": candidate["path"].exists(),
-            }
-        )
-        if candidate["path"].exists():
-            console_payload = _read_consolelog_file(candidate["path"])
-            if console_payload is not None:
-                return _persist_payload_context(
-                    console_payload,
+            ):
+                _split_bubble_export(
+                    candidate_path,
                     app_id=resolved_app_id,
-                    source=str(candidate["source"]),
-                    context_path=context_path,
+                    modules_dir=default_bubble_modules_dir(profile, resolved_app_id),
                     attempts=attempts,
                 )
             try:
-                return _persist_imported_context(
-                    candidate["path"],
-                    kind="bubble",
-                    app_id=resolved_app_id,
-                    source=str(candidate["source"]),
-                    context_path=context_path,
-                    attempts=attempts,
-                )
+                bubble_context = context_from_bubble_export(candidate_path)
             except Exception as exc:
                 attempts.append({"source": candidate["source"], "ok": False, "reason": str(exc)})
+                continue
+            bubble_source = str(candidate["source"])
+            break
 
-    if session:
+    if bubble_context is None and session:
         downloaded = _try_download_bubble_export(
             session=session,
             app_id=resolved_app_id,
@@ -235,6 +308,13 @@ def detect_project_context(
             attempts=attempts,
         )
         if downloaded is not None:
+            _hydrate_sparse_export(
+                downloaded,
+                session=session,
+                app_id=resolved_app_id,
+                app_version=app_version,
+                attempts=attempts,
+            )
             _split_bubble_export(
                 downloaded,
                 app_id=resolved_app_id,
@@ -246,33 +326,88 @@ def detect_project_context(
                 app_id=resolved_app_id,
                 app_json_path=downloaded,
             )
-            return _persist_imported_context(
-                downloaded,
-                kind="bubble",
-                app_id=resolved_app_id,
-                source="downloaded_bubble",
-                context_path=context_path,
-                attempts=attempts,
-            )
+            bubble_context = context_from_bubble_export(downloaded)
+            bubble_source = "downloaded_bubble"
 
-        console_payload = _try_extract_consolelog_app(session=session, app_id=resolved_app_id, attempts=attempts)
+    consolelog_candidates = _candidate_consolelog_files(
+        explicit=consolelog_file,
+        configured=configured_profile.consolelog_json_path if configured_profile else None,
+        settings_dir=settings.config_dir,
+        profile=profile,
+        app_id=resolved_app_id,
+    )
+    console_payload, console_source, console_path = _first_console_payload(
+        consolelog_candidates,
+        attempts=attempts,
+    )
+
+    if bubble_context is not None:
+        sources = [bubble_source]
+        result_source = bubble_source
         if console_payload is not None:
-            return _persist_payload_context(
+            bubble_complement = context_from_bubble_payload(
                 console_payload,
-                app_id=resolved_app_id,
-                source="consolelog_app",
-                context_path=context_path,
-                attempts=attempts,
+                str(console_path or console_source),
             )
+            if _has_usable_console_context(bubble_complement):
+                bubble_context = merge_project_contexts(
+                    bubble_context,
+                    bubble_complement,
+                    source=f"{bubble_source}+{console_source}",
+                )
+                sources.append(console_source)
+                result_source = f"{bubble_source}+{console_source}"
+            else:
+                attempts.append(
+                    {
+                        "source": "console_context_validation",
+                        "ok": False,
+                        "reason": "console app payload contained no usable schema or definitions",
+                    }
+                )
+        complete_context = with_provenance(
+            bubble_context,
+            primary_source=bubble_source,
+            sources=sources,
+            completeness=COMPLETE,
+            bubble_export_available=True,
+        )
+        return _context_detection_result(
+            complete_context,
+            app_id=resolved_app_id,
+            source=result_source,
+            canonical_path=canonical_context_path,
+            output=output,
+            profile=profile,
+            crawler_index_path=None,
+            attempts=attempts,
+        )
 
-        crawler_index = crawl_project_index(
+    if console_payload is None and session:
+        console_payload = _try_extract_consolelog_app(
             session=session,
             profile=profile,
             app_id=resolved_app_id,
-            app_version=app_version,
-            include_id_to_path=include_id_to_path,
+            attempts=attempts,
         )
-        if _needs_editor_network_capture(crawler_index):
+        if console_payload is not None:
+            console_source = "consolelog_app"
+            console_path = default_consolelog_app_path(profile, resolved_app_id)
+
+    crawler_index: dict[str, Any] | None = None
+    crawler_path: Path | None = None
+    if session:
+        try:
+            crawler_index = crawl_project_index(
+                session=session,
+                profile=profile,
+                app_id=resolved_app_id,
+                app_version=app_version,
+                include_id_to_path=include_id_to_path,
+            )
+        except Exception as exc:
+            attempts.append({"source": "editor_crawler", "ok": False, "reason": str(exc)})
+        if crawler_index is not None and _needs_editor_network_capture(crawler_index):
             network_index = _try_capture_editor_network_index(
                 profile=profile,
                 app_id=resolved_app_id,
@@ -281,38 +416,107 @@ def detect_project_context(
             )
             if network_index is not None:
                 crawler_index = _merge_crawler_indexes(crawler_index, network_index)
-        crawler_path = default_crawler_index_path(profile, resolved_app_id)
-        crawler_path.parent.mkdir(parents=True, exist_ok=True)
-        crawler_path.write_text(json.dumps(crawler_index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        if crawler_index is not None:
+            crawler_path = default_crawler_index_path(profile, resolved_app_id)
+            crawler_path.parent.mkdir(parents=True, exist_ok=True)
+            crawler_path.write_text(json.dumps(crawler_index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            attempts.append(
+                {
+                    "source": "editor_crawler",
+                    "ok": True,
+                    "path": str(crawler_path),
+                    "pages": len(crawler_index.get("pages") or []),
+                    "reusables": len(crawler_index.get("reusables") or []),
+                }
+            )
+
+    console_context = (
+        context_from_bubble_payload(console_payload, str(console_path or console_source))
+        if console_payload is not None
+        else None
+    )
+    crawler_context = (
+        context_from_crawler_payload(crawler_index, crawler_path or Path("editor_crawler"))
+        if crawler_index is not None
+        else None
+    )
+    if console_context is not None and not _has_usable_console_context(console_context):
         attempts.append(
             {
-                "source": "editor_crawler",
-                "ok": True,
-                "path": str(crawler_path),
-                "pages": len(crawler_index.get("pages") or []),
-                "reusables": len(crawler_index.get("reusables") or []),
+                "source": "console_context_validation",
+                "ok": False,
+                "reason": "console app payload contained no usable schema or definitions",
             }
         )
-        context = import_context_artifact(crawler_path, kind="crawler")
-        save_context(context, context_path)
-        register_detected_artifacts(
-            profile,
-            context_path=context_path,
-            crawler_index_path=crawler_path,
+        console_context = None
+    if crawler_context is not None and not _has_usable_crawler_topology(crawler_context):
+        attempts.append(
+            {
+                "source": "crawler_context_validation",
+                "ok": False,
+                "reason": "editor crawler payload contained no usable topology",
+            }
         )
-        return DetectionResult(
-            ok=True,
+        crawler_context = None
+
+    if console_context is not None and crawler_context is not None:
+        composed = merge_project_contexts(
+            console_context,
+            crawler_context,
+            source=f"{console_source}+editor_crawler",
+            complement_is_topology=True,
+        )
+        composed = with_provenance(
+            composed,
+            primary_source=console_source,
+            sources=[console_source, "editor_crawler"],
+            completeness=COMPLETE,
+            bubble_export_available=False,
+        )
+        return _context_detection_result(
+            composed,
             app_id=resolved_app_id,
-            source="editor_crawler",
-            context_path=context_path,
+            source=f"{console_source}+editor_crawler",
+            canonical_path=canonical_context_path,
+            output=output,
+            profile=profile,
             crawler_index_path=crawler_path,
-            summary=context.summary(),
             attempts=attempts,
         )
 
-    raise ValueError(
-        "No local Bubble artifact and no captured session available. Run `bubble-mcp session login` first."
-    )
+    partial_context = console_context or crawler_context
+    if partial_context is not None:
+        primary_source = console_source if console_context is not None else "editor_crawler"
+        partial_context = with_provenance(
+            partial_context,
+            primary_source=primary_source,
+            sources=[primary_source],
+            completeness=PARTIAL,
+            bubble_export_available=False,
+        )
+        attempts.append(
+            {
+                "source": "context_completeness",
+                "ok": False,
+                "reason": "crawler_missing" if crawler_context is None else "console_missing",
+            }
+        )
+        return _context_detection_result(
+            partial_context,
+            app_id=resolved_app_id,
+            source=primary_source,
+            canonical_path=canonical_context_path,
+            output=output,
+            profile=profile,
+            crawler_index_path=crawler_path,
+            attempts=attempts,
+        )
+
+    if session is None:
+        raise ValueError(
+            "No local Bubble artifact and no captured session available. Run `bubble-mcp session login` first."
+        )
+    raise ValueError("No usable .bubble, console.log(app), or editor crawler context source was available.")
 
 
 def crawl_project_index(
@@ -473,6 +677,37 @@ def _candidate_consolelog_files(
         {"source": "local_consolelog_candidate", "path": Path.cwd() / "consolelog-app.json"},
     ]
     return _unique_existing_order(candidates)
+
+
+def _first_console_payload(
+    candidates: list[dict[str, Any]],
+    *,
+    attempts: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, str, Path | None]:
+    for candidate in candidates:
+        path = candidate["path"]
+        source = str(candidate["source"])
+        if not path.exists():
+            attempts.append({"source": source, "path": str(path), "ok": False, "reason": "file not found"})
+            continue
+        try:
+            payload = _read_consolelog_file(path)
+        except (OSError, UnicodeError) as exc:
+            attempts.append({"source": source, "path": str(path), "ok": False, "reason": str(exc)})
+            continue
+        if payload is None:
+            attempts.append(
+                {
+                    "source": source,
+                    "path": str(path),
+                    "ok": False,
+                    "reason": "console artifact did not contain a JSON app object",
+                }
+            )
+            continue
+        attempts.append({"source": source, "path": str(path), "ok": True})
+        return payload, source, path
+    return None, "", None
 
 
 def _needs_editor_network_capture(index: dict[str, Any]) -> bool:
@@ -806,16 +1041,57 @@ def _try_download_bubble_export(
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text(json.dumps(parsed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_bubble_export_meta(
+        target_path,
+        url=export_url,
+        app_id=app_id,
+        app_version=version,
+        profile=profile,
+        raw_bytes=content,
+    )
     attempts.append(
         {
             "source": "downloaded_bubble",
             "ok": True,
             "url": export_url,
+            "app_version": version,
             "path": str(target_path),
             "bytes": len(content),
         }
     )
     return target_path
+
+
+def bubble_export_meta_path(export_path: Path) -> Path:
+    return export_path.with_name(export_path.name + ".meta.json")
+
+
+def _write_bubble_export_meta(
+    export_path: Path,
+    *,
+    url: str,
+    app_id: str,
+    app_version: str,
+    profile: str,
+    raw_bytes: bytes,
+) -> None:
+    """Record which branch/version produced the cached export, for later audit."""
+    meta = {
+        "url": url,
+        "app_id": app_id,
+        "app_version": app_version,
+        "profile": profile,
+        "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "bytes": len(raw_bytes),
+        "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+        "source": "https://bubble.io/appeditor/export",
+    }
+    try:
+        bubble_export_meta_path(export_path).write_text(
+            json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    except OSError:
+        pass
 
 
 def _export_headers(session: BubbleSessionData) -> dict[str, str]:
@@ -856,6 +1132,109 @@ def _relative_to_config_dir(path: Path, config_dir: Path) -> str:
         return str(path)
 
 
+def _hydrate_sparse_export(
+    path: Path,
+    *,
+    session: BubbleSessionData | None,
+    app_id: str,
+    app_version: str,
+    attempts: list[dict[str, Any]],
+) -> bool:
+    """Deterministically fill missing reusable definitions via the editor path API.
+
+    Bubble's export endpoint may omit reusable definition payloads for large
+    apps (only _index.id_to_path knows the ids). When a session is available,
+    fetch each missing definition from /appeditor/load_multiple_paths and merge
+    it into the export file. Returns True when the file gained definitions.
+    """
+    if session is None:
+        return False
+    try:
+        report = hydrate_bubble_export_file(
+            path,
+            session=session,
+            app_id=app_id,
+            app_version=app_version,
+        )
+    except Exception as exc:
+        attempts.append({"source": "reusable_hydration", "ok": False, "reason": str(exc)})
+        return False
+    if not report["requested"]:
+        return False
+    attempts.append(
+        {
+            "source": "reusable_hydration",
+            "ok": not report["failed"],
+            "requested": report["requested"],
+            "hydrated": report["hydrated"],
+            "failed": len(report["failed"]),
+            "remaining_index_only": report["remaining_index_only"],
+            "duration_ms": report["duration_ms"],
+        }
+    )
+    return bool(report["hydrated"])
+
+
+def hydrate_profile_reusables(
+    *,
+    profile: str,
+    app_id: str | None = None,
+    app_version: str = "",
+    ids: list[str] | None = None,
+    batch_size: int = 10,
+    bubble_file: Path | None = None,
+) -> dict[str, Any]:
+    """Hydrate the profile's cached .bubble export, re-split modules, refresh context."""
+    session = load_session(profile)
+    if session is None:
+        raise ValueError(f"No Bubble session stored for profile '{profile}'. Run session login first.")
+    settings = load_settings()
+    configured_profile = settings.profiles.get(profile)
+    resolved_app_id = str(
+        app_id
+        or (session.app_id if session else "")
+        or (configured_profile.app_id if configured_profile else "")
+    ).strip()
+    if not resolved_app_id:
+        raise ValueError("Reusable hydration requires --app-id or a profile/session with app_id.")
+    resolved_version = _resolve_app_version(app_version, configured_profile, session)
+
+    target = (bubble_file or default_bubble_export_path(profile, resolved_app_id)).expanduser()
+    if not target.exists():
+        raise ValueError(f"No .bubble export found at {target}. Run context detect --force first.")
+
+    report = hydrate_bubble_export_file(
+        target,
+        session=session,
+        app_id=resolved_app_id,
+        app_version=resolved_version,
+        ids=ids,
+        batch_size=batch_size,
+    )
+    attempts: list[dict[str, Any]] = []
+    if report["hydrated"]:
+        _split_bubble_export(
+            target,
+            app_id=resolved_app_id,
+            modules_dir=default_bubble_modules_dir(profile, resolved_app_id),
+            attempts=attempts,
+        )
+        context = context_from_bubble_export(target)
+        context = with_provenance(
+            context,
+            primary_source="hydrated_bubble",
+            sources=["downloaded_bubble", "editor_path_api"],
+            completeness=COMPLETE,
+            bubble_export_available=True,
+        )
+        save_context(context, default_context_path(profile, resolved_app_id))
+    report["app_id"] = resolved_app_id
+    report["app_version"] = resolved_version
+    report["attempts"] = attempts
+    report["context_path"] = str(default_context_path(profile, resolved_app_id))
+    return report
+
+
 def _split_bubble_export(
     path: Path,
     *,
@@ -894,12 +1273,104 @@ def _split_bubble_export(
 def _try_extract_consolelog_app(
     *,
     session: BubbleSessionData,
+    profile: str,
     app_id: str,
     attempts: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    _ = (session, app_id)
-    attempts.append({"source": "consolelog_app", "ok": False, "reason": "no captured console payload available"})
-    return None
+    _ = session
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:
+        attempts.append({"source": "consolelog_app", "ok": False, "reason": f"playwright unavailable: {exc}"})
+        return None
+
+    user_data_dir = get_config_dir() / "browser-profiles" / profile
+    if not user_data_dir.exists():
+        attempts.append(
+            {"source": "consolelog_app", "ok": False, "reason": f"browser profile not found: {user_data_dir}"}
+        )
+        return None
+
+    capture: Any = None
+    context = None
+    try:
+        with sync_playwright() as playwright:
+            context = playwright.chromium.launch_persistent_context(str(user_data_dir), headless=True)
+            page = context.pages[0] if context.pages else context.new_page()
+            page.goto(
+                f"https://bubble.io/page?id={app_id}&tab=Design&name=index",
+                wait_until="domcontentloaded",
+                timeout=60_000,
+            )
+            try:
+                page.wait_for_function(
+                    "() => typeof app !== 'undefined' || typeof globalThis.app !== 'undefined'",
+                    timeout=CONSOLE_APP_WAIT_MS,
+                )
+            except Exception:
+                pass
+            capture = page.evaluate(
+                """
+                (maxChars) => {
+                  try {
+                    const value = typeof app !== "undefined" ? app : globalThis.app;
+                    if (!value) return { ok: false, reason: "editor app object unavailable" };
+                    const serialized = JSON.stringify(value);
+                    if (!serialized) return { ok: false, reason: "editor app object is not serializable" };
+                    if (serialized.length > maxChars) {
+                      return { ok: false, reason: "editor app object exceeds capture limit", chars: serialized.length };
+                    }
+                    return { ok: true, serialized };
+                  } catch (error) {
+                    return { ok: false, reason: String(error) };
+                  }
+                }
+                """,
+                MAX_CONSOLE_APP_CHARS,
+            )
+    except Exception as exc:
+        attempts.append({"source": "consolelog_app", "ok": False, "reason": str(exc)})
+        return None
+    finally:
+        if context is not None:
+            try:
+                context.close()
+            except Exception:
+                pass
+
+    if not isinstance(capture, dict) or not capture.get("ok"):
+        reason = str(capture.get("reason") or "editor app object unavailable") if isinstance(capture, dict) else "editor app object unavailable"
+        attempt = {"source": "consolelog_app", "ok": False, "reason": reason}
+        if isinstance(capture, dict) and isinstance(capture.get("chars"), int):
+            attempt["chars"] = capture["chars"]
+        attempts.append(attempt)
+        return None
+
+    try:
+        payload = json.loads(str(capture.get("serialized") or ""))
+    except json.JSONDecodeError as exc:
+        attempts.append({"source": "consolelog_app", "ok": False, "reason": f"captured app JSON is invalid: {exc}"})
+        return None
+    if not isinstance(payload, dict):
+        attempts.append({"source": "consolelog_app", "ok": False, "reason": "captured app payload is not an object"})
+        return None
+
+    path = default_consolelog_app_path(profile, app_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    attempts.append(
+        {
+            "source": "consolelog_app",
+            "ok": True,
+            "path": str(path),
+            "bytes": path.stat().st_size,
+        }
+    )
+    return payload
 
 
 def extract_consolelog_app(text: str) -> dict[str, Any] | None:
@@ -927,57 +1398,99 @@ def _read_consolelog_file(path: Path) -> dict[str, Any] | None:
     return extract_consolelog_app(text)
 
 
-def _persist_imported_context(
-    path: Path,
+def _save_context_outputs(
+    context: BubbleProjectContext,
     *,
-    kind: str,
+    canonical_path: Path,
+    output: Path | None,
+) -> Path:
+    save_context(context, canonical_path)
+    if output is None:
+        return canonical_path
+    if output.expanduser().resolve() != canonical_path.expanduser().resolve():
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(canonical_path.read_text(encoding="utf-8"), encoding="utf-8")
+    return output
+
+
+def _copy_cached_context_output(*, canonical_path: Path, output: Path | None) -> Path:
+    if output is None:
+        return canonical_path
+    if output.expanduser().resolve() != canonical_path.expanduser().resolve():
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(canonical_path.read_bytes())
+    return output
+
+
+def _has_usable_console_context(context: BubbleProjectContext) -> bool:
+    if context.nodes:
+        return True
+    return any(
+        bool(context.metadata.get(key))
+        for key in ("settings", "styles", "default_styles")
+    )
+
+
+def _has_usable_crawler_topology(context: BubbleProjectContext) -> bool:
+    return any(
+        node.type in {"page", "reusable", "element", "workflow"}
+        for node in context.nodes
+    )
+
+
+def _context_detection_result(
+    context: BubbleProjectContext,
+    *,
     app_id: str,
     source: str,
-    context_path: Path,
+    canonical_path: Path,
+    output: Path | None,
+    crawler_index_path: Path | None,
     attempts: list[dict[str, Any]],
     profile: str | None = None,
 ) -> DetectionResult:
-    context = import_context_artifact(path, kind=kind)
-    save_context(context, context_path)
+    result_path = _save_context_outputs(context, canonical_path=canonical_path, output=output)
     if profile:
+        # Without this the profile keeps no pointer to what detection produced, so every
+        # tool call re-runs detection (including a failing .bubble download and a browser
+        # crawl) before it can touch the app.
         register_detected_artifacts(
             profile,
-            context_path=context_path,
-            app_json_path=path if kind == "bubble" else None,
+            context_path=canonical_path,
+            crawler_index_path=crawler_index_path,
         )
     return DetectionResult(
         ok=True,
         app_id=app_id,
         source=source,
-        context_path=context_path,
-        crawler_index_path=None,
-        summary=context.summary(),
+        context_path=result_path,
+        crawler_index_path=crawler_index_path,
+        summary=_safe_detection_summary(context),
         attempts=attempts,
     )
 
 
-def _persist_payload_context(
-    payload: dict[str, Any],
-    *,
-    app_id: str,
-    source: str,
-    context_path: Path,
-    attempts: list[dict[str, Any]],
-) -> DetectionResult:
-    temp_path = context_path.with_suffix(f".{source}.json")
-    temp_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    context = import_context_artifact(temp_path, kind="bubble")
-    save_context(context, context_path)
-    return DetectionResult(
-        ok=True,
-        app_id=app_id,
-        source=source,
-        context_path=context_path,
-        crawler_index_path=None,
-        summary=context.summary(),
-        attempts=attempts,
-    )
+def _safe_detection_summary(context: BubbleProjectContext) -> dict[str, Any]:
+    summary = context.summary()
+    metadata = summary.get("metadata")
+    raw_provenance = metadata.get("provenance") if isinstance(metadata, dict) else None
+    safe_metadata: dict[str, Any] = {}
+    if isinstance(raw_provenance, dict):
+        sources = raw_provenance.get("sources")
+        safe_metadata["provenance"] = {
+            "primary_source": str(raw_provenance.get("primary_source") or ""),
+            "sources": [str(item) for item in sources] if isinstance(sources, list) else [],
+            "completeness": str(raw_provenance.get("completeness") or PARTIAL),
+            "bubble_export_available": bool(raw_provenance.get("bubble_export_available")),
+        }
+    return {
+        "app_id": summary.get("app_id"),
+        "source": summary.get("source"),
+        "counts": summary.get("counts", {}),
+        "nodes": summary.get("nodes", 0),
+        "edges": summary.get("edges", 0),
+        **({"metadata": safe_metadata} if safe_metadata else {}),
+    }
 
 
 def _safe_name(value: str) -> str:

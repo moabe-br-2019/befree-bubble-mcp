@@ -1,15 +1,25 @@
 import json
+import inspect
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from typing import Any
+
+import pytest
 
 from bubble_mcp.runtime_coverage import catalog_coverage_report
 import bubble_mcp.server.completion as completion_module
+import bubble_mcp.server.agent_guide as agent_guide_module
 import bubble_mcp.server.tools as tools_module
+from bubble_mcp.catalog_schema_precision import DATA_SCHEMA_PRECISION_SPECS
 from bubble_mcp.core.config import BubbleMcpSettings, BubbleProfile, save_settings
 from bubble_mcp.server.stdio import handle_request
+from bubble_mcp.server.agent_guide import search_tool_catalog
 from bubble_mcp.server.catalog import ARIA_BUBBLE_TOOL_NAMES
-from bubble_mcp.sessions.browser import DEFAULT_LOGIN_WAIT_SECONDS
+from bubble_mcp.server.schemas import list_tool_schemas
+from bubble_mcp.sessions.constants import DEFAULT_LOGIN_WAIT_SECONDS
 from bubble_mcp.sessions.store import BubbleSessionData, load_session, save_session, session_from_payload
+from bubble_mcp.aria_dispatch import _method_kwargs
+from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
 
 
 def first_change(payload: dict, intent_name: str) -> dict:  # type: ignore[type-arg]
@@ -94,6 +104,7 @@ def test_tools_list_includes_profile_list() -> None:
     assert tools["bubble_performance_audit"]["inputSchema"]["required"] == ["profile"]
     assert tools["bubble_logs_fetch"]["annotations"]["readOnlyHint"] is True
     assert tools["bubble_logs_fetch"]["inputSchema"]["properties"]["app_version"]["default"] == "live"
+    assert tools["bubble_logs_fetch"]["inputSchema"]["properties"]["max_pages"]["maximum"] == 25
     assert "Defaults app_version to live" in tools["bubble_logs_fetch"]["description"]
     assert tools["bubble_workload_usage_by_date"]["inputSchema"]["required"] == ["profile", "start", "end"]
     assert tools["bubble_workload_usage_breakdown"]["inputSchema"]["properties"]["granularity"]["enum"] == [
@@ -212,7 +223,10 @@ def test_profile_cache_refresh_tool_forces_context_detection(tmp_path, monkeypat
     assert payload["profile"] == "cliente2"
     assert payload["force"] is True
     assert payload["source"] == "downloaded_bubble"
-    assert payload["next_user_action"] == "Profile cache refreshed. Use bubble_profile_status only if you need readiness details."
+    assert payload["next_user_action"] == (
+        "Profile cache refreshed but is not ready. Follow status.next_actions to complete missing context sources "
+        "or session requirements."
+    )
     assert calls[0]["profile"] == "cliente2"
     assert calls[0]["app_id"] == "courselaunch"
     assert calls[0]["force"] is True
@@ -415,6 +429,9 @@ def test_resources_list_and_read_agent_runtime() -> None:
     assert "Preview first" in content["text"]
     assert "bubble_context_find" in content["text"]
     assert "include_metadata=false" in content["text"]
+    assert "element_definitions/CustomDefinition" in content["text"]
+    assert "ReusableElement" in content["text"]
+    assert "instances placed on pages" in content["text"]
 
 
 def test_resources_read_agent_quickstart() -> None:
@@ -691,7 +708,7 @@ def test_session_login_tool_saves_redacted_browser_session(tmp_path, monkeypatch
 
     def fake_capture_session_with_playwright(**kwargs):  # type: ignore[no-untyped-def]
         assert kwargs["app_id"] == "client-app"
-        assert kwargs["wait_seconds"] == 5
+        assert kwargs["wait_seconds"] == DEFAULT_LOGIN_WAIT_SECONDS
         assert kwargs["user_data_dir"] == tmp_path / "browser-profiles" / "client"
         kwargs["progress"]("Session cookies detected. You can close the browser now.")
         return session_from_payload(
@@ -713,7 +730,7 @@ def test_session_login_tool_saves_redacted_browser_session(tmp_path, monkeypatch
             "method": "tools/call",
             "params": {
                 "name": "bubble_session_login",
-                "arguments": {"profile": "client", "wait_seconds": 5},
+                "arguments": {"profile": "client"},
             },
         }
     )
@@ -1293,6 +1310,12 @@ def test_agent_guide_routes_user_tasks_without_cli_discovery() -> None:
     assert payload["ok"] is True
     assert payload["direct_tool_policy"]["use_mcp_tools_directly"] is True
     assert payload["direct_tool_policy"]["avoid_shell_cli_discovery"] is True
+    assert "element_definitions/CustomDefinition" in payload["direct_tool_policy"][
+        "reusable_definition_modules"
+    ]
+    assert "instances placed on pages" in payload["direct_tool_policy"][
+        "reusable_definition_modules"
+    ]
     intents = {route["intent"] for route in payload["recommended_routes"]}
     assert "import_html_component" in intents
     assert "branches_or_changelog" in intents
@@ -1325,6 +1348,150 @@ def test_tool_search_returns_compact_relevant_catalog_matches() -> None:
     assert create_from_html["required"] == ["profile", "context", "parent"]
     assert "selector" in create_from_html["properties"]
     assert create_from_html["annotations"]["readOnlyHint"] is False
+
+
+def test_tool_search_exact_name_is_independent_of_catalog_order() -> None:
+    schemas = list_tool_schemas()
+
+    forward = search_tool_catalog("create_text", limit=1, tool_schemas=schemas)
+    reverse = search_tool_catalog("create_text", limit=1, tool_schemas=list(reversed(schemas)))
+
+    assert forward["matches"] == reverse["matches"]
+    assert forward["matches"][0]["name"] == "create_text"
+
+
+def test_tool_search_exact_raw_name_fast_paths_only_the_matching_schema(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    schemas = [
+        {
+            "name": "create_text",
+            "description": "Create text.",
+            "inputSchema": {"properties": {}, "required": []},
+            "annotations": {},
+        },
+        {
+            "name": "another_create_text",
+            "description": "Create text.",
+            "inputSchema": {"properties": {}, "required": []},
+            "annotations": {},
+        },
+    ]
+    compacted: list[str] = []
+    real_compact = agent_guide_module._compact_tool_schema
+
+    def record_compact(schema):  # type: ignore[no-untyped-def]
+        compacted.append(str(schema["name"]))
+        return real_compact(schema)
+
+    monkeypatch.setattr(agent_guide_module, "_compact_tool_schema", record_compact)
+
+    result = search_tool_catalog("create_text", limit=1, tool_schemas=schemas)
+
+    assert result["matches"] == [
+        {
+            "score": 145,
+            "name": "create_text",
+            "description": "Create text.",
+            "required": [],
+            "properties": [],
+            "annotations": {},
+        }
+    ]
+    assert compacted == ["create_text"]
+
+
+def test_tool_search_exact_name_with_limit_two_retains_ranked_matches() -> None:
+    schemas = [
+        {
+            "name": "create_text",
+            "description": "Create text.",
+            "inputSchema": {"properties": {}, "required": []},
+            "annotations": {},
+        },
+        {
+            "name": "another_create_text",
+            "description": "Create text.",
+            "inputSchema": {"properties": {}, "required": []},
+            "annotations": {},
+        },
+    ]
+
+    result = search_tool_catalog("create_text", limit=2, tool_schemas=schemas)
+
+    assert [match["name"] for match in result["matches"]] == ["create_text", "another_create_text"]
+
+
+def test_tool_search_duplicate_exact_names_use_full_ranking_path(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    schemas = [
+        {
+            "name": "create_text",
+            "description": "First candidate.",
+            "inputSchema": {"properties": {}, "required": []},
+            "annotations": {},
+        },
+        {
+            "name": "create_text",
+            "description": "Second candidate.",
+            "inputSchema": {"properties": {}, "required": []},
+            "annotations": {},
+        },
+    ]
+    compacted: list[str] = []
+    real_compact = agent_guide_module._compact_tool_schema
+
+    def record_compact(schema):  # type: ignore[no-untyped-def]
+        compacted.append(str(schema["description"]))
+        return real_compact(schema)
+
+    monkeypatch.setattr(agent_guide_module, "_compact_tool_schema", record_compact)
+
+    result = search_tool_catalog("create_text", limit=1, tool_schemas=schemas)
+
+    assert result["matches"][0]["description"] == "First candidate."
+    assert compacted == ["First candidate.", "Second candidate."]
+
+
+def test_tool_search_space_separated_query_retains_pre_bonus_ranking() -> None:
+    result = search_tool_catalog("bubble branch create", limit=1)
+
+    assert result["matches"][0]["name"] == "bubble_branch_contributors"
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "rebuild only the cached element references from a capture_file json",
+            "sync_element_ref_cache",
+        ),
+        (
+            "synchronize the runtime cache using the requested mode and skip_clear_cache options",
+            "sync_cache",
+        ),
+        ("delete multiple bubble color variables matching a pattern", "delete_colors"),
+        ("delete multiple reusable styles in one confirmed operation", "delete_styles"),
+        ("soft delete a recoverable data type before permanent deletion", "delete_data_type"),
+        ("soft delete a data type rather than permanently delete it", "delete_data_type"),
+        ("do not permanently delete this data type; soft delete it", "delete_data_type"),
+        ("don't permanently delete the data type", "delete_data_type"),
+        ("do not delete the data type permanently", "delete_data_type"),
+        ("delete the data type but not permanently", "delete_data_type"),
+        ("delete the data type without permanent deletion", "delete_data_type"),
+        ("permanently delete a data type after confirmation", "delete_data_type_permanently"),
+        ("sync a generic component payload from the local design bridge", "sync_component"),
+        ("sync one figma style definition from the local bridge", "sync_figma_style"),
+        ("replace the image source url using new_source", "update_image"),
+        ("replace text using search_text and new_text", "update_text"),
+        ("create an empty workflow event placeholder with no actions", "create_empty_event"),
+        (
+            "create a button click workflow event with event_type and element_ref",
+            "create_event",
+        ),
+    ],
+)
+def test_tool_search_disambiguates_related_capabilities(query: str, expected: str) -> None:
+    result = search_tool_catalog(query, limit=1)
+
+    assert result["matches"][0]["name"] == expected
 
 
 def test_tool_search_ignores_generic_action_noise_when_specific_terms_exist() -> None:
@@ -1405,6 +1572,84 @@ def test_task_runbook_html_fallback_avoids_generic_create_tools() -> None:
     assert names[:2] == ["create_from_html", "bubble_context_detect"]
     assert "create_api_token" not in names
     assert "create_301_redirect" not in names
+
+
+def test_task_runbook_routes_permanent_data_type_delete_to_two_stage_tools() -> None:
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 265,
+            "method": "tools/call",
+            "params": {
+                "name": "bubble_task_runbook",
+                "arguments": {
+                    "task": "exclua definitivamente o data type Cliente",
+                    "profile": "smoke",
+                    "search_limit": 8,
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["recipe"] == "data_schema"
+    assert payload["route_intents"] == ["manage_data_schema"]
+    names = [match["name"] for match in payload["tool_search"]["matches"]]
+    assert "delete_data_type" in names
+    assert "delete_data_type_permanently" in names
+    assert any("successful prior delete_data_type" in gate for gate in payload["quality_gates"])
+    assert any("not already soft-deleted" in condition for condition in payload["stop_conditions"])
+    assert any("new user confirmation" in condition for condition in payload["stop_conditions"])
+
+
+def test_permanent_data_type_delete_rejects_exact_payload_bypass() -> None:
+    with pytest.raises(ValueError, match="does not accept write_payload or payload"):
+        tools_module.call_legacy_catalog_tool(
+            "delete_data_type_permanently",
+            {
+                "profile": "smoke",
+                "execute": True,
+                "confirm": True,
+                "write_payload": {
+                    "v": 1,
+                    "appname": "cli-test",
+                    "app_version": "test",
+                    "changes": [
+                        {
+                            "intent": {"name": "CleanApp"},
+                            "path_array": ["user_types", "cliente"],
+                            "body": None,
+                        }
+                    ],
+                },
+            },
+        )
+
+
+def test_editor_write_rejects_body_wrapped_permanent_delete_bypass() -> None:
+    with pytest.raises(ValueError, match="cannot permanently delete data types"):
+        tools_module.call_tool(
+            "bubble_editor_write",
+            {
+                "profile": "smoke",
+                "execute": True,
+                "payload": {
+                    "body": {
+                        "v": 1,
+                        "appname": "cli-test",
+                        "app_version": "test",
+                        "changes": [
+                            {
+                                "intent": {"name": "CleanApp"},
+                                "path_array": ["user_types", "cliente"],
+                                "body": None,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
 
 
 def test_task_runbook_routes_multi_action_edits_to_inline_batch() -> None:
@@ -1562,7 +1807,7 @@ def test_task_recipe_setup_context_includes_profile_add_and_session_inspect() ->
     assert payload["steps"][3]["args"]["name"] == "$profile"
     assert payload["steps"][3]["args"]["app_id"] == "$app_id"
     assert payload["steps"][4]["args"]["profile"] == "$profile"
-    assert payload["steps"][4]["args"]["wait_seconds"] == 180
+    assert payload["steps"][4]["args"]["wait_seconds"] == DEFAULT_LOGIN_WAIT_SECONDS
     assert payload["steps"][5]["args"] == {"profile": "$profile"}
 
 
@@ -2376,6 +2621,836 @@ def test_legacy_catalog_tool_dispatches_to_aria_runtime(monkeypatch) -> None:  #
     assert calls[1] == ("create_page", {"name": "mcp-03", "dry_run": True})
 
 
+def test_mcp_create_data_field_omits_field_key_and_preserves_generated_key(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    export_path = tmp_path / "current.bubble"
+    export_path.write_text(
+        json.dumps(
+            {
+                "user_types": {
+                    "account": {
+                        "%d": "Account",
+                        "%f3": {},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="smoke",
+            profiles={
+                "smoke": BubbleProfile(
+                    name="smoke",
+                    app_id="literal-app",
+                    appname="literal-app",
+                    app_version="test",
+                    app_json_path=str(export_path),
+                )
+            },
+        )
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1204,
+            "method": "tools/call",
+            "params": {
+                "name": "create_data_field",
+                "arguments": {
+                    "profile": "smoke",
+                    "data_type_ref": "account",
+                    "name": "My Display Field",
+                    "type": "text",
+                    "execute": False,
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    result = json.loads(response["result"]["content"][0]["text"])
+    assert result["ok"] is True
+    assert result["executed"] is False
+    change = first_change(result["results"][0]["payload"], "WriteCustomField")
+    assert change["path_array"][-1] == "my_display_field_text"
+
+
+def test_mcp_create_option_attribute_omits_attribute_key_and_preserves_generated_key(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    export_path = tmp_path / "current.bubble"
+    export_path.write_text(
+        json.dumps(
+            {
+                "option_sets": {
+                    "os_status": {
+                        "%d": "OS:status",
+                        "attributes": {},
+                        "values": {},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="smoke",
+            profiles={
+                "smoke": BubbleProfile(
+                    name="smoke",
+                    app_id="literal-app",
+                    appname="literal-app",
+                    app_version="test",
+                    app_json_path=str(export_path),
+                )
+            },
+        )
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1205,
+            "method": "tools/call",
+            "params": {
+                "name": "create_option_attribute",
+                "arguments": {
+                    "profile": "smoke",
+                    "option_set_ref": "os_status",
+                    "name": "Display Attribute",
+                    "type": "text",
+                    "execute": False,
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    result = json.loads(response["result"]["content"][0]["text"])
+    assert result["ok"] is True
+    assert result["executed"] is False
+    change = result["results"][0]["payload"]["changes"][0]
+    assert change["path_array"][-1] == "display_attribute"
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "delete_data_type",
+        "delete_data_type_permanently",
+        "delete_data_field",
+        "delete_privacy_rule",
+        "delete_option_set",
+        "delete_option_value",
+        "delete_301_redirect",
+    ],
+)
+def test_family_four_destructive_tools_require_confirmation_only_for_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_dispatch(name: str, args: dict[str, object]) -> dict[str, object]:
+        calls.append((name, dict(args)))
+        return {
+            "ok": True,
+            "tool_name": name,
+            "executed": args.get("execute") is True,
+            "compiled": True,
+            "write_count": 1,
+            "results": [],
+            "logs": "",
+        }
+
+    monkeypatch.setattr(tools_module, "dispatch_aria_runtime_tool", fake_dispatch)
+
+    denied = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1301,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": {"profile": "smoke", "execute": True, "confirm": False},
+            },
+        }
+    )
+    assert denied is not None
+    assert denied["result"]["isError"] is True
+    assert denied["result"]["structuredContent"]["error"] == (
+        f"{tool_name} requires confirm=true when execute=true."
+    )
+    assert calls == []
+
+    preview = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1302,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": {"profile": "smoke", "execute": False, "confirm": False},
+            },
+        }
+    )
+    confirmed = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1303,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": {"profile": "smoke", "execute": True, "confirm": True},
+            },
+        }
+    )
+    assert preview is not None and preview["result"]["structuredContent"]["executed"] is False
+    assert confirmed is not None and confirmed["result"]["structuredContent"]["executed"] is True
+    assert [call[0] for call in calls] == [tool_name, tool_name]
+
+
+def test_update_style_all_schema_dispatches_by_contains_to_runtime(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    listed = handle_request({"jsonrpc": "2.0", "id": 1201, "method": "tools/list"})
+    assert listed is not None
+    tools = {tool["name"]: tool for tool in listed["result"]["tools"]}
+    schema = tools["update_style_all"]["inputSchema"]
+    assert schema["properties"]["by_contains"]["type"] == "boolean"
+
+    calls: list[dict[str, Any]] = []
+
+    class FakePayloadBuilder:
+        send_to_webhook = None
+        to_json = None
+
+        def __init__(self, appname="synthetic-app"):  # type: ignore[no-untyped-def]
+            self.appname = appname
+
+    class FakeBubbleSdk:
+        PayloadBuilder = FakePayloadBuilder
+
+    class FakeBubbleCliModule:
+        inquirer = None
+
+        class BubbleCLI:
+            def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+                self.appname = kwargs["appname"]
+                self.discovery = SimpleNamespace(data={})
+
+            def update_style_all(
+                self,
+                context_name,
+                element_type,
+                from_style,
+                to_style,
+                dry_run=False,
+                keep_overrides=False,
+                by_contains=False,
+            ):  # type: ignore[no-untyped-def]
+                calls.append(
+                    {
+                        "context_name": context_name,
+                        "element_type": element_type,
+                        "from_style": from_style,
+                        "to_style": to_style,
+                        "dry_run": dry_run,
+                        "keep_overrides": keep_overrides,
+                        "by_contains": by_contains,
+                    }
+                )
+                return True
+
+    monkeypatch.setattr(
+        "bubble_mcp.aria_dispatch._load_aria_runtime_modules",
+        lambda: (FakeBubbleCliModule, FakeBubbleSdk),
+    )
+    monkeypatch.setattr(
+        "bubble_mcp.aria_dispatch._resolve_runtime_environment",
+        lambda args: __import__("bubble_mcp.aria_dispatch").aria_dispatch.AriaRuntimeEnvironment(
+            profile=args["profile"],
+            app_id="synthetic-app",
+            app_version="test",
+            app_json_path="/tmp/app.bubble",
+            consolelog_json_path=None,
+            crawler_index_path=None,
+            mutation_overlay_path=None,
+        ),
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1202,
+            "method": "tools/call",
+            "params": {
+                "name": "update_style_all",
+                "arguments": {
+                    "profile": "smoke",
+                    "context": "index",
+                    "element_type": "Text",
+                    "from_style": "Body",
+                    "to_style": "Heading",
+                    "keep_overrides": True,
+                    "by_contains": True,
+                    "execute": False,
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["ok"] is True
+    assert calls == [
+        {
+            "context_name": "index",
+            "element_type": "Text",
+            "from_style": "Body",
+            "to_style": "Heading",
+            "dry_run": True,
+            "keep_overrides": True,
+            "by_contains": True,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "required", "operation_fields", "method_name"),
+    [
+        ("list_colors", ["profile"], {"show_default", "show_custom"}, "list_colors"),
+        ("create_color", ["profile", "name", "rgba"], {"description"}, "create_color"),
+        ("update_color", ["profile", "name", "rgba"], set(), "update_color"),
+        ("delete_color", ["profile", "name"], {"confirm"}, "delete_color"),
+        ("delete_colors", ["profile"], {"names", "pattern", "confirm"}, "delete_colors"),
+        ("clear_custom_colors", ["profile"], {"confirm"}, "clear_custom_colors"),
+        ("reorder_colors", ["profile", "mode"], {"color_name", "target"}, "reorder_colors"),
+        ("list_fonts", ["profile"], {"show_app", "show_custom"}, "list_fonts"),
+        ("create_font", ["profile", "name", "font_family"], {"description"}, "create_font"),
+        ("update_font", ["profile", "name", "font_family"], set(), "update_font"),
+        ("delete_font", ["profile", "name"], {"confirm"}, "delete_font"),
+    ],
+)
+def test_color_font_mcp_schemas_match_runtime_signatures(
+    tool_name: str,
+    required: list[str],
+    operation_fields: set[str],
+    method_name: str,
+) -> None:
+    listed = handle_request({"jsonrpc": "2.0", "id": 1203, "method": "tools/list"})
+    assert listed is not None
+    tools = {tool["name"]: tool for tool in listed["result"]["tools"]}
+    schema = tools[tool_name]["inputSchema"]
+
+    assert schema["required"] == required
+    assert operation_fields <= set(schema["properties"])
+    runtime_fields = set(inspect.signature(getattr(BubbleCLI, method_name)).parameters) - {"self", "dry_run"}
+    assert operation_fields - {"confirm"} <= runtime_fields
+    assert set(required) - {"profile"} <= runtime_fields
+
+    if tool_name == "delete_colors":
+        assert schema["properties"]["names"] == {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "minItems": 1,
+            "description": "Exact custom color names to soft-delete in one grouped operation.",
+        }
+    if tool_name == "reorder_colors":
+        assert schema["properties"]["mode"]["enum"] == ["sort-az", "sort-za", "move", "swap"]
+    for boolean_field in {"show_default", "show_custom", "show_app"} & operation_fields:
+        assert schema["properties"][boolean_field]["type"] == "boolean"
+
+
+def _schema_contract_accepts(schema: dict[str, Any], arguments: dict[str, Any]) -> bool:
+    def value_matches(rule: dict[str, Any], value: Any) -> bool:
+        expected_type = rule.get("type")
+        if expected_type == "string" and not isinstance(value, str):
+            return False
+        if expected_type == "array" and not isinstance(value, list):
+            return False
+        if "const" in rule and value != rule["const"]:
+            return False
+        if "enum" in rule and value not in rule["enum"]:
+            return False
+        if isinstance(value, str) and len(value) < int(rule.get("minLength", 0)):
+            return False
+        if isinstance(value, list):
+            if len(value) < int(rule.get("minItems", 0)):
+                return False
+            item_rule = rule.get("items")
+            if isinstance(item_rule, dict) and any(
+                not value_matches(item_rule, item) for item in value
+            ):
+                return False
+        return True
+
+    def object_matches(rule: dict[str, Any]) -> bool:
+        if not set(rule.get("required", ())) <= set(arguments):
+            return False
+        properties = rule.get("properties")
+        if not isinstance(properties, dict):
+            return True
+        return all(
+            name not in arguments or not isinstance(field_rule, dict) or value_matches(field_rule, arguments[name])
+            for name, field_rule in properties.items()
+        )
+
+    if not object_matches(schema):
+        return False
+    alternatives = schema.get("anyOf")
+    return not isinstance(alternatives, list) or any(
+        isinstance(alternative, dict) and object_matches(alternative)
+        for alternative in alternatives
+    )
+
+
+def test_delete_colors_tools_list_requires_one_non_empty_selector() -> None:
+    listed = handle_request({"jsonrpc": "2.0", "id": 1213, "method": "tools/list"})
+    assert listed is not None
+    tools = {tool["name"]: tool for tool in listed["result"]["tools"]}
+    schema = tools["delete_colors"]["inputSchema"]
+
+    for arguments in (
+        {"profile": "smoke", "names": ["Brand"]},
+        {"profile": "smoke", "pattern": "^Old"},
+        {"profile": "smoke", "names": ["Brand"], "pattern": "^Old"},
+    ):
+        assert _schema_contract_accepts(schema, arguments) is True
+    for arguments in (
+        {"profile": "smoke"},
+        {"profile": "smoke", "names": []},
+        {"profile": "smoke", "names": [""]},
+        {"profile": "smoke", "pattern": ""},
+    ):
+        assert _schema_contract_accepts(schema, arguments) is False
+
+
+def test_reorder_colors_tools_list_requires_runtime_operands_by_mode() -> None:
+    listed = handle_request({"jsonrpc": "2.0", "id": 1214, "method": "tools/list"})
+    assert listed is not None
+    tools = {tool["name"]: tool for tool in listed["result"]["tools"]}
+    schema = tools["reorder_colors"]["inputSchema"]
+
+    for arguments in (
+        {"profile": "smoke", "mode": "sort-az"},
+        {"profile": "smoke", "mode": "sort-za"},
+        {"profile": "smoke", "mode": "move", "color_name": "Brand", "target": "0"},
+        {"profile": "smoke", "mode": "swap", "color_name": "Brand", "target": "Accent"},
+    ):
+        assert _schema_contract_accepts(schema, arguments) is True
+    for arguments in (
+        {"profile": "smoke", "mode": "move"},
+        {"profile": "smoke", "mode": "move", "color_name": "Brand"},
+        {"profile": "smoke", "mode": "swap", "target": "Accent"},
+        {"profile": "smoke", "mode": "swap", "color_name": "", "target": "Accent"},
+    ):
+        assert _schema_contract_accepts(schema, arguments) is False
+
+
+@pytest.mark.parametrize(
+    ("method_name", "arguments", "expected"),
+    [
+        ("list_colors", {"show_default": False, "show_custom": True}, {"show_default": False, "show_custom": True}),
+        (
+            "create_color",
+            {"name": "Brand", "rgba": "rgba(1,2,3,1)", "description": "Core"},
+            {"name": "Brand", "rgba": "rgba(1,2,3,1)", "description": "Core", "dry_run": True},
+        ),
+        (
+            "update_color",
+            {"name": "Brand", "rgba": "rgba(4,5,6,1)"},
+            {"name": "Brand", "rgba": "rgba(4,5,6,1)", "dry_run": True},
+        ),
+        ("delete_color", {"name": "Brand"}, {"name": "Brand", "dry_run": True}),
+        (
+            "delete_colors",
+            {"names": ["Brand"], "pattern": "^Old"},
+            {"names": ["Brand"], "pattern": "^Old", "dry_run": True},
+        ),
+        (
+            "reorder_colors",
+            {"mode": "move", "color_name": "Brand", "target": "0"},
+            {"mode": "move", "color_name": "Brand", "target": "0", "dry_run": True},
+        ),
+        ("list_fonts", {"show_app": False, "show_custom": True}, {"show_app": False, "show_custom": True}),
+        (
+            "create_font",
+            {"name": "Body", "font_family": "Inter", "description": "Copy"},
+            {"name": "Body", "font_family": "Inter", "description": "Copy", "dry_run": True},
+        ),
+        (
+            "update_font",
+            {"name": "Body", "font_family": "Noto Sans"},
+            {"name": "Body", "font_family": "Noto Sans", "dry_run": True},
+        ),
+        ("delete_font", {"name": "Body"}, {"name": "Body", "dry_run": True}),
+    ],
+)
+def test_color_font_schema_arguments_dispatch_to_literal_runtime_signature(
+    method_name: str,
+    arguments: dict[str, Any],
+    expected: dict[str, Any],
+) -> None:
+    method = getattr(BubbleCLI, method_name)
+
+    assert _method_kwargs(method, arguments, execute=False) == expected
+
+
+def test_sync_figma_tokens_schema_matches_import_and_option_discovery_runtime_signature() -> None:
+    listed = handle_request({"jsonrpc": "2.0", "id": 1208, "method": "tools/list"})
+    assert listed is not None
+    listed_tools = listed["result"]["tools"]
+    tools = {tool["name"]: tool for tool in listed_tools}
+    schema = tools["sync_figma_tokens"]["inputSchema"]
+
+    assert len(listed_tools) == 327
+    assert schema["required"] == ["profile", "tokens_path"]
+    assert {
+        "tokens_path",
+        "config_path",
+        "types",
+        "color_bases",
+        "all_tokens",
+        "list_options",
+        "filter",
+    } <= set(schema["properties"])
+    runtime_fields = set(inspect.signature(BubbleCLI.sync_figma_tokens).parameters) - {"self", "dry_run"}
+    assert {
+        "tokens_path",
+        "config_path",
+        "types",
+        "color_bases",
+        "all_tokens",
+        "list_options",
+        "filter",
+    } <= runtime_fields
+    assert schema["properties"]["filter"]["description"] == (
+        "Case-insensitive substring filter applied to generated typography style names during "
+        "Figma token import."
+    )
+    import_args = {
+        "tokens_path": "tokens.json",
+        "config_path": "config.json",
+        "types": "font,color,style",
+        "color_bases": "brand,base",
+        "all_tokens": True,
+        "filter": "body",
+    }
+    assert _method_kwargs(BubbleCLI.sync_figma_tokens, import_args, execute=False) == {
+        **import_args,
+        "dry_run": True,
+    }
+    assert _method_kwargs(
+        BubbleCLI.sync_figma_tokens,
+        {"tokens_path": "tokens.json", "list_options": True},
+        execute=False,
+    ) == {"tokens_path": "tokens.json", "dry_run": True, "list_options": True}
+
+
+@pytest.mark.parametrize("execute", [False, True])
+def test_sync_figma_tokens_list_options_dispatch_stays_read_only(
+    execute: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(
+        tools_module,
+        "dispatch_aria_runtime_tool",
+        lambda name, args: calls.append((name, dict(args))) or {"ok": True, "groups": {}},
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1209,
+            "method": "tools/call",
+            "params": {
+                "name": "sync_figma_tokens",
+                "arguments": {
+                    "profile": "smoke",
+                    "tokens_path": "tokens.json",
+                    "list_options": True,
+                    "execute": execute,
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    assert json.loads(response["result"]["content"][0]["text"])["ok"] is True
+    assert len(calls) == 1
+    assert calls[0][0] == "sync_figma_tokens"
+    assert calls[0][1]["profile"] == "smoke"
+    assert calls[0][1]["tokens_path"] == "tokens.json"
+    assert calls[0][1]["list_options"] is True
+    assert calls[0][1]["execute"] is False
+    assert calls[0][1]["dry_run"] is True
+
+
+def test_sync_figma_tokens_tools_call_preview_exposes_structured_plan_additively(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakePayloadBuilder:
+        def __init__(self, appname="synthetic-app", app_version="test", **_kwargs):
+            self.appname = appname
+            self.app_version = app_version
+
+        def send_to_webhook(self, _url=""):
+            return {"ok": True}
+
+        def to_json(self, indent=2):
+            return json.dumps({}, indent=indent)
+
+    class FakeBubbleSdk:
+        PayloadBuilder = FakePayloadBuilder
+
+    class FakeBubbleCliModule:
+        inquirer = None
+
+        class BubbleCLI:
+            def __init__(self, **kwargs):
+                self.app_version = kwargs["app_version"]
+                self._last_figma_token_sync_result = None
+
+            def sync_figma_tokens(
+                self,
+                tokens_path: str,
+                config_path: str = "figma_bridge/token_config.json",
+                dry_run: bool = False,
+                types: str | None = None,
+                color_bases: str | None = None,
+                all_tokens: bool = False,
+                list_options: bool = False,
+                filter: str | None = None,
+            ) -> bool:
+                self._last_figma_token_sync_result = {
+                    "ok": True,
+                    "dry_run": dry_run,
+                    "counts": {"fonts": 0, "created": 1, "updated": 0, "skipped": 0, "styles": 0},
+                    "applied_counts": {"fonts": 0, "colors": 0, "styles": 0},
+                    "payloads": [
+                        {
+                            "phase": "colors",
+                            "payload": {
+                                "v": 1,
+                                "appname": "synthetic-app",
+                                "app_version": self.app_version,
+                                "changes": [{"intent": {"name": "ChangeAppSettings"}}],
+                            },
+                        }
+                    ],
+                    "errors": [],
+                    "warnings": [],
+                }
+                return True
+
+    monkeypatch.setattr(
+        "bubble_mcp.aria_dispatch._load_aria_runtime_modules",
+        lambda: (FakeBubbleCliModule, FakeBubbleSdk),
+    )
+    monkeypatch.setattr(
+        "bubble_mcp.aria_dispatch._resolve_runtime_environment",
+        lambda _args: SimpleNamespace(
+            profile="smoke",
+            app_id="synthetic-app",
+            app_version="version-stage",
+            app_json_path=None,
+            consolelog_json_path=None,
+            crawler_index_path=None,
+            mutation_overlay_path=None,
+        ),
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1210,
+            "method": "tools/call",
+            "params": {
+                "name": "sync_figma_tokens",
+                "arguments": {
+                    "profile": "smoke",
+                    "tokens_path": "tokens.json",
+                    "execute": False,
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["ok"] is True
+    assert payload["compiled"] is False
+    assert payload["write_count"] == 0
+    assert payload["results"] == []
+    assert payload["figma_import"]["result"]["counts"]["created"] == 1
+    assert payload["figma_import"]["plan"] == [
+        {
+            "phase": "colors",
+            "payload": {
+                "v": 1,
+                "appname": "synthetic-app",
+                "app_version": "version-stage",
+                "changes": [{"intent": {"name": "ChangeAppSettings"}}],
+            },
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("delete_color", {"name": "Brand"}),
+        ("delete_colors", {"names": ["Brand"]}),
+        ("clear_custom_colors", {}),
+        ("delete_font", {"name": "Body"}),
+    ],
+)
+def test_destructive_color_font_tools_require_confirmation_only_when_executing(
+    tool_name: str,
+    arguments: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(
+        tools_module,
+        "dispatch_aria_runtime_tool",
+        lambda name, args: calls.append((name, dict(args)))
+        or {"ok": True, "executed": bool(args.get("execute"))},
+    )
+
+    preview = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1204,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": {"profile": "smoke", **arguments, "execute": False},
+            },
+        }
+    )
+    assert preview is not None
+    preview_payload = json.loads(preview["result"]["content"][0]["text"])
+    assert preview_payload == {"ok": True, "executed": False}
+    assert len(calls) == 1
+    assert calls[0][0] == tool_name
+    for key, value in {"profile": "smoke", **arguments, "execute": False}.items():
+        assert calls[0][1][key] == value
+    calls.clear()
+    blocked = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1205,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": {"profile": "smoke", **arguments, "execute": True},
+            },
+        }
+    )
+    assert blocked is not None
+    blocked_payload = json.loads(blocked["result"]["content"][0]["text"])
+    assert blocked_payload["error"] == f"{tool_name} requires confirm=true when execute=true."
+    assert calls == []
+
+    confirmed = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1206,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": {
+                    "profile": "smoke",
+                    **arguments,
+                    "execute": True,
+                    "confirm": True,
+                },
+            },
+        }
+    )
+    assert confirmed is not None
+    confirmed_payload = json.loads(confirmed["result"]["content"][0]["text"])
+    assert confirmed_payload == {"ok": True, "executed": True}
+    assert len(calls) == 1
+    assert calls[0][0] == tool_name
+    for key, value in {
+        "profile": "smoke",
+        **arguments,
+        "execute": True,
+        "confirm": True,
+    }.items():
+        assert calls[0][1][key] == value
+
+
+def test_destructive_token_write_payload_with_conflicting_flags_stays_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writes: list[bool] = []
+    overlays: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(tools_module, "load_session", lambda profile: SimpleNamespace(app_id="app"))
+
+    def fake_write(
+        self: Any,
+        payload: dict[str, Any],
+        session: Any,
+        *,
+        dry_run: bool = False,
+        calculate_derived: bool = False,
+    ) -> dict[str, Any]:
+        del self, session, calculate_derived
+        writes.append(dry_run)
+        return {"ok": True, "dry_run": dry_run, "request": {"payload": payload}}
+
+    monkeypatch.setattr(tools_module.BubbleEditorClient, "write", fake_write)
+    monkeypatch.setattr(
+        tools_module,
+        "record_mutation_overlay",
+        lambda **kwargs: overlays.append(kwargs),
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1207,
+            "method": "tools/call",
+            "params": {
+                "name": "delete_color",
+                "arguments": {
+                    "profile": "smoke",
+                    "name": "Brand",
+                    "execute": True,
+                    "dry_run": True,
+                    "write_payload": {
+                        "appname": "app",
+                        "changes": [
+                            {
+                                "intent": {"name": "ChangeAppSetting"},
+                                "path_array": ["settings", "client_safe", "color_tokens_user"],
+                                "body": {"%d1": {}},
+                            }
+                        ],
+                    },
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    assert writes == [True]
+    assert overlays == []
+
+
 def test_batch_dispatch_accepts_inline_commands(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     calls = []
 
@@ -2552,6 +3627,7 @@ def test_native_family_schemas_expose_agent_selection_constraints() -> None:
     assert changelog["properties"]["num_fetch"]["minimum"] == 1
     assert changelog["properties"]["num_fetch"]["maximum"] == 200
     assert "Element" in changelog["properties"]["change_type"]["examples"]
+    assert changelog["properties"]["user_id"]["type"] == ["string", "array"]
 
     expert_export = tools["bubble_eval_export_expert"]["inputSchema"]
     assert expert_export["required"] == ["input", "output"]
@@ -2590,6 +3666,7 @@ def test_native_mutating_schemas_make_execution_and_confirmation_explicit() -> N
     assert tools["bubble_branch_merge_confirm"]["inputSchema"]["properties"]["execute"]["default"] is False
     assert tools["bubble_branch_merge_resolve_conflicts"]["inputSchema"]["properties"]["execute"]["default"] is False
     assert tools["bubble_branch_merge_finalize"]["inputSchema"]["properties"]["execute"]["default"] is False
+    assert tools["bubble_branch_merge_finalize"]["inputSchema"]["properties"]["user_id"]["type"] == "string"
 
 
 def test_legacy_catalog_tools_expose_common_agent_arguments() -> None:
@@ -2659,13 +3736,49 @@ def test_legacy_catalog_tools_expose_specific_family_schemas() -> None:
     assert "field_name_number" in delete_field_description
     assert "nome_do_campo_tabelarelacional" in delete_field_description
 
+    delete_data_type = tools["delete_data_type"]
+    assert "Soft-delete" in delete_data_type["description"]
+    assert "ask the user" in delete_data_type["description"]
+
+    permanent_delete = tools["delete_data_type_permanently"]
+    assert permanent_delete["inputSchema"]["required"] == ["profile", "data_type_ref"]
+    assert "confirm" in permanent_delete["inputSchema"]["properties"]
+    assert "write_payload" not in permanent_delete["inputSchema"]["properties"]
+    assert "payload" not in permanent_delete["inputSchema"]["properties"]
+    assert permanent_delete["inputSchema"]["properties"]["data_type_ref_kind"]["enum"] == ["id"]
+    assert "Permanently remove" in permanent_delete["description"]
+    assert "only after delete_data_type" in permanent_delete["description"]
+    assert permanent_delete["annotations"]["destructiveHint"] is True
+
     create_event = tools["create_event"]["inputSchema"]
     assert create_event["required"] == ["profile", "context", "event_type"]
     for field in ["only_when_json", "interval_seconds", "element_ref", "event_key"]:
         assert field in create_event["properties"]
 
     add_action = tools["add_action"]["inputSchema"]
-    assert add_action["required"] == ["profile", "context", "action_type"]
+    assert add_action["required"] == ["profile", "context", "element_name", "action_type"]
+
+    add_event_action = tools["add_event_action"]["inputSchema"]
+    assert add_event_action["required"] == ["profile", "context", "action_type"]
+    assert add_event_action["anyOf"] == [
+        {"required": ["event_ref"]},
+        {"required": ["event_type"]},
+    ]
+
+    set_comment = tools["set_comment"]["inputSchema"]
+    assert set_comment["required"] == ["profile", "target_type", "target_id", "comment"]
+    target_type = set_comment["properties"]["target_type"]
+    assert target_type["type"] == "string"
+    assert target_type["minLength"] == 1
+    assert "reusable" in target_type["examples"]
+    assert "enum" not in target_type
+    assert "custom target names require target_wire_type" in target_type["description"]
+
+    for action_tool_name in ["add_action", "add_event_action"]:
+        action_properties = tools[action_tool_name]["inputSchema"]["properties"]
+        assert "to" in action_properties
+        assert "to_email" in action_properties
+        assert "query_result_type" not in action_properties
 
     login = tools["log_the_user_in"]["inputSchema"]
     assert login["required"] == ["profile", "context", "event_ref", "email_input_ref", "password_input_ref"]
@@ -2698,6 +3811,80 @@ def test_legacy_catalog_tools_expose_specific_family_schemas() -> None:
         "search_for",
         "auto_binding",
     ]
+
+
+def test_privacy_tool_schemas_preserve_required_selectors_preview_defaults_and_delete_confirmation() -> None:
+    response = handle_request({"jsonrpc": "2.0", "id": 171, "method": "tools/list"})
+
+    assert response is not None
+    tools = {tool["name"]: tool for tool in response["result"]["tools"]}
+    expected_required = {
+        "list_privacy_rules": ["profile", "data_type_ref"],
+        "create_privacy_rule": ["profile", "data_type_ref"],
+        "delete_privacy_rule": ["profile", "data_type_ref", "rule_key"],
+        "set_privacy_rule_name": ["profile", "data_type_ref", "rule_key", "new_name"],
+        "set_privacy_rule_condition": ["profile", "data_type_ref", "rule_key", "condition_json"],
+        "set_privacy_rule_permission": ["profile", "data_type_ref", "rule_key", "permission", "value"],
+        "set_privacy_rule_field_visibility": ["profile", "data_type_ref", "rule_key"],
+        "set_privacy_rule_auto_binding": ["profile", "data_type_ref", "rule_key", "auto_binding"],
+    }
+    for name, required in expected_required.items():
+        schema = tools[name]["inputSchema"]
+        assert schema["required"] == required
+        assert schema["properties"]["dry_run"]["default"] is True
+        assert schema["properties"]["profile"]["description"]
+        assert "data type" in schema["properties"]["data_type_ref"]["description"].lower()
+
+    create = tools["create_privacy_rule"]["inputSchema"]["properties"]
+    for field in [
+        "rule_key",
+        "rule_name",
+        "view_all",
+        "view_attachments",
+        "search_for",
+        "auto_binding",
+        "view_fields",
+        "binding_fields",
+        "condition_json",
+        "include_everyone_default",
+        "id_counter",
+    ]:
+        assert create[field]["description"]
+    assert create["include_everyone_default"]["default"] is True
+    assert "field_name_text" in create["view_fields"]["description"]
+    assert "field_name_text" in create["binding_fields"]["description"]
+
+    for name in [
+        "delete_privacy_rule",
+        "set_privacy_rule_name",
+        "set_privacy_rule_condition",
+        "set_privacy_rule_permission",
+        "set_privacy_rule_field_visibility",
+        "set_privacy_rule_auto_binding",
+    ]:
+        properties = tools[name]["inputSchema"]["properties"]
+        assert properties["rule_key"]["description"]
+
+    delete = tools["delete_privacy_rule"]
+    assert delete["annotations"]["destructiveHint"] is True
+    assert delete["inputSchema"]["properties"]["confirm"]["default"] is False
+    assert "destructive" in delete["inputSchema"]["properties"]["confirm"]["description"].lower()
+    assert "confirm" not in delete["inputSchema"]["required"]
+
+    visibility = tools["set_privacy_rule_field_visibility"]["inputSchema"]["properties"]
+    binding = tools["set_privacy_rule_auto_binding"]["inputSchema"]["properties"]
+    assert "field_name_text" in visibility["view_fields"]["description"]
+    assert "field_name_text" in binding["binding_fields"]["description"]
+
+    assert "json" not in tools["list_privacy_rules"]["inputSchema"]["properties"]
+    visibility_schema = tools["set_privacy_rule_field_visibility"]["inputSchema"]
+    assert visibility_schema["anyOf"] == [
+        {"required": ["view_all"]},
+        {"required": ["view_fields"]},
+    ]
+    assert visibility["view_fields"]["type"] == ["string", "array", "object", "null"]
+    assert tools["set_privacy_rule_permission"]["inputSchema"]["properties"]["value"]["type"] == "boolean"
+    assert tools["delete_privacy_rule"]["inputSchema"]["properties"]["confirm"]["default"] is False
 
     list_styles = tools["list_styles"]["inputSchema"]
     assert "execute" not in list_styles["properties"]
@@ -3122,9 +4309,10 @@ def test_tools_list_includes_full_aria_catalog() -> None:
 
     assert response is not None
     names = {tool["name"] for tool in response["result"]["tools"]}
-    assert len(ARIA_BUBBLE_TOOL_NAMES) == 213
+    assert len(ARIA_BUBBLE_TOOL_NAMES) == 216
     assert set(ARIA_BUBBLE_TOOL_NAMES).issubset(names)
     assert "delete_data_field" in names
+    assert "delete_data_type_permanently" in names
     assert "create_privacy_rule" in names
     assert "set_privacy_rule_field_visibility" in names
     assert "delete_privacy_rule" in names
@@ -3252,6 +4440,7 @@ def test_browser_scheduled_deploy_tools_are_listed() -> None:
     tools = {tool["name"]: tool for tool in response["result"]["tools"]}
     assert tools["bubble_schedule_deploy"]["inputSchema"]["required"] == ["profile", "scheduled_at", "message"]
     assert tools["bubble_schedule_deploy"]["inputSchema"]["properties"]["execute"]["default"] is False
+    assert tools["bubble_schedule_deploy"]["inputSchema"]["properties"]["wait_seconds"]["default"] == 120
     assert tools["bubble_schedule_deploy"]["inputSchema"]["properties"]["auto_fix_objective_issues"]["default"] is False
     assert tools["bubble_schedule_deploy"]["annotations"]["readOnlyHint"] is False
     assert tools["bubble_schedule_deploy"]["annotations"]["destructiveHint"] is True
@@ -3838,6 +5027,390 @@ def test_high_potential_tools_include_docs_enrichment_metadata() -> None:
         assert docs["recommended_queries"]
         assert "never authorizes execution" in docs["source_policy"]
         assert f"Docs-enrichment family: {family}." in tools[tool_name]["description"]
+
+
+def test_data_schema_tools_publish_precise_data_type_field_and_api_exposure_contracts() -> None:
+    response = handle_request({"jsonrpc": "2.0", "id": 113, "method": "tools/list"})
+
+    assert response is not None
+    tools = {tool["name"]: tool["inputSchema"] for tool in response["result"]["tools"]}
+    expected = {
+        "create_data_type": (["profile", "name"], {"key", "private"}, {"fields", "exposed_api", "confirm"}),
+        "rename_data_type": (["profile", "data_type_ref", "new_name"], set(), {"data_type_ref_kind"}),
+        "delete_data_type": (["profile", "data_type_ref"], {"confirm"}, {"data_type_ref_kind"}),
+        "create_data_field": (["profile", "data_type_ref", "name", "type"], {"field_key"}, {"is_list", "optional"}),
+        "rename_data_field": (["profile", "data_type_ref", "name", "new_name"], set(), set()),
+        "delete_data_field": (["profile", "data_type_ref", "name"], {"confirm"}, set()),
+        "set_data_type_api_exposure": (["profile", "data_type_ref"], {"ref_kind", "value"}, {"confirm"}),
+    }
+
+    for name, (required, present, absent) in expected.items():
+        schema = tools[name]
+        properties = schema["properties"]
+        assert schema["required"] == required
+        assert present <= set(properties)
+        assert not absent & set(properties)
+
+    create_type_properties = tools["create_data_type"]["properties"]
+    create_field_properties = tools["create_data_field"]["properties"]
+    exposure_properties = tools["set_data_type_api_exposure"]["properties"]
+    assert create_type_properties["private"]["type"] == "boolean"
+    assert exposure_properties["enabled"]["type"] == "boolean"
+    assert create_field_properties["field_key"]["type"] == "string"
+    assert create_field_properties["field_key"]["minLength"] == 1
+    assert exposure_properties["value"]["deprecated"] is True
+    assert tools["set_data_type_api_exposure"]["anyOf"] == [
+        {"required": ["enabled"]},
+        {"required": ["value"]},
+    ]
+
+
+def test_round_a3_schema_overrides_do_not_change_non_target_catalog_contracts() -> None:
+    response = handle_request({"jsonrpc": "2.0", "id": 1131, "method": "tools/list"})
+
+    assert response is not None
+    tools = {tool["name"]: tool["inputSchema"] for tool in response["result"]["tools"]}
+    assert tools["reorder_style_states"]["properties"]["order"] == {
+        "type": "string",
+        "description": "Desired style condition/state order, as CSV or natural phrase.",
+    }
+    for name, schema in tools.items():
+        if name in DATA_SCHEMA_PRECISION_SPECS:
+            continue
+        json_property = schema.get("properties", {}).get("json")
+        if isinstance(json_property, dict):
+            assert "default" not in json_property, name
+
+
+def test_targeted_data_schema_tools_reject_unsupported_operational_fields_at_mcp_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tools_module,
+        "dispatch_aria_runtime_tool",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("unsupported arguments reached dispatch")),
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 115,
+            "method": "tools/call",
+            "params": {
+                "name": "create_data_type",
+                "arguments": {"profile": "smoke", "name": "Order", "fields": []},
+            },
+        }
+    )
+
+    assert response is not None
+    assert response["result"]["isError"] is True
+    assert response["result"]["structuredContent"]["error"] == (
+        "create_data_type does not accept operational argument: fields"
+    )
+
+
+def test_read_only_data_type_discovery_schemas_publish_no_write_channels() -> None:
+    response = handle_request({"jsonrpc": "2.0", "id": 1151, "method": "tools/list"})
+
+    assert response is not None
+    tools = {tool["name"]: tool for tool in response["result"]["tools"]}
+    for name in ("scan_types", "list_data_types"):
+        tool = tools[name]
+        assert tool["annotations"]["readOnlyHint"] is True
+        assert {
+            "execute",
+            "write_payload",
+            "payload",
+            "settings_path",
+        }.isdisjoint(tool["inputSchema"]["properties"])
+
+
+def test_data_schema_schemas_do_not_publish_unconsumed_settings_path() -> None:
+    response = handle_request({"jsonrpc": "2.0", "id": 1152, "method": "tools/list"})
+
+    assert response is not None
+    tools = {tool["name"]: tool for tool in response["result"]["tools"]}
+    for name in DATA_SCHEMA_PRECISION_SPECS:
+        assert "settings_path" not in tools[name]["inputSchema"]["properties"]
+
+
+def test_api_exposure_legacy_value_alias_normalizes_before_mcp_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_dispatch(name: str, args: dict[str, object]) -> dict[str, object]:
+        calls.append((name, dict(args)))
+        return {"ok": True, "tool_name": name}
+
+    monkeypatch.setattr(tools_module, "dispatch_aria_runtime_tool", fake_dispatch)
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 116,
+            "method": "tools/call",
+            "params": {
+                "name": "set_data_type_api_exposure",
+                "arguments": {"profile": "smoke", "data_type_ref": "order", "value": True},
+            },
+        }
+    )
+
+    assert response is not None
+    assert len(calls) == 1
+    assert calls[0][0] == "set_data_type_api_exposure"
+    assert calls[0][1]["value"] is True
+    assert calls[0][1]["enabled"] is True
+
+
+def test_targeted_data_schema_tools_reject_caller_supplied_appname_at_mcp_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tools_module,
+        "dispatch_aria_runtime_tool",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("caller appname reached dispatch")),
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 117,
+            "method": "tools/call",
+            "params": {
+                "name": "create_data_type",
+                "arguments": {"profile": "smoke", "name": "Order", "appname": "caller-app"},
+            },
+        }
+    )
+
+    assert response is not None
+    assert response["result"]["isError"] is True
+    assert response["result"]["structuredContent"]["error"] == (
+        "create_data_type does not accept operational argument: appname"
+    )
+
+
+def test_targeted_data_schema_tools_allow_trusted_profile_appname_at_mcp_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="smoke",
+            profiles={
+                "smoke": BubbleProfile(
+                    name="smoke",
+                    app_id="profile-app",
+                    appname="profile-app",
+                    app_version="test",
+                )
+            },
+        )
+    )
+    monkeypatch.setattr(
+        tools_module,
+        "dispatch_aria_runtime_tool",
+        lambda name, args: calls.append((name, dict(args))) or {"ok": True},
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 118,
+            "method": "tools/call",
+            "params": {
+                "name": "create_data_type",
+                "arguments": {"profile": "smoke", "name": "Order"},
+            },
+        }
+    )
+
+    assert response is not None
+    assert calls == [
+        (
+            "create_data_type",
+            {
+                "profile": "smoke",
+                "name": "Order",
+                "app_id": "profile-app",
+                "appname": "profile-app",
+                "app_version": "test",
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "selector"),
+    [
+        ("list_privacy_rules", {"data_type_ref": "order"}),
+        ("list_option_values", {"option_set_ref": "status"}),
+    ],
+)
+def test_read_only_schema_tools_accept_runtime_defaults_from_configured_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    tool_name: str,
+    selector: dict[str, str],
+) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="smoke",
+            profiles={
+                "smoke": BubbleProfile(
+                    name="smoke",
+                    app_id="profile-app",
+                    appname="profile-app",
+                    app_version="test",
+                )
+            },
+        )
+    )
+    monkeypatch.setattr(
+        tools_module,
+        "dispatch_aria_runtime_tool",
+        lambda name, args: calls.append((name, dict(args))) or {"ok": True},
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1181,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": {"profile": "smoke", **selector},
+            },
+        }
+    )
+
+    assert response is not None
+    assert response["result"].get("isError") is not True
+    assert calls == [
+        (
+            tool_name,
+            {
+                "profile": "smoke",
+                **selector,
+                "app_id": "profile-app",
+                "appname": "profile-app",
+                "app_version": "test",
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(("argument", "value"), [("payload", "invalid"), ("write_payload", [])])
+def test_permanent_data_type_delete_rejects_non_mapping_payload_arguments_at_mcp_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    argument: str,
+    value: object,
+) -> None:
+    monkeypatch.setattr(
+        tools_module,
+        "dispatch_aria_runtime_tool",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("non-mapping payload reached dispatch")),
+    )
+
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 119,
+            "method": "tools/call",
+            "params": {
+                "name": "delete_data_type_permanently",
+                "arguments": {
+                    "profile": "smoke",
+                    "data_type_ref": "order",
+                    "execute": True,
+                    "confirm": True,
+                    argument: value,
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    assert response["result"]["isError"] is True
+    assert response["result"]["structuredContent"]["error"] == (
+        f"delete_data_type_permanently does not accept operational argument: {argument}"
+    )
+
+
+@pytest.mark.parametrize("argument", ["payload", "write_payload"])
+def test_permanent_data_type_delete_rejects_explicit_empty_payload_mappings(
+    monkeypatch: pytest.MonkeyPatch,
+    argument: str,
+) -> None:
+    monkeypatch.setattr(
+        tools_module,
+        "dispatch_aria_runtime_tool",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("empty permanent-delete payload escaped validation")
+        ),
+    )
+    with pytest.raises(ValueError, match="does not accept write_payload or payload"):
+        tools_module.call_legacy_catalog_tool(
+            "delete_data_type_permanently",
+            {
+                "profile": "smoke",
+                "data_type_ref": "order",
+                "execute": True,
+                "confirm": True,
+                argument: {},
+            },
+        )
+
+
+def test_data_schema_tools_publish_precise_option_set_and_value_contracts() -> None:
+    response = handle_request({"jsonrpc": "2.0", "id": 114, "method": "tools/list"})
+
+    assert response is not None
+    tools = {tool["name"]: tool for tool in response["result"]["tools"]}
+    create_set = tools["create_option_set"]["inputSchema"]
+    assert create_set["required"] == ["profile", "name"]
+    assert "key" in create_set["properties"]
+    assert {"values", "attributes", "ref_kind", "confirm"}.isdisjoint(create_set["properties"])
+
+    create_attribute = tools["create_option_attribute"]["inputSchema"]
+    assert create_attribute["required"] == ["profile", "option_set_ref", "name", "type"]
+    assert "attribute_key" in create_attribute["properties"]
+    assert {"ref_kind", "confirm"}.isdisjoint(create_attribute["properties"])
+
+    for name in ["delete_option_value", "rename_option_value", "set_option_value_attribute", "reorder_option_values"]:
+        assert tools[name]["inputSchema"]["properties"]["ref_kind"]["enum"] == [
+            "auto", "key", "label", "db_value"
+        ]
+
+    order = tools["reorder_option_values"]["inputSchema"]["properties"]["order"]
+    assert order == {
+        "type": "array",
+        "items": {"type": "string", "minLength": 3},
+        "minItems": 1,
+        "description": "Complete value_key:sort_factor assignments; each active value must appear exactly once.",
+    }
+    create_value = tools["create_option_value"]["inputSchema"]["properties"]
+    set_attribute = tools["set_option_value_attribute"]["inputSchema"]["properties"]
+    assert create_value["sort_factor"]["type"] == "integer"
+    assert create_value["id_counter"]["type"] == "integer"
+    assert set_attribute["parse_json"]["type"] == "boolean"
+
+    option_tools = {
+        "create_option_set", "rename_option_set", "delete_option_set", "create_option_attribute",
+        "create_option_value", "delete_option_value", "list_option_values", "rename_option_value",
+        "set_option_value_attribute", "reorder_option_values",
+    }
+    confirm_tools = {name for name in option_tools if "confirm" in tools[name]["inputSchema"]["properties"]}
+    assert confirm_tools == {"delete_option_set", "delete_option_value"}
 
 
 def test_tool_search_returns_docs_enrichment_hints() -> None:

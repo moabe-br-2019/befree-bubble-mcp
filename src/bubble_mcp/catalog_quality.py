@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from bubble_mcp.catalog_audit import cli_catalog_parity_report
+from bubble_mcp.harness.catalog_ambiguity import catalog_ambiguity_report
+from bubble_mcp.harness.catalog_selection import catalog_selection_report
 from bubble_mcp.runtime_coverage import catalog_coverage_report
+from bubble_mcp.server.catalog import ARIA_BUBBLE_TOOL_NAMES
 from bubble_mcp.server.prompts import list_prompts
 from bubble_mcp.server.resources import list_resource_templates, list_resources
 from bubble_mcp.server.schemas import list_tool_schemas
@@ -150,6 +154,25 @@ def _check_tool_schemas(tools: list[dict[str, Any]]) -> tuple[list[dict[str, Any
                     message="Required field is missing from properties.",
                 )
     _record_check(checks, "tool_input_schemas", before, issues)
+
+    before = len(issues)
+    aria_names = set(ARIA_BUBBLE_TOOL_NAMES)
+    for tool in tools:
+        name = str(tool.get("name") or "<missing>")
+        if name not in aria_names:
+            continue
+        input_schema = tool.get("inputSchema")
+        required = input_schema.get("required") if isinstance(input_schema, dict) else None
+        if not isinstance(required, list) or not required:
+            _add_issue(
+                issues,
+                check="legacy_required_fields",
+                scope="tool",
+                name=name,
+                field="inputSchema.required",
+                message="Aria-compatible tools must declare their agent-required fields explicitly.",
+            )
+    _record_check(checks, "legacy_required_fields", before, issues)
 
     before = len(issues)
     for tool in tools:
@@ -360,6 +383,126 @@ def _coverage_check() -> tuple[dict[str, Any], list[Issue]]:
     }, issues
 
 
+def _cli_catalog_check(tools: list[dict[str, Any]]) -> tuple[dict[str, Any], list[Issue]]:
+    report = cli_catalog_parity_report(str(tool.get("name") or "") for tool in tools)
+    issues: list[Issue] = []
+    if not report["ok"]:
+        _add_issue(
+            issues,
+            check="cli_catalog_parity",
+            scope="catalog",
+            name="legacy_cli",
+            field="missing",
+            message=f"Bubble CLI commands missing from the MCP catalog: {report['missing']}",
+        )
+    return {
+        "name": "cli_catalog_parity",
+        "ok": not issues,
+        "issue_count": len(issues),
+        "cli_command_count": report["cli_command_count"],
+        "direct_match_count": report["direct_match_count"],
+        "alias_count": report["alias_count"],
+        "excluded_count": report["excluded_count"],
+        "missing_count": report["missing_count"],
+    }, issues
+
+
+def _deterministic_selection_check() -> tuple[dict[str, Any], list[Issue]]:
+    report = catalog_selection_report()
+    issues: list[Issue] = []
+    failures = report.get("failures")
+    if not isinstance(failures, list):
+        failures = []
+    for failure in failures:
+        if not isinstance(failure, dict):
+            continue
+        case_id = str(failure.get("case_id") or "<unknown>")
+        failure_type = str(failure.get("failure_type") or "selection_mismatch")
+        expected_tool = str(failure.get("expected_tool") or "")
+        actual_tool = str(failure.get("actual_tool") or "")
+        name = expected_tool or actual_tool or "<catalog>"
+        if failure_type == "extra_schema":
+            message = f"{case_id}: unexpected candidate schema {actual_tool or name}."
+        elif failure_type == "missing_schema":
+            message = f"{case_id}: missing candidate schema {expected_tool or name}."
+        elif failure_type == "duplicate_schema":
+            message = f"{case_id}: duplicate candidate schema {actual_tool or name}."
+        elif failure_type == "contract_mismatch":
+            message = f"{case_id}: required-argument contract differs for {name}."
+        else:
+            message = f"{case_id}: expected {expected_tool}, got {actual_tool}"
+        _add_issue(
+            issues,
+            check="deterministic_selection_coverage",
+            scope="tool",
+            name=name,
+            field="selection",
+            message=message,
+        )
+    report_ok = report.get("ok") is True
+    if not report_ok and not issues:
+        _add_issue(
+            issues,
+            check="deterministic_selection_coverage",
+            scope="catalog",
+            name="catalog_selection",
+            field="selection",
+            message="Catalog selection report was not ok without convertible failures.",
+        )
+    return {
+        "name": "deterministic_selection_coverage",
+        "ok": report_ok and not issues,
+        "issue_count": len(issues),
+    }, issues
+
+
+def _deterministic_ambiguity_check() -> tuple[dict[str, Any], list[Issue]]:
+    report = catalog_ambiguity_report()
+    issues: list[Issue] = []
+    failures = report.get("failures")
+    if not isinstance(failures, list):
+        failures = []
+    for failure in failures:
+        if not isinstance(failure, dict):
+            continue
+        case_id = str(failure.get("case_id") or "<unknown>")
+        failure_type = str(failure.get("failure_type") or "selection_mismatch")
+        expected_tool = str(failure.get("expected_tool") or "")
+        actual_tool = str(failure.get("actual_tool") or "")
+        name = expected_tool or actual_tool or "<catalog>"
+        _add_issue(
+            issues,
+            check="deterministic_ambiguity_matrix",
+            scope="tool",
+            name=name,
+            field="selection",
+            message=(
+                f"{case_id}: expected {expected_tool or '<missing>'}, "
+                f"got {actual_tool or '<missing>'} ({failure_type})."
+            ),
+        )
+    report_ok = report.get("ok") is True
+    if not report_ok and not issues:
+        _add_issue(
+            issues,
+            check="deterministic_ambiguity_matrix",
+            scope="catalog",
+            name="catalog_ambiguity",
+            field="selection",
+            message="Catalog ambiguity report was not ok without convertible failures.",
+        )
+    summary = report.get("summary")
+    if not isinstance(summary, dict):
+        summary = {}
+    return {
+        "name": "deterministic_ambiguity_matrix",
+        "ok": report_ok and not issues,
+        "issue_count": len(issues),
+        "case_count": int(summary.get("case_count") or 0),
+        "family_count": int(summary.get("family_count") or 0),
+    }, issues
+
+
 def catalog_quality_report() -> dict[str, Any]:
     """Return a compact machine-readable quality report for MCP clients and CI."""
 
@@ -387,6 +530,18 @@ def catalog_quality_report() -> dict[str, Any]:
     checks.append(coverage_check)
     issues.extend(coverage_issues)
 
+    cli_catalog_check, cli_catalog_issues = _cli_catalog_check(tools)
+    checks.append(cli_catalog_check)
+    issues.extend(cli_catalog_issues)
+
+    deterministic_selection_check, deterministic_selection_issues = _deterministic_selection_check()
+    checks.append(deterministic_selection_check)
+    issues.extend(deterministic_selection_issues)
+
+    deterministic_ambiguity_check, deterministic_ambiguity_issues = _deterministic_ambiguity_check()
+    checks.append(deterministic_ambiguity_check)
+    issues.extend(deterministic_ambiguity_issues)
+
     by_scope: dict[str, int] = {}
     for issue in issues:
         scope = str(issue.get("scope") or "unknown")
@@ -410,5 +565,8 @@ def catalog_quality_report() -> dict[str, Any]:
             "property_descriptions": f">= {MIN_PROPERTY_DESCRIPTION_CHARS} characters",
             "required_annotations": list(REQUIRED_ANNOTATIONS),
             "coverage": "No uncovered exposed tools; no uncovered Aria-compatible runtime tools.",
+            "cli_catalog_parity": "Every packaged Bubble-operation CLI command maps to a canonical MCP tool, an explicit alias, or an explained CLI-only exclusion.",
+            "deterministic_selection_coverage": "Every exposed MCP tool must win its exact-name selection case with required-argument metadata and reversed-order stability.",
+            "deterministic_ambiguity_matrix": "Closely related MCP tools must win curated natural-language cases with required-argument metadata and canonical, reversed, and rotated-order stability.",
         },
     }

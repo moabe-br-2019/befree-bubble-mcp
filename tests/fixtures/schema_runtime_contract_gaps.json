@@ -1,672 +1,558 @@
 {
- "add_event_go_to_page": [
-  "same_tab"
- ],
- "batch": [
-  "commands",
-  "json"
- ],
- "build_data_source_json": [
-  "data_source_json",
-  "query_constraints_json",
-  "query_ignore_empty_constraints",
-  "query_json",
-  "query_result_from_field",
-  "query_result_type",
-  "query_sort_desc",
-  "query_sort_field",
-  "source_type"
- ],
- "build_source_query_json": [
-  "query_constraints_json",
-  "query_ignore_empty_constraints",
-  "query_result_from_field",
-  "query_result_type",
-  "query_sort_desc",
-  "query_sort_field"
- ],
- "clear_cache": [
-  "confirm",
-  "name"
- ],
- "clear_custom_colors": [
-  "confirm",
-  "name"
- ],
- "clear_custom_styles": [
-  "confirm",
-  "name"
- ],
- "clone_page": [
-  "name",
-  "source",
-  "title"
- ],
- "clone_reusable": [
-  "name",
-  "source"
- ],
- "convert_text_parts_to_app_text": [
-  "element_name",
-  "language",
-  "name",
-  "path",
-  "search_text"
- ],
- "convert_text_path_to_app_text": [
-  "context",
-  "element_name",
-  "language",
-  "name",
-  "path",
-  "search_text"
- ],
- "convert_text_to_app_text": [
-  "element_name",
-  "language",
-  "name",
-  "path",
-  "search_text"
- ],
- "create_api_token": [
-  "confirm",
-  "name"
- ],
- "create_app_text": [
-  "context",
-  "name"
- ],
- "create_color": [
-  "confirm"
- ],
- "create_custom_state": [
-  "default_value_json",
-  "element_name"
- ],
- "create_data_field": [
-  "is_list",
-  "optional"
- ],
- "create_data_type": [
-  "confirm",
-  "exposed_api",
-  "fields"
- ],
- "create_font": [
-  "confirm",
-  "json",
-  "value"
- ],
- "create_option_attribute": [
-  "confirm",
-  "new_name",
-  "option_value_ref",
-  "type",
-  "value"
- ],
- "create_option_set": [
-  "attributes",
-  "confirm",
-  "new_name",
-  "values"
- ],
- "create_option_value": [
-  "confirm",
-  "name",
-  "new_name",
-  "option_value_ref",
-  "type",
-  "value"
- ],
- "create_styles_from_html": [
-  "<NO RUNTIME METHOD>"
- ],
- "delete_301_redirect": [
-  "confirm",
-  "name"
- ],
- "delete_action": [
-  "confirm"
- ],
- "delete_alert": [
-  "confirm"
- ],
- "delete_api_token": [
-  "confirm",
-  "name"
- ],
- "delete_button": [
-  "confirm"
- ],
- "delete_checkbox": [
-  "confirm"
- ],
- "delete_color": [
-  "confirm"
- ],
- "delete_colors": [
-  "confirm",
-  "name"
- ],
- "delete_data_field": [
-  "confirm",
-  "name"
- ],
- "delete_data_type": [
-  "confirm",
-  "data_type_ref_kind"
- ],
- "delete_datepicker": [
-  "confirm"
- ],
- "delete_dropdown": [
-  "confirm"
- ],
- "delete_event": [
-  "confirm"
- ],
- "delete_file_uploader": [
-  "confirm"
- ],
- "delete_floating_group": [
-  "confirm"
- ],
- "delete_font": [
-  "confirm"
- ],
- "delete_group": [
-  "confirm"
- ],
- "delete_group_focus": [
-  "confirm"
- ],
- "delete_html": [
-  "confirm"
- ],
- "delete_icon": [
-  "confirm"
- ],
- "delete_image": [
-  "confirm"
- ],
- "delete_input": [
-  "confirm"
- ],
- "delete_link": [
-  "confirm"
- ],
- "delete_map": [
-  "confirm"
- ],
- "delete_multiline_input": [
-  "confirm"
- ],
- "delete_option_set": [
-  "confirm",
-  "name"
- ],
- "delete_option_value": [
-  "confirm",
-  "name"
- ],
- "delete_page": [
-  "confirm"
- ],
- "delete_picture_uploader": [
-  "confirm"
- ],
- "delete_popup": [
-  "confirm"
- ],
- "delete_privacy_rule": [
-  "confirm"
- ],
- "delete_radio": [
-  "confirm"
- ],
- "delete_repeating_group": [
-  "confirm",
-  "name"
- ],
- "delete_reusable": [
-  "confirm",
-  "name"
- ],
- "delete_searchbox": [
-  "confirm"
- ],
- "delete_shape": [
-  "confirm"
- ],
- "delete_slider": [
-  "confirm"
- ],
- "delete_style": [
-  "confirm"
- ],
- "delete_styles": [
-  "confirm",
-  "name"
- ],
- "delete_table": [
-  "confirm"
- ],
- "delete_text": [
-  "confirm"
- ],
- "delete_video": [
-  "confirm"
- ],
- "list_301_redirects": [
-  "context",
-  "limit",
-  "query"
- ],
- "list_app_texts": [
-  "context",
-  "limit",
-  "query"
- ],
- "list_colors": [
-  "context",
-  "json",
-  "limit",
-  "query"
- ],
- "list_element_ref_maps": [
-  "<NO RUNTIME METHOD>"
- ],
- "list_events": [
-  "limit",
-  "query"
- ],
- "list_fonts": [
-  "context",
-  "json",
-  "limit",
-  "query"
- ],
- "list_option_values": [
-  "context",
-  "limit",
-  "query"
- ],
- "list_privacy_rules": [
-  "json"
- ],
- "list_project_settings": [
-  "context",
-  "limit",
-  "query"
- ],
- "list_styles": [
-  "context",
-  "json",
-  "limit"
- ],
- "list_text_matches": [
-  "limit",
-  "query"
- ],
- "log_the_user_in": [
-  "<NO RUNTIME METHOD>"
- ],
- "log_the_user_out": [
-  "<NO RUNTIME METHOD>"
- ],
- "make_changes_to_current_user": [
-  "<NO RUNTIME METHOD>"
- ],
- "map_workflow_ref": [
-  "match_index"
- ],
- "natural": [
-  "json"
- ],
- "propagate_app_text": [
-  "context",
-  "language",
-  "name",
-  "value"
- ],
- "regenerate_api_token": [
-  "confirm",
-  "name"
- ],
- "rename_api_token": [
-  "confirm",
-  "name",
-  "private_key"
- ],
- "rename_data_field": [
-  "name"
- ],
- "rename_data_type": [
-  "data_type_ref_kind"
- ],
- "rename_option_set": [
-  "attributes",
-  "confirm",
-  "values"
- ],
- "rename_option_value": [
-  "confirm",
-  "name",
-  "new_name",
-  "option_value_ref",
-  "type",
-  "value"
- ],
- "reorder_colors": [
-  "confirm",
-  "names",
-  "order",
-  "pattern"
- ],
- "reorder_option_values": [
-  "json",
-  "order"
- ],
- "reorder_style_states": [
-  "name"
- ],
- "send_confirmation_email": [
-  "<NO RUNTIME METHOD>"
- ],
- "set_app_setting": [
-  "json",
-  "name"
- ],
- "set_app_text_translation": [
-  "name"
- ],
- "set_data_type_api_exposure": [
-  "confirm",
-  "value"
- ],
- "set_event_type": [
-  "element"
- ],
- "set_option_value_attribute": [
-  "confirm",
-  "name",
-  "new_name",
-  "option_value_ref",
-  "type"
- ],
- "set_project_setting": [
-  "json",
-  "name"
- ],
- "sign_the_user_up": [
-  "<NO RUNTIME METHOD>"
- ],
- "signup_login_with_a_social_network": [
-  "<NO RUNTIME METHOD>"
- ],
- "sync_cache": [
-  "mode"
- ],
- "sync_component": [
-  "file",
-  "json",
-  "name"
- ],
- "sync_figma_component": [
-  "file",
-  "json",
-  "name"
- ],
- "sync_figma_style": [
-  "context",
-  "file",
-  "json",
-  "name",
-  "parent"
- ],
- "sync_figma_tokens": [
-  "context",
-  "file",
-  "json",
-  "name",
-  "parent"
- ],
- "update_alert": [
-  "column_gap",
-  "container_alignment",
-  "name",
-  "padding",
-  "rotation_angle",
-  "row_gap",
-  "shadow"
- ],
- "update_button": [
-  "column_gap",
-  "container_alignment",
-  "name",
-  "padding",
-  "row_gap",
-  "shadow"
- ],
- "update_color": [
-  "confirm"
- ],
- "update_font": [
-  "confirm",
-  "json",
-  "value"
- ],
- "update_group": [
-  "name",
-  "opacity",
-  "query_constraints_json",
-  "query_ignore_empty_constraints",
-  "query_json",
-  "query_result_from_field",
-  "query_sort_desc",
-  "query_sort_field",
-  "rotation_angle",
-  "shadow"
- ],
- "update_html": [
-  "bg_color",
-  "bg_image",
-  "bg_style",
-  "column_gap",
-  "container_alignment",
-  "gradient_angle",
-  "gradient_color1",
-  "gradient_color2",
-  "gradient_mid",
-  "html",
-  "name",
-  "padding",
-  "rotation_angle",
-  "row_gap",
-  "shadow"
- ],
- "update_icon_element": [
-  "color",
-  "column_gap",
-  "container_alignment",
-  "fit_height",
-  "fit_width",
-  "name",
-  "padding",
-  "row_gap",
-  "shadow"
- ],
- "update_image_element": [
-  "bg_color",
-  "bg_image",
-  "bg_style",
-  "column_gap",
-  "container_alignment",
-  "gradient_angle",
-  "gradient_color1",
-  "gradient_color2",
-  "gradient_mid",
-  "name",
-  "padding",
-  "padding_bottom",
-  "padding_left",
-  "padding_right",
-  "padding_top",
-  "row_gap",
-  "shadow"
- ],
- "update_link": [
-  "column_gap",
-  "container_alignment",
-  "name",
-  "padding",
-  "rotation_angle",
-  "row_gap",
-  "shadow"
- ],
- "update_map": [
-  "bg_color",
-  "bg_image",
-  "bg_style",
-  "column_gap",
-  "container_alignment",
-  "fit_height",
-  "fit_width",
-  "gradient_angle",
-  "gradient_color1",
-  "gradient_color2",
-  "gradient_mid",
-  "name",
-  "padding",
-  "rotation_angle",
-  "row_gap",
-  "shadow"
- ],
- "update_popup": [
-  "name",
-  "rotation_angle",
-  "shadow"
- ],
- "update_radio": [
-  "bg_color",
-  "bg_image",
-  "bg_style",
-  "border_color",
-  "border_radius",
-  "border_style",
-  "border_width",
-  "choices",
-  "column_gap",
-  "container_alignment",
-  "gradient_angle",
-  "gradient_color1",
-  "gradient_color2",
-  "gradient_mid",
-  "horiz_alignment",
-  "margin_bottom",
-  "margin_left",
-  "margin_right",
-  "margin_top",
-  "name",
-  "opacity",
-  "padding",
-  "padding_bottom",
-  "padding_left",
-  "padding_right",
-  "padding_top",
-  "rotation_angle",
-  "row_gap",
-  "shadow",
-  "vert_alignment"
- ],
- "update_reusable_type": [
-  "name",
-  "type"
- ],
- "update_shape": [
-  "color",
-  "column_gap",
-  "container_alignment",
-  "fit_height",
-  "fit_width",
-  "name",
-  "padding",
-  "padding_bottom",
-  "padding_left",
-  "padding_right",
-  "padding_top",
-  "row_gap",
-  "shadow"
- ],
- "update_slider": [
-  "bg_color",
-  "bg_image",
-  "bg_style",
-  "border_color",
-  "border_radius",
-  "border_style",
-  "border_width",
-  "column_gap",
-  "container_alignment",
-  "gradient_angle",
-  "gradient_color1",
-  "gradient_color2",
-  "gradient_mid",
-  "horiz_alignment",
-  "margin_bottom",
-  "margin_left",
-  "margin_right",
-  "margin_top",
-  "max",
-  "min",
-  "name",
-  "opacity",
-  "padding",
-  "padding_bottom",
-  "padding_left",
-  "padding_right",
-  "padding_top",
-  "rotation_angle",
-  "row_gap",
-  "shadow",
-  "val",
-  "vert_alignment"
- ],
- "update_text_element": [
-  "column_gap",
-  "container_alignment",
-  "name",
-  "padding",
-  "row_gap",
-  "shadow"
- ],
- "update_user_credentials": [
-  "<NO RUNTIME METHOD>"
- ],
- "update_video": [
-  "bg_color",
-  "bg_image",
-  "bg_style",
-  "column_gap",
-  "container_alignment",
-  "fit_height",
-  "fit_width",
-  "gradient_angle",
-  "gradient_color1",
-  "gradient_color2",
-  "gradient_mid",
-  "name",
-  "padding",
-  "rotation_angle",
-  "row_gap",
-  "shadow",
-  "url"
- ],
- "upload_asset": [
-  "context",
-  "file",
-  "json",
-  "name",
-  "parent"
- ]
+  "add_event_go_to_page": [
+    "same_tab"
+  ],
+  "batch": [
+    "commands",
+    "json"
+  ],
+  "build_data_source_json": [
+    "data_source_json",
+    "query_constraints_json",
+    "query_ignore_empty_constraints",
+    "query_json",
+    "query_result_from_field",
+    "query_result_type",
+    "query_sort_desc",
+    "query_sort_field",
+    "source_type"
+  ],
+  "build_source_query_json": [
+    "query_constraints_json",
+    "query_ignore_empty_constraints",
+    "query_result_from_field",
+    "query_result_type",
+    "query_sort_desc",
+    "query_sort_field"
+  ],
+  "clear_cache": [
+    "confirm",
+    "name"
+  ],
+  "clear_custom_colors": [
+    "confirm"
+  ],
+  "clear_custom_styles": [
+    "confirm",
+    "name"
+  ],
+  "clone_page": [
+    "name",
+    "source",
+    "title"
+  ],
+  "clone_reusable": [
+    "name",
+    "source"
+  ],
+  "convert_text_parts_to_app_text": [
+    "element_name",
+    "language",
+    "name",
+    "path",
+    "search_text"
+  ],
+  "convert_text_path_to_app_text": [
+    "context",
+    "element_name",
+    "language",
+    "name",
+    "path",
+    "search_text"
+  ],
+  "convert_text_to_app_text": [
+    "element_name",
+    "language",
+    "name",
+    "path",
+    "search_text"
+  ],
+  "create_api_token": [
+    "confirm",
+    "name"
+  ],
+  "create_app_text": [
+    "context",
+    "name"
+  ],
+  "create_custom_state": [
+    "default_value_json",
+    "element_name"
+  ],
+  "create_option_value": [
+    "name"
+  ],
+  "create_styles_from_html": [
+    "<NO RUNTIME METHOD>"
+  ],
+  "delete_301_redirect": [
+    "confirm",
+    "name"
+  ],
+  "delete_action": [
+    "confirm"
+  ],
+  "delete_alert": [
+    "confirm"
+  ],
+  "delete_api_token": [
+    "confirm",
+    "name"
+  ],
+  "delete_button": [
+    "confirm"
+  ],
+  "delete_checkbox": [
+    "confirm"
+  ],
+  "delete_color": [
+    "confirm"
+  ],
+  "delete_colors": [
+    "confirm"
+  ],
+  "delete_data_field": [
+    "confirm",
+    "name"
+  ],
+  "delete_data_type": [
+    "confirm"
+  ],
+  "delete_datepicker": [
+    "confirm"
+  ],
+  "delete_dropdown": [
+    "confirm"
+  ],
+  "delete_event": [
+    "confirm"
+  ],
+  "delete_file_uploader": [
+    "confirm"
+  ],
+  "delete_floating_group": [
+    "confirm"
+  ],
+  "delete_font": [
+    "confirm"
+  ],
+  "delete_group": [
+    "confirm"
+  ],
+  "delete_group_focus": [
+    "confirm"
+  ],
+  "delete_html": [
+    "confirm"
+  ],
+  "delete_icon": [
+    "confirm"
+  ],
+  "delete_image": [
+    "confirm"
+  ],
+  "delete_input": [
+    "confirm"
+  ],
+  "delete_link": [
+    "confirm"
+  ],
+  "delete_map": [
+    "confirm"
+  ],
+  "delete_multiline_input": [
+    "confirm"
+  ],
+  "delete_page": [
+    "confirm"
+  ],
+  "delete_picture_uploader": [
+    "confirm"
+  ],
+  "delete_popup": [
+    "confirm"
+  ],
+  "delete_privacy_rule": [
+    "confirm"
+  ],
+  "delete_radio": [
+    "confirm"
+  ],
+  "delete_repeating_group": [
+    "confirm",
+    "name"
+  ],
+  "delete_reusable": [
+    "confirm",
+    "name"
+  ],
+  "delete_searchbox": [
+    "confirm"
+  ],
+  "delete_shape": [
+    "confirm"
+  ],
+  "delete_slider": [
+    "confirm"
+  ],
+  "delete_style": [
+    "confirm"
+  ],
+  "delete_styles": [
+    "confirm",
+    "name"
+  ],
+  "delete_table": [
+    "confirm"
+  ],
+  "delete_text": [
+    "confirm"
+  ],
+  "delete_video": [
+    "confirm"
+  ],
+  "list_301_redirects": [
+    "context",
+    "limit",
+    "query"
+  ],
+  "list_app_texts": [
+    "context",
+    "limit",
+    "query"
+  ],
+  "list_colors": [
+    "json"
+  ],
+  "list_element_ref_maps": [
+    "<NO RUNTIME METHOD>"
+  ],
+  "list_events": [
+    "limit",
+    "query"
+  ],
+  "list_fonts": [
+    "json"
+  ],
+  "list_project_settings": [
+    "context",
+    "limit",
+    "query"
+  ],
+  "list_styles": [
+    "context",
+    "json",
+    "limit"
+  ],
+  "list_text_matches": [
+    "limit",
+    "query"
+  ],
+  "log_the_user_in": [
+    "<NO RUNTIME METHOD>"
+  ],
+  "log_the_user_out": [
+    "<NO RUNTIME METHOD>"
+  ],
+  "make_changes_to_current_user": [
+    "<NO RUNTIME METHOD>"
+  ],
+  "map_workflow_ref": [
+    "match_index"
+  ],
+  "natural": [
+    "json"
+  ],
+  "propagate_app_text": [
+    "context",
+    "language",
+    "value"
+  ],
+  "regenerate_api_token": [
+    "confirm",
+    "name"
+  ],
+  "rename_api_token": [
+    "confirm",
+    "name",
+    "private_key"
+  ],
+  "rename_data_field": [
+    "name"
+  ],
+  "send_confirmation_email": [
+    "<NO RUNTIME METHOD>"
+  ],
+  "set_app_setting": [
+    "json",
+    "name"
+  ],
+  "set_app_text_translation": [
+    "name"
+  ],
+  "set_event_type": [
+    "element"
+  ],
+  "set_option_value_attribute": [
+    "name"
+  ],
+  "set_project_setting": [
+    "json",
+    "name"
+  ],
+  "sign_the_user_up": [
+    "<NO RUNTIME METHOD>"
+  ],
+  "signup_login_with_a_social_network": [
+    "<NO RUNTIME METHOD>"
+  ],
+  "sync_cache": [
+    "mode"
+  ],
+  "sync_component": [
+    "file",
+    "json",
+    "name"
+  ],
+  "sync_figma_component": [
+    "file",
+    "json",
+    "name"
+  ],
+  "sync_figma_style": [
+    "context",
+    "file",
+    "json",
+    "parent"
+  ],
+  "update_alert": [
+    "column_gap",
+    "container_alignment",
+    "name",
+    "padding",
+    "rotation_angle",
+    "row_gap",
+    "shadow"
+  ],
+  "update_button": [
+    "column_gap",
+    "container_alignment",
+    "name",
+    "padding",
+    "row_gap",
+    "shadow"
+  ],
+  "update_group": [
+    "name",
+    "opacity",
+    "query_constraints_json",
+    "query_ignore_empty_constraints",
+    "query_json",
+    "query_result_from_field",
+    "query_sort_desc",
+    "query_sort_field",
+    "rotation_angle",
+    "shadow"
+  ],
+  "update_html": [
+    "bg_color",
+    "bg_image",
+    "bg_style",
+    "column_gap",
+    "container_alignment",
+    "gradient_angle",
+    "gradient_color1",
+    "gradient_color2",
+    "gradient_mid",
+    "html",
+    "name",
+    "padding",
+    "rotation_angle",
+    "row_gap",
+    "shadow"
+  ],
+  "update_icon_element": [
+    "color",
+    "column_gap",
+    "container_alignment",
+    "fit_height",
+    "fit_width",
+    "name",
+    "padding",
+    "row_gap",
+    "shadow"
+  ],
+  "update_image_element": [
+    "bg_color",
+    "bg_image",
+    "bg_style",
+    "column_gap",
+    "container_alignment",
+    "gradient_angle",
+    "gradient_color1",
+    "gradient_color2",
+    "gradient_mid",
+    "name",
+    "padding",
+    "padding_bottom",
+    "padding_left",
+    "padding_right",
+    "padding_top",
+    "row_gap",
+    "shadow"
+  ],
+  "update_link": [
+    "column_gap",
+    "container_alignment",
+    "name",
+    "padding",
+    "rotation_angle",
+    "row_gap",
+    "shadow"
+  ],
+  "update_map": [
+    "bg_color",
+    "bg_image",
+    "bg_style",
+    "column_gap",
+    "container_alignment",
+    "fit_height",
+    "fit_width",
+    "gradient_angle",
+    "gradient_color1",
+    "gradient_color2",
+    "gradient_mid",
+    "name",
+    "padding",
+    "rotation_angle",
+    "row_gap",
+    "shadow"
+  ],
+  "update_popup": [
+    "name",
+    "rotation_angle",
+    "shadow"
+  ],
+  "update_radio": [
+    "bg_color",
+    "bg_image",
+    "bg_style",
+    "border_color",
+    "border_radius",
+    "border_style",
+    "border_width",
+    "choices",
+    "column_gap",
+    "container_alignment",
+    "gradient_angle",
+    "gradient_color1",
+    "gradient_color2",
+    "gradient_mid",
+    "horiz_alignment",
+    "margin_bottom",
+    "margin_left",
+    "margin_right",
+    "margin_top",
+    "name",
+    "opacity",
+    "padding",
+    "padding_bottom",
+    "padding_left",
+    "padding_right",
+    "padding_top",
+    "rotation_angle",
+    "row_gap",
+    "shadow",
+    "vert_alignment"
+  ],
+  "update_reusable_type": [
+    "name",
+    "type"
+  ],
+  "update_shape": [
+    "color",
+    "column_gap",
+    "container_alignment",
+    "fit_height",
+    "fit_width",
+    "name",
+    "padding",
+    "padding_bottom",
+    "padding_left",
+    "padding_right",
+    "padding_top",
+    "row_gap",
+    "shadow"
+  ],
+  "update_slider": [
+    "bg_color",
+    "bg_image",
+    "bg_style",
+    "border_color",
+    "border_radius",
+    "border_style",
+    "border_width",
+    "column_gap",
+    "container_alignment",
+    "gradient_angle",
+    "gradient_color1",
+    "gradient_color2",
+    "gradient_mid",
+    "horiz_alignment",
+    "margin_bottom",
+    "margin_left",
+    "margin_right",
+    "margin_top",
+    "max",
+    "min",
+    "name",
+    "opacity",
+    "padding",
+    "padding_bottom",
+    "padding_left",
+    "padding_right",
+    "padding_top",
+    "rotation_angle",
+    "row_gap",
+    "shadow",
+    "val",
+    "vert_alignment"
+  ],
+  "update_text_element": [
+    "column_gap",
+    "container_alignment",
+    "name",
+    "padding",
+    "row_gap",
+    "shadow"
+  ],
+  "update_user_credentials": [
+    "<NO RUNTIME METHOD>"
+  ],
+  "update_video": [
+    "bg_color",
+    "bg_image",
+    "bg_style",
+    "column_gap",
+    "container_alignment",
+    "fit_height",
+    "fit_width",
+    "gradient_angle",
+    "gradient_color1",
+    "gradient_color2",
+    "gradient_mid",
+    "name",
+    "padding",
+    "rotation_angle",
+    "row_gap",
+    "shadow",
+    "url"
+  ],
+  "upload_asset": [
+    "context",
+    "file",
+    "json",
+    "name",
+    "parent"
+  ]
 }

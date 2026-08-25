@@ -201,9 +201,9 @@ LEGACY_TOOL_DESCRIPTIONS: dict[str, str] = {
     "convert_text_path_to_app_text": "Convert the text at a specific property path of an element into an app text entry and bind it.",
     "propagate_app_text": "Propagate an app text value (name, value, language) to every element bound to it in context.",
     # Design-system sync / assets
-    "sync_figma_component": "Sync a Figma component export (file) from the local bridge into Bubble under parent in context.",
+    "sync_figma_component": "Sync one Figma component definition (file) from the local bridge into Bubble under parent in context.",
     "sync_component": "Sync a local component export (file) from the bridge into Bubble under parent in context.",
-    "sync_figma_style": "Sync Figma styles (file) from the local bridge into Bubble styles.",
+    "sync_figma_style": "Sync one Figma style (file) from the local bridge into Bubble styles.",
     "sync_figma_tokens": "Sync Figma design tokens (file: colors, fonts) from the local bridge into Bubble app tokens.",
     "upload_asset": "Upload a local file (image/asset) to Bubble and return its URL for use in elements.",
     # API tokens (Data API) — NOT the API Connector plugin

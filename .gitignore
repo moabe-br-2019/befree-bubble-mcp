@@ -7,6 +7,9 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 node_modules/
 dist/
 build/
@@ -15,8 +18,11 @@ tmp/
 logs/
 captures/
 .local/
+.superpowers/
+.worktrees/
 profiles.d/
 settings.json
+.mcp.json
 *.sqlite
 *.db
 *.enc

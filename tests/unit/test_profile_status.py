@@ -5,6 +5,7 @@ from bubble_mcp.context.source import save_context
 from bubble_mcp.context.detector import default_context_path
 from bubble_mcp.core.config import BubbleMcpSettings, BubbleProfile, save_settings
 from bubble_mcp.profile_status import profile_status
+from bubble_mcp.sessions.constants import DEFAULT_LOGIN_WAIT_SECONDS
 from bubble_mcp.sessions.store import BubbleSessionData, save_session
 
 
@@ -88,7 +89,7 @@ def test_profile_status_reports_missing_setup_next_actions(tmp_path, monkeypatch
     assert status["context"]["loadable"] is False
     tools = [action["tool"] for action in status["next_actions"]]
     assert tools == ["bubble_session_login", "bubble_context_detect"]
-    assert status["next_actions"][0]["args"]["wait_seconds"] == 180
+    assert status["next_actions"][0]["args"]["wait_seconds"] == DEFAULT_LOGIN_WAIT_SECONDS
     assert "session login" in status["next_actions"][0]["command"]
 
 
@@ -304,6 +305,102 @@ def test_profile_status_returns_safe_context_summary(tmp_path, monkeypatch) -> N
     assert "node-secret" not in encoded
     assert "style-secret" not in encoded
     assert "settings-secret" not in encoded
+
+
+def test_profile_status_uses_complete_default_context_without_app_json_path(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    context_path = default_context_path("client", "client-app")
+    save_context(
+        BubbleProjectContext(
+            app_id="client-app",
+            source="consolelog_app+editor_crawler",
+            nodes=[],
+            edges=[],
+            metadata={
+                "provenance": {
+                    "primary_source": "consolelog_app",
+                    "sources": ["consolelog_app", "editor_crawler"],
+                    "completeness": "complete",
+                    "bubble_export_available": False,
+                }
+            },
+        ),
+        context_path,
+    )
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="client",
+            profiles={
+                "client": BubbleProfile(
+                    name="client",
+                    app_id="client-app",
+                    appname="client-app",
+                    app_version="test",
+                )
+            },
+        )
+    )
+    save_session(
+        "client",
+        BubbleSessionData(
+            app_id="client-app",
+            url="https://bubble.io/appeditor/write",
+            method="POST",
+            headers={"x-bubble-client-version": "client-version"},
+            cookies="sid=secret",
+            app_version="test",
+            captured_at="2026-08-11T13:00:00+00:00",
+            source="test",
+        ),
+        tmp_path,
+    )
+
+    status = profile_status("client")
+
+    assert status["context"]["configured"] is True
+    assert status["context"]["exists"] is True
+    assert status["context"]["loadable"] is True
+    assert status["context"]["completeness"] == "complete"
+    assert status["context"]["source_artifact"]["configured"] is False
+    assert status["context"]["summary"]["metadata"]["provenance"]["sources"] == [
+        "consolelog_app",
+        "editor_crawler",
+    ]
+    assert status["ready"] is True
+    assert status["next_actions"] == []
+
+
+def test_profile_status_keeps_default_context_partial_without_provenance(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    context_path = default_context_path("client", "client-app")
+    save_context(
+        BubbleProjectContext(
+            app_id="client-app",
+            source="editor_crawler",
+            nodes=[],
+            edges=[],
+            metadata={},
+        ),
+        context_path,
+    )
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="client",
+            profiles={
+                "client": BubbleProfile(name="client", app_id="client-app", appname="client-app")
+            },
+        )
+    )
+
+    status = profile_status("client")
+
+    assert status["context"]["loadable"] is True
+    assert status["context"]["completeness"] == "partial"
+    assert status["ready"] is False
+    assert status["next_actions"][-1]["tool"] == "bubble_context_detect"
+    assert "console.log(app)" in status["next_actions"][-1]["reason"]
 
 
 def test_profile_status_missing_profile(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

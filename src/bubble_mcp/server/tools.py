@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import re
-from typing import Any, cast
+from typing import Any, Callable, cast
 from pathlib import Path
 
 from bubble_mcp import __version__
@@ -17,6 +17,7 @@ from bubble_mcp.browser_automation import (
     schedule_deploy,
 )
 from bubble_mcp.catalog_quality import catalog_quality_report
+from bubble_mcp.catalog_schema_precision import normalize_catalog_schema_precision_args
 from bubble_mcp.compiler.payload import compile_plan_to_write_payloads
 from bubble_mcp.context.importers import import_context_artifact
 from bubble_mcp.context.detector import (
@@ -61,7 +62,7 @@ from bubble_mcp.execution.editor_api import (
 from bubble_mcp.execution.executor import execute_plan
 from bubble_mcp.execution.plugins import install_plugin
 from bubble_mcp.execution.state import next_user_action, operation_snapshot
-from bubble_mcp.execution.structural import validate_structure
+from bubble_mcp.execution.structural import permanent_data_type_delete_targets, validate_structure
 from bubble_mcp.extensions.store import (
     disable_extension,
     enable_extension,
@@ -125,7 +126,8 @@ from bubble_mcp.skills.store import (
     list_skills,
 )
 from bubble_mcp.skills.validator import describe_skill_file, validate_skill_file
-from bubble_mcp.sessions.browser import DEFAULT_LOGIN_WAIT_SECONDS, capture_session_with_playwright
+from bubble_mcp.sessions.browser import capture_session_with_playwright
+from bubble_mcp.sessions.constants import DEFAULT_LOGIN_WAIT_SECONDS
 from bubble_mcp.sessions.store import list_sessions, load_session, save_session, session_from_payload
 from bubble_mcp.style_import.runtime import create_styles_from_html_runtime
 from bubble_mcp.tool_authoring.sessions import (
@@ -143,6 +145,23 @@ from bubble_mcp.transfer.store import load_transfer_plan
 from bubble_mcp.validators.semantic import validate_plan
 
 _scheduled_deploys_rearmed = False
+
+_DESTRUCTIVE_STYLE_TOKEN_TOOLS = {
+    "delete_color",
+    "delete_colors",
+    "clear_custom_colors",
+    "delete_font",
+}
+
+_DESTRUCTIVE_FAMILY_FOUR_TOOLS = {
+    "delete_data_type",
+    "delete_data_type_permanently",
+    "delete_data_field",
+    "delete_privacy_rule",
+    "delete_option_set",
+    "delete_option_value",
+    "delete_301_redirect",
+}
 
 
 def _ensure_scheduled_deploys_rearmed() -> None:
@@ -327,18 +346,22 @@ def _style_property_aliases(property_name: str) -> tuple[str, ...]:
 
 
 def _style_color_tokens(metadata: dict[str, Any]) -> dict[str, str]:
-    settings = metadata.get("settings") if isinstance(metadata.get("settings"), dict) else {}
-    client_safe = settings.get("client_safe") if isinstance(settings.get("client_safe"), dict) else {}
+    raw_settings = metadata.get("settings")
+    settings: dict[str, Any] = raw_settings if isinstance(raw_settings, dict) else {}
+    raw_client_safe = settings.get("client_safe")
+    client_safe: dict[str, Any] = raw_client_safe if isinstance(raw_client_safe, dict) else {}
     tokens: dict[str, str] = {}
 
-    system_tokens = client_safe.get("color_tokens") if isinstance(client_safe.get("color_tokens"), dict) else {}
+    raw_system_tokens = client_safe.get("color_tokens")
+    system_tokens: dict[str, Any] = raw_system_tokens if isinstance(raw_system_tokens, dict) else {}
     for name, token_data in system_tokens.items():
         color_value = token_data.get("%d1") or token_data.get("default") if isinstance(token_data, dict) else token_data
         if isinstance(color_value, str) and color_value.strip():
             tokens[f"var(--color_{name}_default)"] = color_value.strip()
 
-    user_tokens_wrapper = (
-        client_safe.get("color_tokens_user") if isinstance(client_safe.get("color_tokens_user"), dict) else {}
+    raw_user_tokens_wrapper = client_safe.get("color_tokens_user")
+    user_tokens_wrapper: dict[str, Any] = (
+        raw_user_tokens_wrapper if isinstance(raw_user_tokens_wrapper, dict) else {}
     )
     user_tokens = user_tokens_wrapper.get("%d1") or user_tokens_wrapper.get("default") or {}
     if isinstance(user_tokens, dict):
@@ -654,14 +677,26 @@ def _profile_cache_refresh(arguments: dict[str, Any] | None) -> dict[str, Any]:
         "context_detection": detection.to_dict(),
         "ready": bool(status.get("ready")),
         "status": status,
-        "next_user_action": "Profile cache refreshed. Use bubble_profile_status only if you need readiness details.",
+        "next_user_action": (
+            "Profile cache refreshed. Use bubble_profile_status only if you need readiness details."
+            if status.get("ready")
+            else "Profile cache refreshed but is not ready. Follow status.next_actions to complete missing context sources or session requirements."
+        ),
     }
 
 
-def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+def call_tool(
+    name: str,
+    arguments: dict[str, Any] | None = None,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
     """Call a supported tool and return a JSON-serializable payload."""
 
+    caller_argument_names = frozenset((arguments or {}).keys())
     arguments = _arguments_with_profile_defaults(arguments)
+    trusted_profile_defaults = frozenset(arguments) - caller_argument_names
     _ = arguments
     if name == "bubble_health_check":
         return {
@@ -1294,7 +1329,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         detection_result = detect_project_context(
             profile=profile,
             app_id=str(args.get("app_id") or "") or None,
-            app_version=str(args.get("app_version") or "test"),
+            app_version=str(args.get("app_version") or ""),
             force=bool(args.get("force")),
             output=Path(str(args.get("output"))) if str(args.get("output") or "").strip() else None,
             bubble_file=Path(str(args.get("bubble_file"))) if str(args.get("bubble_file") or "").strip() else None,
@@ -1493,6 +1528,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
 
         def collect_progress(message: str) -> None:
             progress_messages.append(message)
+            if progress is not None:
+                progress(message)
 
         captured_session = capture_session_with_playwright(
             app_id=app_id,
@@ -1502,6 +1539,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
             user_data_dir=settings.config_dir / "browser-profiles" / profile,
             app_version=app_version,
             progress=collect_progress,
+            cancelled=cancelled,
         )
         session_path = save_session(profile, captured_session)
         return {
@@ -1538,6 +1576,12 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         write_payload = args.get("payload")
         if not isinstance(write_payload, dict):
             raise ValueError("bubble_editor_write requires a payload object.")
+        permanent_targets = permanent_data_type_delete_targets(write_payload)
+        if permanent_targets:
+            raise ValueError(
+                "bubble_editor_write cannot permanently delete data types. "
+                "Call delete_data_type_permanently so prior soft-delete state is verified."
+            )
         write_session = load_session(profile)
         if write_session is None:
             raise ValueError(f"No Bubble session stored for profile '{profile}'.")
@@ -1614,16 +1658,17 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         )
         write_step = result.get("steps", {}).get("write") if isinstance(result.get("steps"), dict) else {}
         if execute and result.get("ok") and isinstance(write_step, dict):
-            record_mutation_overlay(
-                profile=profile,
-                app_id=str(
-                    write_step.get("request", {}).get("payload", {}).get("appname")
-                    or write_session.app_id
-                ),
-                payload=write_step.get("request", {}).get("payload") or result.get("write_payload"),
-                source="bubble_plugin_install",
-                response=write_step.get("response"),
-            )
+            raw_request = write_step.get("request")
+            request_payload = raw_request.get("payload") if isinstance(raw_request, dict) else None
+            overlay_payload = request_payload if isinstance(request_payload, dict) else result.get("write_payload")
+            if isinstance(overlay_payload, dict):
+                record_mutation_overlay(
+                    profile=profile,
+                    app_id=str(overlay_payload.get("appname") or write_session.app_id),
+                    payload=overlay_payload,
+                    source="bubble_plugin_install",
+                    response=write_step.get("response"),
+                )
         return result
     if name == "bubble_execute_plan":
         args = arguments or {}
@@ -1798,10 +1843,10 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         )
     if name == "bubble_branch_merge_conflicts_describe":
         args = arguments or {}
-        payload = args.get("payload")
-        if not isinstance(payload, dict):
+        conflict_payload = args.get("payload")
+        if not isinstance(conflict_payload, dict):
             raise ValueError("bubble_branch_merge_conflicts_describe requires a payload object.")
-        return describe_bubble_branch_merge_conflicts(payload=payload)
+        return describe_bubble_branch_merge_conflicts(payload=conflict_payload)
     if name == "bubble_branch_merge_resolve_conflicts":
         args = arguments or {}
         changelog_data = args.get("changelog_data")
@@ -1877,8 +1922,11 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
             start=_required_string_arg(args, "start", name),
             end=_required_string_arg(args, "end", name),
             messages=messages,
+            contains=str(args.get("contains") or "") or None,
             ascending=bool(args.get("ascending", True)),
             is_state_ar=bool(args.get("is_state_ar", True)),
+            paginate=bool(args.get("paginate", False)),
+            max_pages=int(args.get("max_pages") or 10),
             include_raw=bool(args.get("include_raw")),
             limit=int(args.get("limit") or 100),
         )
@@ -1925,7 +1973,11 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
     if name in enabled_extension_tools:
         return preview_extension_tool_call(name, arguments or {})
     if name in ARIA_BUBBLE_TOOL_NAMES:
-        return call_legacy_catalog_tool(name, arguments or {})
+        return call_legacy_catalog_tool(
+            name,
+            arguments or {},
+            trusted_profile_defaults=trusted_profile_defaults,
+        )
     raise ValueError(f"Unknown Bubble MCP tool: {name}")
 
 
@@ -1953,13 +2005,37 @@ def _changelog_filters_from_args(args: dict[str, Any]) -> dict[str, Any]:
     return filters
 
 
-def call_legacy_catalog_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
+def call_legacy_catalog_tool(
+    name: str,
+    args: dict[str, Any],
+    *,
+    trusted_profile_defaults: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
     """Handle a ported Aria Bubble MCP tool name.
 
     The standalone package exposes every Aria tool name. Families implemented by
     the local compiler can be compiled/executed directly. Any family can execute
     when the caller provides an exact Bubble ``write_payload``.
     """
+
+    if name == "sync_figma_tokens" and args.get("list_options") is True:
+        args = {**args, "execute": False, "dry_run": True}
+    args = normalize_catalog_schema_precision_args(
+        name,
+        args,
+        trusted_profile_defaults=trusted_profile_defaults,
+    )
+    if name == "delete_data_type_permanently" and any(
+        argument in args for argument in ("write_payload", "payload")
+    ):
+        raise ValueError(
+            "Permanent data type deletion does not accept write_payload or payload. "
+            "Call the tool with data_type_ref, execute, and confirm so prior soft-delete state is verified."
+        )
+    executing = args.get("execute") is True and args.get("dry_run") is not True
+    confirmation_gated_tools = _DESTRUCTIVE_STYLE_TOKEN_TOOLS | _DESTRUCTIVE_FAMILY_FOUR_TOOLS
+    if name in confirmation_gated_tools and executing and args.get("confirm") is not True:
+        raise ValueError(f"{name} requires confirm=true when execute=true.")
 
     if name == "create_from_html":
         html_file = str(args.get("url") or args.get("html_file") or args.get("file") or "").strip()
@@ -2007,9 +2083,14 @@ def call_legacy_catalog_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
     write_payload = args.get("write_payload") or args.get("payload")
     profile = str(args.get("profile") or "").strip()
-    execute = bool(args.get("execute"))
+    execute = executing
 
     if isinstance(write_payload, dict):
+        if permanent_data_type_delete_targets(write_payload):
+            raise ValueError(
+                "Permanent data type deletion does not accept write_payload or payload. "
+                "Call the tool with data_type_ref, execute, and confirm so prior soft-delete state is verified."
+            )
         if not profile:
             return {
                 "ok": True,

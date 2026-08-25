@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
+import unicodedata
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from bubble_mcp.knowledge.advisor import knowledge_advice
-import unicodedata
+from bubble_mcp.sessions.constants import DEFAULT_LOGIN_WAIT_SECONDS
 
 
 COMPACT_CONTEXT_FIND_ARGS: dict[str, Any] = {
@@ -16,6 +18,13 @@ COMPACT_CONTEXT_FIND_ARGS: dict[str, Any] = {
     "exact": True,
     "include_metadata": False,
 }
+
+REUSABLE_DEFINITION_MODULE_GUIDANCE = (
+    "In split bubble_modules, reusable definition root objects live in "
+    "element_definitions/CustomDefinition. Do not use element_definitions/ReusableElement to "
+    "locate definitions: ReusableElement represents instances placed on pages, even when that "
+    "directory exists."
+)
 
 
 API_CONNECTOR_TOOL_NAME = "create_api_connector_call"
@@ -122,8 +131,21 @@ ROUTES: tuple[dict[str, Any], ...] = (
     {
         "intent": "manage_data_schema",
         "when": "The user asks to create or change Bubble data types, fields, option sets, or option values.",
-        "tools": ["list_data_types", "create_data_type", "create_data_field", "create_option_set", "create_option_value", "list_option_values"],
-        "notes": "Use preview mode first for schema changes unless the user explicitly asks to execute.",
+        "tools": [
+            "list_data_types",
+            "create_data_type",
+            "delete_data_type",
+            "delete_data_type_permanently",
+            "create_data_field",
+            "create_option_set",
+            "create_option_value",
+            "list_option_values",
+        ],
+        "notes": (
+            "Use preview mode first for schema changes unless the user explicitly asks to execute. "
+            "Data type deletion is always two-stage: run delete_data_type first, then ask whether the user wants "
+            "irreversible deletion before calling delete_data_type_permanently with a new confirmation."
+        ),
     },
     {
         "intent": "branches_or_changelog",
@@ -359,7 +381,11 @@ RECIPES: dict[str, dict[str, Any]] = {
             {
                 "tool": "bubble_session_login",
                 "purpose": "Use when no stored session exists and the user can complete Bubble login in the opened browser.",
-                "args": {"profile": "$profile", "app_id": "$app_id", "wait_seconds": 180},
+                "args": {
+                    "profile": "$profile",
+                    "app_id": "$app_id",
+                    "wait_seconds": DEFAULT_LOGIN_WAIT_SECONDS,
+                },
                 "required_before_execute": False,
             },
             {
@@ -708,7 +734,19 @@ RECIPES: dict[str, dict[str, Any]] = {
     },
     "data_schema": {
         "when": "Create or update data types, fields, option sets, or option values.",
-        "tools": ["list_data_types", "create_data_type", "create_data_field", "create_option_set", "create_option_value"],
+        "tools": [
+            "list_data_types",
+            "create_data_type",
+            "delete_data_type",
+            "delete_data_type_permanently",
+            "create_data_field",
+            "create_option_set",
+            "create_option_value",
+        ],
+        "notes": (
+            "Permanent data type deletion is a second-stage action only. After delete_data_type succeeds, ask the "
+            "user whether to continue; call delete_data_type_permanently only after a new explicit confirmation."
+        ),
         "steps": [
             {
                 "tool": "list_data_types",
@@ -1175,6 +1213,22 @@ RECIPE_CONTRACTS: dict[str, dict[str, list[str]]] = {
             "After execute=true, refresh the profile cache and confirm the collection/call appears in the API Connector context.",
         ],
     },
+    "data_schema": {
+        "quality_gates": [
+            "Preview schema mutations before execute=true unless the user explicitly requested execution.",
+            "Resolve the exact data type or field from current project context before destructive writes.",
+            "Permanent data type deletion requires a successful prior delete_data_type soft-delete and a new explicit confirmation.",
+        ],
+        "stop_conditions": [
+            "Stop before delete_data_type_permanently if the same data type is not already soft-deleted.",
+            "Stop before delete_data_type_permanently unless confirm=true reflects a new user confirmation.",
+            "Stop before execute=true if the target data type or field cannot be resolved exactly.",
+        ],
+        "verification": [
+            "After schema writes, refresh derived schema data and project context.",
+            "After permanent deletion, verify the data type no longer exists in refreshed user_types metadata.",
+        ],
+    },
     "html_import": {
         "quality_gates": [
             "Preview create_from_html with execute=false before any real write.",
@@ -1380,7 +1434,7 @@ def _looks_like_project_transfer(normalized_text: str) -> bool:
     )
 
 
-def agent_guide(task: str = "") -> dict[str, Any]:
+def agent_guide(task: str = "", *, include_knowledge_advice: bool = True) -> dict[str, Any]:
     """Return compact tool-routing guidance for MCP clients."""
 
     normalized = _normalize_text(str(task or "").strip())
@@ -1415,6 +1469,7 @@ def agent_guide(task: str = "") -> dict[str, Any]:
             "preview_default": "Leave execute=false unless the user explicitly asked to apply the change in Bubble.",
             "profile_first": "Prefer profile-based calls so the server can use stored session, context, and mutation overlay.",
             "refresh_context_when_stale": "Run bubble_profile_cache_refresh with force=true for routine profile cache refresh; use bubble_context_detect only for lower-level context-specific options.",
+            "reusable_definition_modules": REUSABLE_DEFINITION_MODULE_GUIDANCE,
         },
         "setup_requirements": [
             "Each Bubble project needs a profile.",
@@ -1424,9 +1479,10 @@ def agent_guide(task: str = "") -> dict[str, Any]:
         "recommended_routes": recommended,
         "all_routes": list(ROUTES),
     }
-    advice = knowledge_advice(task=task, family="agent_guide")
-    if advice.get("used"):
-        result["knowledge_advice"] = advice
+    if include_knowledge_advice:
+        advice = knowledge_advice(task=task, family="agent_guide")
+        if advice.get("used"):
+            result["knowledge_advice"] = advice
     return result
 
 
@@ -1438,6 +1494,7 @@ def task_recipe(
     context: str = "",
     parent: str = "root",
     execute: bool = False,
+    include_knowledge_advice: bool = True,
 ) -> dict[str, Any]:
     """Return a compact operational recipe for a Bubble task."""
 
@@ -1476,7 +1533,7 @@ def task_recipe(
             ],
         },
     )
-    guide = agent_guide(task)
+    guide = agent_guide(task, include_knowledge_advice=False)
     result = {
         "ok": True,
         "task": task or None,
@@ -1518,9 +1575,10 @@ def task_recipe(
         },
         "cli_equivalent": f"bubble-mcp tools recipe --task {task!r}" if task else "bubble-mcp tools recipe --task '<task>'",
     }
-    advice = knowledge_advice(task=task, family=recipe_id, profile=profile, context=context)
-    if advice.get("used"):
-        result["knowledge_advice"] = advice
+    if include_knowledge_advice:
+        advice = knowledge_advice(task=task, family=recipe_id, profile=profile, context=context)
+        if advice.get("used"):
+            result["knowledge_advice"] = advice
     return result
 
 
@@ -1578,6 +1636,209 @@ def _tool_target_terms(terms: list[str]) -> set[str]:
     if "repeating" in terms and "group" in terms:
         targets.add("repeating_group")
     return targets
+
+
+def _semantic_tool_bonus(name: str, raw_query: str) -> int:
+    """Return small outcome-based bonuses for closely related catalog tools."""
+
+    expanded_query = re.sub(r"\bdon['’]?t\b", "do not", raw_query, flags=re.IGNORECASE)
+    normalized_query = _normalize_text(expanded_query)
+    terms = set(_query_terms(normalized_query, prune_generic_actions=False))
+
+    def has_any(*values: str) -> bool:
+        return bool(terms.intersection(values))
+
+    if has_any("cache", "cached"):
+        if name == "sync_element_ref_cache" and has_any("element") and has_any(
+            "ref", "reference", "references"
+        ) and _has_keyword(normalized_query, "capture_file"):
+            return 80
+        if name == "sync_cache" and has_any("mode"):
+            return 60
+        if name == "refresh_profile_cache" and has_any("legacy", "pipeline") and has_any("skip"):
+            return 50
+        if name == "bubble_profile_cache_refresh" and has_any("profile") and has_any(
+            "redownload", "routine"
+        ):
+            return 40
+
+    if name == "build_source_query_json" and (
+        _has_keyword(normalized_query, "source query")
+        or _has_keyword(normalized_query, "query_source_type")
+    ):
+        return 50
+    if name == "build_data_source_json" and _has_keyword(normalized_query, "data source") and has_any(
+        "normalize", "existing"
+    ):
+        return 50
+
+    if has_any("component") and name in {"sync_figma_component", "sync_component"}:
+        if has_any("figma") and name == "sync_figma_component":
+            return 60
+        if not has_any("figma") and name == "sync_component":
+            return 40
+    if has_any("figma") and has_any("style", "styles") and name == "sync_figma_style":
+        return 60
+    if (
+        has_any("figma")
+        and (has_any("token", "tokens") or _has_keyword(normalized_query, "tokens_path"))
+        and name == "sync_figma_tokens"
+    ):
+        return 60
+
+    if has_any("text"):
+        if name == "update_text" and (
+            has_any("replace")
+            or _has_keyword(normalized_query, "search_text")
+            or _has_keyword(normalized_query, "new_text")
+        ):
+            return 70
+        if name == "update_text_element" and has_any(
+            "padding", "opacity", "layout", "properties"
+        ):
+            return 50
+    if has_any("image"):
+        if name == "update_image" and (
+            has_any("replace") or _has_keyword(normalized_query, "new_source")
+        ):
+            return 70
+        if name == "update_image_element" and has_any(
+            "border", "opacity", "padding", "layout", "properties"
+        ):
+            return 50
+
+    if has_any("reusable"):
+        if name == "create_reusable_instance" and has_any("instance"):
+            return 60
+        if name == "create_reusable" and has_any("definition") and not has_any("instance"):
+            return 50
+
+    padded_query = f" {normalized_query} "
+
+    def has_phrase(value: str) -> bool:
+        return f" {_normalize_text(value)} " in padded_query
+
+    explicit_soft_delete = has_phrase("soft delete")
+    permanent_mentioned = has_any("permanent", "permanently", "irreversible")
+    permanent_negated = permanent_mentioned and (
+        has_any("not", "never", "without") or has_phrase("rather than")
+    )
+    permanent_delete = (
+        (has_phrase("permanently delete") or has_any("irreversible"))
+        and not permanent_negated
+        and not explicit_soft_delete
+    )
+    safe_delete = explicit_soft_delete or has_any("recoverable") or permanent_negated
+    if has_any("data") and has_any("type"):
+        if name == "delete_data_type" and safe_delete:
+            return 80
+        if (
+            name == "delete_data_type_permanently"
+            and (
+                permanent_delete
+                or (has_any("permanent") and not safe_delete)
+            )
+        ):
+            return 90
+    if has_any("multiple", "bulk", "pattern"):
+        if name == "delete_colors" and has_any("color", "colors"):
+            return 80
+        if name == "delete_styles" and has_any("style", "styles"):
+            return 80
+    if has_any("one", "single", "named"):
+        if name == "delete_color" and has_any("color", "colors"):
+            return 40
+        if name == "delete_style" and has_any("style", "styles"):
+            return 40
+
+    if has_any("event"):
+        if name == "create_empty_event" and has_any("empty", "placeholder"):
+            return 90
+        if name == "create_event" and (
+            _has_keyword(normalized_query, "event_type")
+            or _has_keyword(normalized_query, "element_ref")
+        ):
+            return 80
+        if name == "create_workflow" and has_any("workflow") and has_any("actions"):
+            return 50
+
+    if has_any("html"):
+        style_import = _has_keyword(normalized_query, "style definitions") or (
+            has_any("style", "styles") and has_any("without")
+        )
+        if name == "create_styles_from_html" and style_import:
+            return 80
+        if name == "create_from_html" and has_any("import", "section", "selector", "url"):
+            return 70
+        if name == "create_html" and has_any("snippet") and has_any("element"):
+            return 70
+
+    return 0
+
+
+def _score_tool_catalog_match(
+    tool: dict[str, Any],
+    *,
+    raw_query: str,
+    terms: list[str],
+    action_prefixes: set[str],
+    target_terms: set[str],
+    project_transfer_query: bool,
+    api_connector_query: bool = False,
+) -> tuple[int, dict[str, Any]] | None:
+    name = str(tool.get("name") or "")
+    description = str(tool.get("description") or "")
+    input_schema = tool.get("inputSchema") if isinstance(tool.get("inputSchema"), dict) else {}
+    properties = input_schema.get("properties") if isinstance(input_schema, dict) else {}
+    property_names = list(properties.keys()) if isinstance(properties, dict) else []
+    docs = input_schema.get("x-bubble-docs") if isinstance(input_schema, dict) else None
+    doc_terms: list[str] = []
+    if isinstance(docs, dict):
+        doc_terms = [
+            str(docs.get("family") or ""),
+            str(docs.get("schema_effect") or ""),
+            str(docs.get("validation_effect") or ""),
+            *[str(query) for query in docs.get("recommended_queries") or []],
+        ]
+    haystack = _normalize_text(" ".join([name, description, *property_names, *doc_terms]))
+    if not terms:
+        score = 1
+        normalized_name = ""
+    else:
+        score = 0
+        normalized_name = _normalize_text(name)
+        normalized_description = _normalize_text(description)
+        normalized_properties = [_normalize_text(property_name) for property_name in property_names]
+        if raw_query == name:
+            score += 100
+        for term in terms:
+            if term == normalized_name:
+                score += 20
+            if term in normalized_name:
+                score += 10
+            if term in normalized_description:
+                score += 4
+            if term in normalized_properties:
+                score += 3
+            if term in haystack:
+                score += 1
+    if score <= 0:
+        return None
+    if project_transfer_query and name.startswith("bubble_transfer_"):
+        score += 50
+    if api_connector_query and "api_connector" in name:
+        score += 50
+    for prefix in action_prefixes:
+        if normalized_name.startswith(f"{prefix} "):
+            score += 6
+        for target in target_terms:
+            normalized_target = target.replace("_", " ")
+            if normalized_name == f"{prefix} {normalized_target}":
+                score += 24
+            elif normalized_name.startswith(f"{prefix} {normalized_target} "):
+                score += 16
+    score += _semantic_tool_bonus(name, raw_query)
+    return score, _compact_tool_schema(tool)
 
 
 def _runbook_tool_search(recipe: dict[str, Any], query: str, *, limit: int) -> dict[str, Any]:
@@ -1646,16 +1907,18 @@ def task_runbook(
     execute: bool = False,
     search_limit: int = 6,
     include_profile_status: bool = False,
+    include_knowledge_advice: bool = True,
 ) -> dict[str, Any]:
     """Return a one-call operational runbook for a Bubble task."""
 
-    guide = agent_guide(task)
+    guide = agent_guide(task, include_knowledge_advice=False)
     recipe = task_recipe(
         task,
         profile=profile,
         context=context,
         parent=parent,
         execute=execute,
+        include_knowledge_advice=False,
     )
     search_query = RUNBOOK_SEARCH_QUERIES.get(str(recipe["recipe"]), task or str(recipe["recipe"]))
     search = _runbook_tool_search(recipe, search_query, limit=search_limit)
@@ -1698,15 +1961,16 @@ def task_runbook(
         ),
         "cli_equivalent": f"bubble-mcp tools runbook --task {task!r}" if task else "bubble-mcp tools runbook --task '<task>'",
     }
-    advice = knowledge_advice(
-        task=task,
-        family=str(recipe["recipe"]),
-        profile=profile,
-        context=context,
-        arguments={"parent": parent, "execute": execute},
-    )
-    if advice.get("used"):
-        result["knowledge_advice"] = advice
+    if include_knowledge_advice:
+        advice = knowledge_advice(
+            task=task,
+            family=str(recipe["recipe"]),
+            profile=profile,
+            context=context,
+            arguments={"parent": parent, "execute": execute},
+        )
+        if advice.get("used"):
+            result["knowledge_advice"] = advice
     return result
 
 
@@ -1728,12 +1992,18 @@ def _api_connector_query(normalized_query: str) -> bool:
     return any(phrase in normalized_query for phrase in API_CONNECTOR_QUERY_PHRASES)
 
 
-def search_tool_catalog(query: str, *, limit: int = 8) -> dict[str, Any]:
+def search_tool_catalog(
+    query: str,
+    *,
+    limit: int = 8,
+    tool_schemas: Iterable[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Search exposed MCP tools and return compact matching metadata."""
 
     from bubble_mcp.server.schemas import list_tool_schemas
 
-    normalized_query = _normalize_text(str(query or "").strip())
+    raw_query = str(query or "").strip()
+    normalized_query = _normalize_text(raw_query)
     raw_terms = _query_terms(normalized_query, prune_generic_actions=False)
     terms = _query_terms(normalized_query)
     api_connector_query = _api_connector_query(normalized_query)
@@ -1743,60 +2013,44 @@ def search_tool_catalog(query: str, *, limit: int = 8) -> dict[str, Any]:
     target_terms = _tool_target_terms(terms)
     project_transfer_query = _looks_like_project_transfer(normalized_query)
     max_results = min(max(int(limit or 8), 1), 25)
-    tools = list_tool_schemas()
+    tools = list_tool_schemas() if tool_schemas is None else [dict(schema) for schema in tool_schemas]
+    exact_tools = [tool for tool in tools if raw_query == str(tool.get("name") or "")]
+    if max_results == 1 and len(exact_tools) == 1:
+        exact_tool = exact_tools[0]
+        exact_match = _score_tool_catalog_match(
+            exact_tool,
+            raw_query=raw_query,
+            terms=terms,
+            action_prefixes=action_prefixes,
+            target_terms=target_terms,
+            project_transfer_query=project_transfer_query,
+            api_connector_query=api_connector_query,
+        )
+        if exact_match is not None:
+            score, compact = exact_match
+            return {
+                "ok": True,
+                "query": query,
+                "limit": max_results,
+                "match_count": 1,
+                "matches": [{"score": score, **compact}],
+                "usage": "Use this read-only search when a client needs a compact subset of the MCP catalog before choosing a tool.",
+            }
     scored: list[tuple[int, dict[str, Any]]] = []
 
     for tool in tools:
-        name = str(tool.get("name") or "")
-        description = str(tool.get("description") or "")
-        input_schema = tool.get("inputSchema") if isinstance(tool.get("inputSchema"), dict) else {}
-        properties = input_schema.get("properties") if isinstance(input_schema, dict) else {}
-        property_names = list(properties.keys()) if isinstance(properties, dict) else []
-        docs = input_schema.get("x-bubble-docs") if isinstance(input_schema, dict) else None
-        doc_terms: list[str] = []
-        if isinstance(docs, dict):
-            doc_terms = [
-                str(docs.get("family") or ""),
-                str(docs.get("schema_effect") or ""),
-                str(docs.get("validation_effect") or ""),
-                *[str(query) for query in docs.get("recommended_queries") or []],
-            ]
-        haystack = _normalize_text(" ".join([name, description, *property_names, *doc_terms]))
-        if not terms:
-            score = 1
-        else:
-            score = 0
-            normalized_name = _normalize_text(name)
-            normalized_description = _normalize_text(description)
-            normalized_properties = [_normalize_text(property_name) for property_name in property_names]
-            for term in terms:
-                if term == normalized_name:
-                    score += 20
-                if term in normalized_name:
-                    score += 10
-                if term in normalized_description:
-                    score += 4
-                if term in normalized_properties:
-                    score += 3
-                if term in haystack:
-                    score += 1
-        if score <= 0:
+        scored_match = _score_tool_catalog_match(
+            tool,
+            raw_query=raw_query,
+            terms=terms,
+            action_prefixes=action_prefixes,
+            target_terms=target_terms,
+            project_transfer_query=project_transfer_query,
+            api_connector_query=api_connector_query,
+        )
+        if scored_match is None:
             continue
-        if project_transfer_query and name.startswith("bubble_transfer_"):
-            score += 50
-        if api_connector_query and "api_connector" in name:
-            score += 50
-        for prefix in action_prefixes:
-            if normalized_name.startswith(f"{prefix} "):
-                score += 6
-            for target in target_terms:
-                normalized_target = target.replace("_", " ")
-                if normalized_name == f"{prefix} {normalized_target}":
-                    score += 24
-                elif normalized_name.startswith(f"{prefix} {normalized_target} "):
-                    score += 16
-        compact = _compact_tool_schema(tool)
-        scored.append((score, compact))
+        scored.append(scored_match)
 
     scored.sort(key=lambda item: (-item[0], item[1]["name"]))
     matches = [{"score": score, **tool} for score, tool in scored[:max_results]]

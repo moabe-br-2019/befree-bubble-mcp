@@ -23,7 +23,13 @@ def _compute_gaps() -> dict[str, list[str]]:
     from bubble_mcp.server.agent_catalog import _legacy_fields_for_name
     from bubble_mcp.server.catalog import ARIA_BUBBLE_TOOL_NAMES
 
-    alias_targets = {alias: param for param, aliases in ARG_ALIASES.items() for alias in aliases}
+    # One alias can feed several runtime params ("type" -> field_type and value_type),
+    # so keep every target: a flat dict silently drops all but the last and reports
+    # tools whose runtime does accept the arg.
+    alias_targets: dict[str, set[str]] = {}
+    for param, aliases in ARG_ALIASES.items():
+        for alias in aliases:
+            alias_targets.setdefault(alias, set()).add(param)
     ignorable = set(CONTROL_ARG_KEYS) | {"profile", "dry_run", "settings_path"}
     report: dict[str, list[str]] = {}
     for tool in ARIA_BUBBLE_TOOL_NAMES:
@@ -42,7 +48,7 @@ def _compute_gaps() -> dict[str, list[str]]:
             for field in (*fields[0], *fields[1])
             if field not in ignorable
             and field not in params
-            and alias_targets.get(field) not in params
+            and not (alias_targets.get(field, set()) & params)
             and not has_kwargs
         })
         if missing:

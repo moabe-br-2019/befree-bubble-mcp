@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,9 +15,47 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+INSTALLED_CATALOG_QUALITY_CHECK = (
+    "import json; "
+    "from bubble_mcp.catalog_quality import catalog_quality_report; "
+    "from bubble_mcp.catalog_schema_precision import catalog_schema_precision_report; "
+    "from bubble_mcp.cli_leaf_inventory import cli_leaf_map_report; "
+    "from bubble_mcp.harness.catalog_ambiguity import catalog_ambiguity_report; "
+    "quality=catalog_quality_report(); precision=catalog_schema_precision_report(); ambiguity=catalog_ambiguity_report(); leaf_map=cli_leaf_map_report(); "
+    "assert quality['ok'] is True; assert precision['ok'] is True; "
+    "assert precision['summary']['tool_count']==28; assert precision['summary']['failure_count']==0; "
+    "assert ambiguity['ok'] is True; assert leaf_map['ok'] is True; "
+    "print(json.dumps({'quality_ok': quality['ok'], "
+    "'schema_precision_ok': precision['ok'], 'schema_precision_tool_count': precision['summary']['tool_count'], "
+    "'ambiguity_ok': ambiguity['ok'], 'case_count': ambiguity['summary']['case_count'], "
+    "'cli_leaf_map_ok': leaf_map['ok'], 'leaf_count': leaf_map['summary']['leaf_count']}))"
+)
 
-def _run(command: list[str], *, cwd: Path = ROOT, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=cwd, input=input_text, text=True, check=True, capture_output=True)
+
+def _subprocess_env() -> dict[str, str]:
+    """Return an environment that cannot import the source checkout accidentally."""
+
+    env = os.environ.copy()
+    env.pop("PYTHONHOME", None)
+    env.pop("PYTHONPATH", None)
+    return env
+
+
+def _run(
+    command: list[str],
+    *,
+    cwd: Path = ROOT,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        env=_subprocess_env(),
+        input=input_text,
+        text=True,
+        check=True,
+        capture_output=True,
+    )
 
 
 def _venv_python(venv: Path) -> Path:
@@ -63,6 +102,10 @@ def run_package_smoke(*, python: str, keep_artifacts: bool) -> dict[str, object]
                 ),
             ]
         )
+        quality_result = _run(
+            [str(venv_python), "-c", INSTALLED_CATALOG_QUALITY_CHECK]
+        )
+        installed_quality = json.loads(quality_result.stdout)
 
         _run([str(_venv_script(venv, "bubble-mcp")), "--help"])
         server_result = _run(
@@ -80,6 +123,7 @@ def run_package_smoke(*, python: str, keep_artifacts: bool) -> dict[str, object]
             "version": import_result.stdout.strip(),
             "server": server_payload["result"]["serverInfo"],
             "has_instructions": True,
+            "catalog_quality": installed_quality,
             "artifacts": str(artifact_root) if keep_artifacts else None,
         }
     finally:

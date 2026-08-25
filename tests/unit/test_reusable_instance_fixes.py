@@ -62,11 +62,13 @@ def test_next_child_order_is_max_sibling_order_plus_one() -> None:
 def test_queue_create_writes_element_name_when_given() -> None:
     from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
     from bubble_mcp.aria_runtime.bubble_sdk import PayloadBuilder
+    from bubble_mcp.aria_runtime.visual_mutations import VisualMutationService
 
     cli = object.__new__(BubbleCLI)
     # Path canonicalization consults discovery/profile caches; identity-stub it so the
     # test exercises only the payload the helper emits.
     cli._canonicalize_context_prefix_on_path = lambda path, context_id, context_type: path
+    cli._visual_mutations = VisualMutationService(cli)
     pb = PayloadBuilder(appname="test-app")
     parent_result = {"id": "page1", "element": {"id": "page1", "%el": {}}}
     BubbleCLI._queue_create_element_with_index_updates(

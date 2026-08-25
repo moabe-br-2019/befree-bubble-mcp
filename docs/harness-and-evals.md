@@ -21,6 +21,65 @@ Implemented metrics:
 - optional structured visual snapshot comparison
 - structural validation status when plans are inspected through planning/execution tools
 
+## Deterministic Catalog Selection
+
+Run the checkout-runnable deterministic catalog selection audit:
+
+```bash
+PYTHONPATH=src python scripts/audit_catalog_selection.py
+```
+
+The report covers exact-name deterministic selection for every exposed MCP tool,
+including required-argument metadata and stability when the catalog order is
+reversed. It uses no network access or Bubble profile. This is the structural
+baseline for catalog coverage.
+
+Run the Round A.1 natural-language ambiguity audit with:
+
+```bash
+PYTHONPATH=src python scripts/audit_catalog_ambiguity.py
+```
+
+The ambiguity report evaluates 27 curated requests across eight closely
+related tool families. Every case names its expected tool and nearby contrast
+tools, derives required arguments from the authoritative schema registry, and
+must return identical top-five names, scores, and required fields for canonical,
+reversed, and rotated catalog order. The audit is local and deterministic: it
+uses no LLM, network access, Bubble profile, authentication, or editor state.
+
+The packaged corpus is
+`src/bubble_mcp/harness/data/catalog_ambiguity.json`. The general eval datasets below
+remain useful for planner, argument, compilation, and visual behavior beyond
+catalog search.
+
+Run the Round A.2 modern nested CLI leaf-map audit with:
+
+```bash
+PYTHONPATH=src python scripts/audit_cli_leaf_map.py
+```
+
+The report derives every terminal command path and bound handler from the
+authoritative `build_parser()` AST, then joins it to an explicit relationship:
+one MCP capability, a composition of capabilities, an administrative-only
+operation, local housekeeping, or a catalog gap. The audit fails closed when a
+source command is unclassified, a classification becomes stale, a named MCP
+capability does not exist, or any catalog gap remains. It uses no network,
+Bubble profile, authentication, or editor state.
+
+## Deterministic Data-Schema Precision
+
+Run the Round A.3 data-schema precision audit with:
+
+```bash
+PYTHONPATH=src python scripts/audit_catalog_schema_precision.py
+```
+
+The audit verifies the exact 28 data-schema, privacy, and option-set MCP tool
+schemas against their field-role policy: required identifiers and operation
+inputs, optional mutation controls, accepted compatibility aliases, and
+forbidden operational fields. It is deterministic and uses no network, Bubble
+profile, authentication, editor state, or other external state.
+
 Dataset cases accept either standalone snake_case keys or Aria-style camelCase
 keys:
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from bubble_mcp.sessions.constants import DEFAULT_LOGIN_WAIT_SECONDS
+
 
 JsonSchema = dict[str, Any]
 ToolSchema = dict[str, Any]
@@ -526,10 +528,8 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
     ),
     "wait_seconds": _prop(
         "integer",
-        "Maximum time to keep the local browser login flow open while polling for Bubble session cookies. "
-        "The browser is closed as soon as this budget runs out, even mid-login, so it must cover the whole "
-        "human flow including a two-factor code. Raise it for accounts whose 2FA code arrives by email or SMS.",
-        default=600,
+        "Maximum time for a browser automation operation.",
+        default=120,
         minimum=1,
     ),
     "headless": _prop(
@@ -544,7 +544,7 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
     ),
     "consolelog_file": _prop(
         "string",
-        "Optional console.log(app) JSON path used as fallback when a .bubble export is unavailable.",
+        "Optional console.log(app) JSON path. It may complement .bubble; without an export it is combined with the editor crawler.",
         examples=["/tmp/bubble-console-app.json"],
     ),
     "skip_id_to_path": _prop(
@@ -933,11 +933,6 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
         "Human-readable source branch name for Bubble's merge changelog entry.",
         examples=["staging"],
     ),
-    "user_id": _prop(
-        "string",
-        "Bubble user id for merge changelog data. Usually derived from stored session cookies when omitted.",
-        examples=["1754998774520x493530240122586500"],
-    ),
     "changelog_data": _prop(
         "array",
         "Exact Bubble changelog_data array captured from the editor. Only pass when replaying an observed merge write/finalize payload.",
@@ -1037,14 +1032,31 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
     ),
     "messages": _prop(
         "array",
-        "Optional Jetstream log message tags to request. Omit to use the default workflow, database, HTTP, scheduled task, plugin, and error tags.",
+        "Optional Jetstream log message TYPES to request (running event, action completed, ...). This is not a name search: to filter by workflow name use 'contains'. Omit to use the default workflow, database, HTTP, scheduled task, plugin, and error tags.",
         items={"type": "string"},
         examples=[["running event", "running action", "server_db.modify"]],
     ),
+    "contains": _prop(
+        ["string", "null"],
+        "Server-side substring filter on the log line's display name, i.e. the workflow or action name. Busy apps return 0 rows without it and cap at 10000 rows with it, so pass the workflow you are investigating. Bubble ignores 'search'/'constraint'; 'contains' is the key the editor's own search box sends.",
+        examples=["Fast_Start", "runDailyFastSTart and Badges"],
+    ),
     "ascending": _prop(
         "boolean",
-        "Return Bubble logs in ascending time order.",
+        "Sent as-is to Bubble, but the endpoint appears to ignore it: rows always come back oldest-first. Do not rely on it to read the tail of a window.",
         default=True,
+    ),
+    "paginate": _prop(
+        "boolean",
+        "Walk the whole time window instead of stopping at Bubble's 10000-row cap. The endpoint has no offset/cursor parameter, so pages are produced by advancing 'after' past the last row and de-duplicating the small overlap. Costs one request per 10000 rows, so keep a 'contains' term and a sane window.",
+        default=False,
+    ),
+    "max_pages": _prop(
+        "integer",
+        "Maximum requests a paginated log query may issue. Reaching it sets truncated=true and reports how far the response actually covers in 'covered_until'.",
+        default=10,
+        minimum=1,
+        maximum=25,
     ),
     "is_state_ar": _prop(
         "boolean",
@@ -1230,12 +1242,16 @@ def tool_schema(
     required: list[str] | None = None,
     any_of: list[JsonSchema] | None = None,
     additional_properties: bool = False,
+    field_overrides: dict[str, JsonSchema] | None = None,
 ) -> ToolSchema:
+    properties = {field_name: field(field_name) for field_name in fields}
+    if field_overrides:
+        properties.update({name: deepcopy(schema) for name, schema in field_overrides.items()})
     return {
         "name": name,
         "description": description,
         "inputSchema": object_schema(
-            fields,
+            properties,
             required=required,
             any_of=any_of,
             additional_properties=additional_properties,
@@ -1254,7 +1270,7 @@ def _empty_tool(name: str, description: str) -> ToolSchema:
 def _profile_cache_refresh_tool() -> ToolSchema:
     schema = tool_schema(
         "bubble_profile_cache_refresh",
-        "One-call profile cache refresh for routine requests like 'refresh cache do profile cliente2'. It forces context detection by default, updates the local .bubble-backed context/cache artifacts, and returns updated paths/timestamps so agents do not need to inspect directories, CLI help, or runtime internals.",
+        "One-call profile cache refresh for routine requests like 'refresh cache do profile cliente2'. It forces context detection by default, updates authoritative .bubble or composed console-plus-crawler context artifacts, and returns updated paths/timestamps so agents do not need to inspect directories, CLI help, or runtime internals.",
         [
             "profile",
             "app_id",
@@ -1331,6 +1347,15 @@ def profile_session_context_tools() -> list[ToolSchema]:
             "Open a local Playwright browser, let the user log in to Bubble, capture editor cookies and request headers, and save the redacted session for a profile. This is interactive and writes only local MCP session storage.",
             ["profile", "app_id", "editor_url", "app_version", "wait_seconds", "headless"],
             required=["profile"],
+            field_overrides={
+                "wait_seconds": _prop(
+                    "integer",
+                    "Maximum time to keep the local browser login flow open. The browser closes when this "
+                    "budget expires, so it must cover password entry and any two-factor code delivery.",
+                    default=DEFAULT_LOGIN_WAIT_SECONDS,
+                    minimum=1,
+                )
+            },
         ),
         tool_schema(
             "bubble_readiness_check",
@@ -1421,7 +1446,7 @@ def profile_session_context_tools() -> list[ToolSchema]:
         ),
         tool_schema(
             "bubble_context_detect",
-            "Detect and materialize Bubble project context using .bubble export, consolelog fallback, and editor crawler/cache.",
+            "Detect Bubble project context with authoritative .bubble priority or a composed consolelog-plus-crawler fallback.",
             [
                 "profile",
                 "app_id",
@@ -1928,6 +1953,13 @@ def branch_changelog_tools() -> list[ToolSchema]:
                 "execute",
             ],
             required=["profile", "merge_app_version", "target_version_id", "source_version_id", "source_branch_name"],
+            field_overrides={
+                "user_id": _prop(
+                    "string",
+                    "Bubble user id for merge changelog data. Usually derived from stored session cookies when omitted.",
+                    examples=["1754998774520x493530240122586500"],
+                )
+            },
         ),
     ]
 
@@ -1962,7 +1994,7 @@ def performance_metrics_tools() -> list[ToolSchema]:
 
     logs = tool_schema(
         "bubble_logs_fetch",
-        "Fetch Bubble Jetstream logs from the editor for a selected app/profile/time window. Defaults app_version to live for production performance diagnostics unless explicitly overridden. Read-only.",
+        "Fetch Bubble Jetstream logs from the editor for a selected app/profile/time window. Pass 'contains' with the workflow name whenever you are chasing a specific workflow: busy apps return 0 rows without it, and the endpoint answers HTTP 200 with an empty list rather than an error. Responses are capped at 10000 rows and the endpoint has no offset/cursor, so pass paginate=true to cover a whole window. Defaults app_version to live for production performance diagnostics unless explicitly overridden. Read-only.",
         [
             "profile",
             "app_id",
@@ -1970,8 +2002,11 @@ def performance_metrics_tools() -> list[ToolSchema]:
             "start",
             "end",
             "messages",
+            "contains",
             "ascending",
             "is_state_ar",
+            "paginate",
+            "max_pages",
             "limit",
             "include_raw",
         ],

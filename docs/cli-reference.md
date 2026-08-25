@@ -108,12 +108,12 @@ bubble-mcp profile refresh-cache --profile my-app --app-id my-bubble-app
 bubble-mcp profile refresh-cache --profile my-app --no-force
 ```
 
-The command resolves `app_id` and `app_version` from the profile when omitted,
-forces context detection by default, downloads or reuses the `.bubble` export
-according to the detector inputs, splits modules, and returns JSON with updated
-artifact paths and timestamps. Agents should call this command/tool directly
-instead of inspecting cache directories or probing CLI help for low-level
-context commands.
+The command resolves `app_id` and `app_version` from the profile when omitted
+and forces context detection by default. It downloads or reuses the authoritative
+`.bubble` export when available; otherwise it composes console and crawler data.
+It returns JSON with updated artifact paths, completeness, and timestamps. Agents
+should call this command/tool directly instead of inspecting cache directories or
+probing CLI help for low-level context commands.
 
 ## `bubble-mcp profile status`
 
@@ -377,18 +377,17 @@ subsequent login attempts can reuse the same Bubble browser session.
 ```bash
 python -m pip install "befree-bubble-mcp[browser]"
 python -m playwright install chromium
-bubble-mcp session login --profile my-app --app-id my-bubble-app --wait-seconds 120
+bubble-mcp session login --profile my-app --app-id my-bubble-app
 ```
 
-`--wait-seconds` is the maximum time the command keeps polling cookies. After
-logging in, leave the Bubble editor open for a few seconds before closing the
-browser window. If the process is interrupted after Bubble cookies were
-observed, the newest usable session is still saved; if it is interrupted before
-login completes, rerun the command.
+`--wait-seconds` is the maximum time the command waits for an authenticated
+Bubble editor session and defaults to 600 seconds so password and two-factor
+authentication can complete. Keep the editor open until validation succeeds.
 
-During capture, the command prints human-readable progress to stderr. When it
-prints `Session cookies detected. You can close the browser now`, the session
-has enough data to be saved. The final JSON result is still printed to stdout.
+During capture, the command prints human-readable progress to stderr. Close the
+browser only after it prints `Bubble editor session validated
+(calculate_derived succeeded). You can close the browser now.` The final JSON
+result is still printed to stdout.
 Use `--quiet` to suppress progress messages in scripts.
 
 ## `bubble-mcp browser schedule-deploy`
@@ -590,17 +589,79 @@ bubble-mcp compile-plan --file ./plan.json --app-id my-bubble-app --context-file
 
 ## `bubble-mcp context detect`
 
-Detects and materializes project context. It tries local `.bubble` or
-`console.log(app)` artifacts when provided, then downloads Bubble's authenticated
-export endpoint (`/appeditor/export/{version}/{appId}.bubble`) before falling
-back to the editor crawler. Successful downloads are cached under
+Detects and materializes project context. A valid local or authenticated `.bubble`
+export is always authoritative and does not require the editor crawler. When no
+export is available, the detector combines `console.log(app)` with the editor
+crawler; either source alone is persisted as partial context but is not ready for
+writes. Successful downloads are cached under
 `~/.config/bubble-mcp/contexts/{profile}/` and split into
 `bubble_modules/{appId}/` next to the compact context.
+
+Within the split modules, reusable definition roots are stored under
+`element_definitions/CustomDefinition/`. The similarly named
+`element_definitions/ReusableElement/` directory is not the definition source;
+`ReusableElement` identifies instances placed on pages.
+
+Version resolution: when `--app-version` is omitted, the detector uses the
+profile's configured `app_version`, then the captured session's `app_version`,
+and only then falls back to `test`. Pass `--app-version <branch-id>` explicitly
+to export a specific branch (for example a staging branch id). Every successful
+export download writes a `<appId>.bubble.meta.json` sidecar recording the URL,
+version, byte size, and SHA-256 so the branch that produced the cached export
+can be audited later.
 
 ```bash
 bubble-mcp context detect --profile my-app --app-id my-bubble-app --force
 bubble-mcp context detect --profile my-app --app-id my-bubble-app --bubble-file ./app.bubble
 bubble-mcp context detect --profile my-app --app-id my-bubble-app --consolelog-file ./consolelog-app.txt
+```
+
+## `bubble-mcp context inspect-bubble`
+
+Diagnoses a `.bubble` export without mutating anything. The report lists the
+top-level sections and entry counts, version hints and the download provenance
+sidecar (branch/version, URL, hash), and a reusable-definition breakdown:
+how many definitions carry material payloads per source key
+(`element_definitions`, `%ed`, `CustomDefinition`, `custom_definitions`),
+how many exist only in `_index.id_to_path` (the ids that split into
+`_inferred_from_index` skeleton modules), and whether reusable-looking payloads
+sit under unexpected top-level roots. Use it to compare a suspicious export
+against a healthy one when `element_definitions/CustomDefinition/` files come
+out sparse.
+
+The breakdown separates real reusables (ids with a length-2 `%ed.<id>` root
+entry) from `orphan_index_ref_count`: ids that appear only inside deeper
+`%ed.<id>.…` paths with no resolvable root node. Orphans are stale index
+references the editor path API returns null for; they are not hydrated and no
+skeleton module is written for them.
+
+```bash
+bubble-mcp context inspect-bubble --profile my-app
+bubble-mcp context inspect-bubble --file ~/.config/bubble-mcp/contexts/smoke/bovichain-g3.bubble
+```
+
+## `bubble-mcp context hydrate-reusables`
+
+Fills in reusable definitions that Bubble's export endpoint omits for large apps.
+The endpoint ships every reusable id in `_index.id_to_path` but leaves
+`element_definitions` almost empty, so the raw export splits into
+`_inferred_from_index` skeletons. This command fetches each missing definition
+**deterministically** from the editor path API
+(`/appeditor/load_multiple_paths` + `/appeditor/load_single_path`, the same
+source the Bubble editor uses), merges the full payloads (properties, elements,
+workflows) into the cached `.bubble`, re-splits the modules, and refreshes the
+compact context. No LLM is involved. Detection runs it automatically after every
+export download; run it by hand to re-hydrate an existing cache.
+
+The path API addresses definitions by raw token (`%ed`) and encodes each path
+segment with the editor's Crockford base32 (`encode5`) before requesting
+`load_single_path`. The command honors the profile's `app_version` (e.g. the
+staging branch id), reports `hydrated`/`failed`/`orphan_index_refs`, and records
+a `hydration` block in the export's `.meta.json` sidecar.
+
+```bash
+bubble-mcp context hydrate-reusables --profile my-app
+bubble-mcp context hydrate-reusables --profile my-app --ids bVTOc1,b4rqI
 ```
 
 ## `bubble-mcp eval run`
@@ -924,8 +985,9 @@ bubble-mcp tools quality
 
 The report checks tool/resource/prompt identifiers, tool descriptions, input
 schemas, property descriptions, annotations, resource metadata, prompt
-arguments, and runtime coverage. Use it as a CI-friendly gate before claiming
-catalog or harness work is complete.
+arguments, explicit required fields for Aria-compatible tools, runtime coverage,
+and packaged Bubble CLI-to-MCP parity. Use it as a CI-friendly gate before
+claiming catalog or harness work is complete.
 
 ## `bubble-mcp readiness`
 

@@ -1,11 +1,15 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from bubble_mcp.core.config import BubbleMcpSettings, BubbleProfile, save_settings, with_profile
 from bubble_mcp.context.detector import (
     default_bubble_export_path,
     default_bubble_modules_dir,
+    default_context_path,
     detect_project_context,
+    refresh_bubble_export,
 )
 from bubble_mcp.context.source import load_context
 from bubble_mcp.sessions.store import save_session, session_from_payload
@@ -165,6 +169,114 @@ def test_detect_context_downloads_bubble_export_before_crawler(tmp_path, monkeyp
     assert any(node.id == "element:elDownloaded" for node in context.nodes)
 
 
+def test_detect_context_uses_profile_app_version_for_export_download(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    config_dir = tmp_path / "config"
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(config_dir))
+    settings = BubbleMcpSettings(config_dir=config_dir, default_profile=None, profiles={})
+    save_settings(
+        with_profile(
+            settings,
+            BubbleProfile(
+                name="smoke",
+                app_id="bovichain-g3",
+                appname="bovichain-g3",
+                app_version="23347",
+            ),
+        )
+    )
+    save_session(
+        "smoke",
+        session_from_payload({"appId": "bovichain-g3", "headers": {"Cookie": "sid=secret"}}),
+    )
+    payload = {
+        "appname": "bovichain-g3",
+        "pages": {
+            "pgStaging": {
+                "id": "rootStaging",
+                "%p": {"%nm": "index"},
+                "%el": {"elStaging": {"%x": "Text", "%p": {"%nm": "Staging"}}},
+            }
+        },
+    }
+    calls = []
+
+    class Response:
+        status_code = 200
+        content = json.dumps(payload).encode("utf-8")
+        encoding = "utf-8"
+
+    def fake_get(url, *, headers, timeout):  # type: ignore[no-untyped-def]
+        calls.append({"url": url})
+        return Response()
+
+    monkeypatch.setattr("bubble_mcp.context.detector.requests.get", fake_get)
+
+    result = detect_project_context(profile="smoke", app_id="bovichain-g3", force=True)
+
+    assert result.source == "downloaded_bubble"
+    assert calls[0]["url"] == "https://bubble.io/appeditor/export/23347/bovichain-g3.bubble"
+    resolution = next(item for item in result.attempts if item["source"] == "app_version_resolution")
+    assert resolution["app_version"] == "23347"
+    assert resolution["requested"] is None
+
+    export_path = default_bubble_export_path("smoke", "bovichain-g3")
+    meta = json.loads(
+        export_path.with_name(export_path.name + ".meta.json").read_text(encoding="utf-8")
+    )
+    assert meta["app_version"] == "23347"
+    assert meta["url"] == "https://bubble.io/appeditor/export/23347/bovichain-g3.bubble"
+    assert meta["app_id"] == "bovichain-g3"
+    assert meta["bytes"] == len(Response.content)
+
+
+def test_refresh_bubble_export_uses_authenticated_download_without_browser_fallback(tmp_path, monkeypatch) -> None:
+    config_dir = tmp_path / "config"
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(config_dir))
+    save_session(
+        "smoke",
+        session_from_payload({"appId": "bovichain-g3", "headers": {"Cookie": "sid=secret"}}),
+    )
+    payload = {"appname": "bovichain-g3", "user_types": {"cliente": {"%del": True}}}
+
+    class Response:
+        status_code = 200
+        content = json.dumps(payload).encode("utf-8")
+        encoding = "utf-8"
+
+    monkeypatch.setattr(
+        "bubble_mcp.context.detector.requests.get",
+        lambda *_args, **_kwargs: Response(),
+    )
+
+    refreshed = refresh_bubble_export(profile="smoke", app_id="bovichain-g3", app_version="23347")
+
+    assert refreshed == default_bubble_export_path("smoke", "bovichain-g3")
+    assert json.loads(refreshed.read_text(encoding="utf-8"))["user_types"]["cliente"]["%del"] is True
+
+
+def test_refresh_bubble_export_fails_closed_without_starting_browser(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
+    save_session(
+        "smoke",
+        session_from_payload({"appId": "bovichain-g3", "headers": {"Cookie": "sid=secret"}}),
+    )
+    monkeypatch.setattr(
+        "bubble_mcp.context.detector._try_download_bubble_export",
+        lambda **_kwargs: None,
+    )
+
+    def fail_if_browser_starts(**_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("browser fallback must not run")
+
+    monkeypatch.setattr(
+        "bubble_mcp.context.detector._try_capture_editor_network_index",
+        fail_if_browser_starts,
+    )
+
+    with pytest.raises(ValueError, match="fresh .bubble export is required"):
+        refresh_bubble_export(profile="smoke", app_id="bovichain-g3", app_version="23347")
+
+
 def test_detect_context_download_ignores_bogus_response_encoding_guess(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     # requests/urllib3 falls back to guessing ISO-8859-1 for a response
     # without an explicit charset, even though the export is JSON (which
@@ -261,6 +373,80 @@ def test_detect_context_force_refreshes_default_profile_bubble_cache(
     assert not any(node.id == "element:elCached" for node in context.nodes)
 
 
+def test_detect_context_force_refreshes_cache_even_without_profile_app_json_path(
+    tmp_path,
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    # Regression: with a profile that has no app_json_path configured, the
+    # stale download cache re-enters candidate selection as a plain
+    # local_bubble_candidate; force must still discard it and re-download.
+    config_dir = tmp_path / "config"
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(config_dir))
+    cached = default_bubble_export_path("smoke", "bovichain-g3")
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    cached.write_text(
+        json.dumps(
+            {
+                "appname": "bovichain-g3",
+                "app_version": "test",
+                "pages": {
+                    "pgStale": {
+                        "%p": {"%nm": "index"},
+                        "%el": {"elStale": {"%x": "Text", "%p": {"%nm": "Stale"}}},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    save_settings(
+        with_profile(
+            BubbleMcpSettings(config_dir=config_dir, default_profile=None, profiles={}),
+            BubbleProfile(
+                name="smoke",
+                app_id="bovichain-g3",
+                appname="bovichain-g3",
+                app_version="23347",
+            ),
+        )
+    )
+    save_session(
+        "smoke",
+        session_from_payload({"appId": "bovichain-g3", "headers": {"Cookie": "sid=secret"}}),
+    )
+    calls = []
+
+    class Response:
+        status_code = 200
+        content = json.dumps(
+            {
+                "appname": "bovichain-g3",
+                "app_version": "23347",
+                "pages": {
+                    "pgFresh": {
+                        "%p": {"%nm": "index"},
+                        "%el": {"elFresh": {"%x": "Text", "%p": {"%nm": "Fresh"}}},
+                    }
+                },
+            }
+        ).encode("utf-8")
+        encoding = "utf-8"
+
+    def fake_get(url, *, headers, timeout):  # type: ignore[no-untyped-def]
+        calls.append(url)
+        return Response()
+
+    monkeypatch.setattr("bubble_mcp.context.detector.requests.get", fake_get)
+
+    result = detect_project_context(profile="smoke", app_id="bovichain-g3", force=True)
+    context = load_context(result.context_path)
+
+    assert result.source == "downloaded_bubble"
+    assert calls == ["https://bubble.io/appeditor/export/23347/bovichain-g3.bubble"]
+    assert any(node.id == "element:elFresh" for node in context.nodes)
+    assert not any(node.id == "element:elStale" for node in context.nodes)
+
+
 def test_detect_context_uses_cached_compact_context(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
     first_source = tmp_path / "app.bubble"
@@ -270,10 +456,12 @@ def test_detect_context_uses_cached_compact_context(tmp_path, monkeypatch) -> No
     )
 
     first = detect_project_context(profile="dev", app_id="synthetic-app", bubble_file=first_source)
+    saved_at = load_context(first.context_path).metadata["saved_at"]
     second = detect_project_context(profile="dev", app_id="synthetic-app")
 
     assert second.source == "cached_context"
     assert second.context_path == first.context_path
+    assert load_context(second.context_path).metadata["saved_at"] == saved_at
 
 
 def test_detect_context_extracts_consolelog_app_file(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -292,6 +480,277 @@ def test_detect_context_extracts_consolelog_app_file(tmp_path, monkeypatch) -> N
 
     assert result.source == "consolelog_file"
     assert load_context(result.context_path).summary()["counts"]["page"] == 1
+
+
+def test_detect_context_prefers_bubble_and_skips_crawler_when_console_exists(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
+    bubble_file = tmp_path / "app.bubble"
+    bubble_file.write_text(
+        json.dumps(
+            {
+                "appname": "synthetic-app",
+                "user_types": {"user": {"%d": "User", "source": "bubble"}},
+                "pages": {"pgIndex": {"%p": {"%nm": "index"}}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    console_file = tmp_path / "consolelog-app.json"
+    console_file.write_text(
+        json.dumps(
+            {
+                "appname": "synthetic-app",
+                "user_types": {"user": {"%d": "Console User", "source": "console"}},
+                "styles": {"button": {"%d": "Button"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    save_session(
+        "dev",
+        session_from_payload({"appId": "synthetic-app", "headers": {"Cookie": "sid=secret"}}),
+    )
+
+    def unexpected_crawl(**_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("crawler must not run when a valid .bubble source exists")
+
+    monkeypatch.setattr("bubble_mcp.context.detector.crawl_project_index", unexpected_crawl)
+
+    result = detect_project_context(
+        profile="dev",
+        app_id="synthetic-app",
+        bubble_file=bubble_file,
+        consolelog_file=console_file,
+        force=True,
+    )
+    context = load_context(result.context_path)
+
+    assert result.source == "bubble_file+consolelog_file"
+    assert context.metadata["provenance"] == {
+        "primary_source": "bubble_file",
+        "sources": ["bubble_file", "consolelog_file"],
+        "completeness": "complete",
+        "bubble_export_available": True,
+    }
+    user = next(node for node in context.nodes if node.id == "datatype:user")
+    assert user.label == "User"
+    assert context.metadata["styles"] == {"button": {"%d": "Button"}}
+
+
+def test_detect_context_composes_console_and_crawler_when_export_is_unavailable(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
+    console_file = tmp_path / "consolelog-app.json"
+    console_file.write_text(
+        json.dumps(
+            {
+                "appname": "synthetic-app",
+                "user_types": {"user": {"%d": "User"}},
+                "styles": {"button": {"%d": "Button"}},
+                "pages": {"pgIndex": {"%p": {"%nm": "index"}, "%el": {}}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    save_session(
+        "dev",
+        session_from_payload({"appId": "synthetic-app", "headers": {"Cookie": "sid=secret"}}),
+    )
+
+    monkeypatch.setattr("bubble_mcp.context.detector._try_download_bubble_export", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "bubble_mcp.context.detector.crawl_project_index",
+        lambda **_kwargs: {
+            "appId": "synthetic-app",
+            "pages": [
+                {
+                    "id": "pgIndex",
+                    "name": "index",
+                    "rootId": "rootIndex",
+                    "elements": {"elTitle": {"%x": "Text", "%p": {"%nm": "Title"}}},
+                    "workflows": {},
+                }
+            ],
+            "reusables": [],
+            "backendWorkflows": [],
+            "pageIndex": {"index": "pgIndex"},
+            "reusableIndex": {},
+            "apiIndex": {},
+            "idToPath": {"elTitle": "%p3.pgIndex.%el.elTitle"},
+            "source": "full_crawl",
+        },
+    )
+
+    output = tmp_path / "secondary-context.json"
+    result = detect_project_context(
+        profile="dev",
+        app_id="synthetic-app",
+        consolelog_file=console_file,
+        output=output,
+        force=True,
+    )
+    context = load_context(result.context_path)
+
+    assert result.source == "consolelog_file+editor_crawler"
+    assert result.context_path == output
+    assert default_context_path("dev", "synthetic-app").exists()
+    assert context.metadata["provenance"] == {
+        "primary_source": "consolelog_file",
+        "sources": ["consolelog_file", "editor_crawler"],
+        "completeness": "complete",
+        "bubble_export_available": False,
+    }
+    assert any(node.id == "datatype:user" for node in context.nodes)
+    assert any(node.id == "element:elTitle" for node in context.nodes)
+    page = next(node for node in context.nodes if node.type == "page")
+    assert page.metadata["children"] == ["elTitle"]
+
+
+def test_detect_context_composes_automatic_console_capture_without_exposing_payload(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
+    save_session(
+        "dev",
+        session_from_payload({"appId": "synthetic-app", "headers": {"Cookie": "sid=secret"}}),
+    )
+    monkeypatch.setattr("bubble_mcp.context.detector._try_download_bubble_export", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "bubble_mcp.context.detector._try_extract_consolelog_app",
+        lambda **_kwargs: {
+            "appname": "synthetic-app",
+            "settings": {"client_safe": {"api_key": "must-not-leak"}},
+            "pages": {"pgIndex": {"%p": {"%nm": "index"}}},
+        },
+    )
+    monkeypatch.setattr(
+        "bubble_mcp.context.detector.crawl_project_index",
+        lambda **_kwargs: {
+            "appId": "synthetic-app",
+            "pages": [{"id": "pgIndex", "name": "index", "elements": {}, "workflows": {}}],
+            "reusables": [],
+            "backendWorkflows": [],
+            "pageIndex": {"index": "pgIndex"},
+            "reusableIndex": {},
+            "apiIndex": {},
+            "idToPath": {"pgIndex": "%p3.pgIndex"},
+            "source": "full_crawl",
+        },
+    )
+
+    result = detect_project_context(profile="dev", app_id="synthetic-app", force=True)
+    encoded = json.dumps(result.to_dict())
+
+    assert result.source == "consolelog_app+editor_crawler"
+    assert result.to_dict()["completeness"] == "complete"
+    assert "must-not-leak" not in encoded
+
+
+def test_detect_context_keeps_valid_crawler_partial_when_console_payload_is_empty(
+    tmp_path,
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
+    console_file = tmp_path / "consolelog-app.json"
+    console_file.write_text("{}", encoding="utf-8")
+    save_session(
+        "dev",
+        session_from_payload({"appId": "synthetic-app", "headers": {"Cookie": "sid=secret"}}),
+    )
+    monkeypatch.setattr("bubble_mcp.context.detector._try_download_bubble_export", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "bubble_mcp.context.detector.crawl_project_index",
+        lambda **_kwargs: {
+            "appId": "synthetic-app",
+            "pages": [{"id": "pgIndex", "name": "index", "elements": {}, "workflows": {}}],
+            "reusables": [],
+            "backendWorkflows": [],
+            "pageIndex": {"index": "pgIndex"},
+            "reusableIndex": {},
+            "apiIndex": {},
+            "idToPath": {"pgIndex": "%p3.pgIndex"},
+            "source": "full_crawl",
+        },
+    )
+
+    result = detect_project_context(
+        profile="dev",
+        app_id="synthetic-app",
+        consolelog_file=console_file,
+        force=True,
+    )
+
+    assert result.source == "editor_crawler"
+    assert result.to_dict()["completeness"] == "partial"
+    assert any(
+        attempt.get("source") == "console_context_validation" and attempt.get("ok") is False
+        for attempt in result.attempts
+    )
+
+
+def test_detect_context_keeps_valid_console_partial_when_crawler_payload_is_empty(
+    tmp_path,
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
+    console_file = tmp_path / "consolelog-app.json"
+    console_file.write_text(
+        json.dumps(
+            {
+                "appname": "synthetic-app",
+                "user_types": {"user": {"%d": "User"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    save_session(
+        "dev",
+        session_from_payload({"appId": "synthetic-app", "headers": {"Cookie": "sid=secret"}}),
+    )
+    monkeypatch.setattr("bubble_mcp.context.detector._try_download_bubble_export", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "bubble_mcp.context.detector.crawl_project_index",
+        lambda **_kwargs: {"appId": "synthetic-app"},
+    )
+
+    result = detect_project_context(
+        profile="dev",
+        app_id="synthetic-app",
+        consolelog_file=console_file,
+        force=True,
+    )
+
+    assert result.source == "consolelog_file"
+    assert result.to_dict()["completeness"] == "partial"
+    assert any(
+        attempt.get("source") == "crawler_context_validation" and attempt.get("ok") is False
+        for attempt in result.attempts
+    )
+
+
+def test_detect_context_rejects_two_empty_fallback_sources(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
+    console_file = tmp_path / "consolelog-app.json"
+    console_file.write_text("{}", encoding="utf-8")
+    save_session(
+        "dev",
+        session_from_payload({"appId": "synthetic-app", "headers": {"Cookie": "sid=secret"}}),
+    )
+    monkeypatch.setattr("bubble_mcp.context.detector._try_download_bubble_export", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "bubble_mcp.context.detector.crawl_project_index",
+        lambda **_kwargs: {"appId": "synthetic-app"},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="No usable .bubble, console.log\\(app\\), or editor crawler context source was available",
+    ):
+        detect_project_context(
+            profile="dev",
+            app_id="synthetic-app",
+            consolelog_file=console_file,
+            force=True,
+        )
+
+    assert not default_context_path("dev", "synthetic-app").exists()
 
 
 def test_detect_context_falls_back_to_editor_crawler(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

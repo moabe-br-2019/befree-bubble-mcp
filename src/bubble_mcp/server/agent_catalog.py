@@ -64,10 +64,19 @@ COMMON_PROPERTY_DESCRIPTIONS: dict[str, str] = {
     "limit": "Maximum number of results or eval cases to return.",
     "kind": "Input artifact type. Use auto unless the artifact type is known.",
     "bubble_file": "Optional .bubble project export path to use as the primary context source.",
-    "consolelog_file": "Optional console.log(app) JSON path to use when a .bubble export is not available.",
+    "consolelog_file": (
+        "Optional console.log(app) JSON path. It may complement .bubble; without an export it is combined "
+        "with the editor crawler."
+    ),
     "skip_id_to_path": "Skip generating id-to-path lookup data in the compact context.",
     "dataset": "Evaluation dataset path.",
     "filter": "Comma-separated eval case ids to run.",
+    "tokens_path": "Local Figma design-token JSON file to validate, inspect, or import.",
+    "config_path": "Optional TokenTransformer configuration JSON path for naming, mappings, and filters.",
+    "types": "Comma-separated Figma token families to import: font, color, and style.",
+    "color_bases": "Comma-separated first-level color groups to import, such as brand or base.",
+    "all_tokens": "Import all filtered color groups instead of applying color_bases.",
+    "list_options": "Read available color and typography groups without planning or applying writes.",
     "failed_from": "Path to a prior eval JSON report; only failed case ids are rerun.",
     "offset": "Number of eval cases to skip after filtering.",
     "session": "Captured Bubble editor session object containing headers/cookies. Secrets are stored locally.",
@@ -324,10 +333,43 @@ COMMON_PROPERTY_DESCRIPTIONS: dict[str, str] = {
     "attributes": "Option-set attributes or structured metadata depending on the tool.",
     "names": "Comma-separated or array-like list of Bubble entity names.",
     "pattern": "Name-matching pattern for bulk cleanup or selection operations.",
+    "rgba": "Exact CSS rgba(...) or supported color literal for the Bubble color token.",
+    "description": "Optional human-readable description stored with the custom design token.",
+    "font_family": "Exact font family assigned to the Bubble App Font or custom font token.",
+    "show_default": "Include Bubble default color tokens in the listing.",
+    "show_custom": "Include Bubble custom color or font tokens in the listing.",
+    "show_app": "Include the Bubble App Font in the listing.",
+    "color_name": "Exact custom color display name used by move or swap reorder modes.",
+    "target": "Target zero-based position for move or target color name for swap.",
     "token_id": "Bubble API token id or key.",
     "private_key": "Private API token value. Never log or commit real secrets.",
     "exposed_api": "Whether the Bubble data type should be exposed through Bubble's Data API.",
     "include_cache": "Include local cache data in the read-only response.",
+    "style_id": "Exact Bubble style id to rename.",
+    "theme_json": "Button theme object encoded as JSON, with a base state and optional hover, pressed, focus, or disabled states.",
+    "from_url": "Incoming URL path handled by the Bubble 301 redirect rule.",
+    "to_url": "Destination URL path for the Bubble 301 redirect rule.",
+    "target_type": (
+        "Bubble object family receiving the editor comment. Canonical names and runtime aliases are accepted; "
+        "custom target names require target_wire_type."
+    ),
+    "target_id": "Exact Bubble object key or id receiving the editor comment.",
+    "comment": "Comment text to append or use as the replacement value.",
+    "parent_id": "Parent data type or option set id required for nested comment targets.",
+    "existing_comment": "Known current comment text used to append safely without relying on cached discovery data.",
+    "append": "Append to an existing Bubble editor comment when true.",
+    "replace": "Replace the current Bubble editor comment instead of appending.",
+    "target_wire_type": "Advanced raw Bubble comment target type when target_type has no built-in mapping.",
+    "updated_by": "Bubble account email recorded as the comment author when creating comment metadata.",
+    "updated_at_ms": "Optional comment update timestamp in Unix milliseconds.",
+    "is_visible": "Whether the Bubble element is visible when the page or reusable is loaded.",
+    "collapse_when_hidden": "Whether the Bubble element collapses its layout space while hidden.",
+    "html_id": "HTML id attribute assigned to the Bubble element.",
+    "unique_id": "Bubble element unique-id property used by advanced integrations.",
+    "animation": "Bubble animation name used by an animate-element workflow action.",
+    "duration_ms": "Custom workflow animation duration in milliseconds.",
+    "customize_duration": "Whether the workflow animation should use duration_ms instead of Bubble's default duration.",
+    "custom_state": "Custom state name targeted by a set-state workflow action.",
 }
 
 DATA_FIELD_KEY_GUIDANCE = (
@@ -481,6 +523,26 @@ DOC_ENRICHMENT_TOOL = "bubble_manual_context_for_tool_authoring"
 
 
 NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
+    "delete_data_type": (
+        "Soft-delete a Bubble data type using Bubble's normal schema delete marker. The type remains recoverable "
+        "in Bubble's internal schema. After a successful write, ask the user whether they also want permanent "
+        "deletion. Use delete_data_type_permanently only after a separate explicit confirmation."
+    ),
+    "delete_data_type_permanently": (
+        "Permanently remove a Bubble data type using the CleanApp write contract captured from Optimize application. "
+        "This is irreversible, deletes the complete user_types entry, and is allowed only after delete_data_type "
+        "has successfully soft-deleted the same type in the same branch. It requires the exact internal data type "
+        "key, execute=true, and a new confirm=true; exact payload and batch bypasses are rejected. The runtime "
+        "downloads a fresh authenticated .bubble export before the write and performs another export read-back after it."
+    ),
+    "add_event_action": (
+        "Add an action to an existing Bubble workflow selected by event_ref or event_type, without requiring a trigger "
+        "element. Use add_action instead when targeting an element event and allowing automatic event creation."
+    ),
+    "set_comment": (
+        "Append or replace a Bubble editor comment on a page, element, workflow, action, data type, field, option set, "
+        "attribute, or option value. Use exact target ids and pass parent_id for nested schema targets."
+    ),
     "bubble_project_bootstrap": (
         "One-call setup entrypoint for a Bubble project profile. Use it when the user provides or implies a profile "
         "and Bubble app id: it can create or update the local profile, report readiness, and optionally run context "
@@ -563,8 +625,11 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "into workload families such as workflow, searches, or editor categories. Read-only."
     ),
     "bubble_logs_fetch": (
-        "Fetch Bubble Jetstream logs from the editor for a selected app/profile/time window. Defaults app_version "
-        "to live for production performance diagnostics unless explicitly overridden. Read-only."
+        "Fetch Bubble Jetstream logs from the editor for a selected app/profile/time window. Pass 'contains' with "
+        "the workflow name when chasing a specific workflow: busy apps return 0 rows without it, and the endpoint "
+        "answers HTTP 200 with an empty list rather than an error. Responses cap at 10000 rows and there is "
+        "no offset/cursor parameter, so pass paginate=true to cover a whole window. Defaults app_version to "
+        "live for production performance diagnostics unless explicitly overridden. Read-only."
     ),
     "bubble_plan_usage_get": (
         "Read current Bubble plan usage for the selected profile/app from the direct editor endpoint. Read-only."
@@ -632,9 +697,9 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "and crawler indexes. Writes only local context artifacts."
     ),
     "bubble_context_detect": (
-        "Build or refresh the unified Bubble project context for a profile. Prefer .bubble export data, then "
-        "consolelog fallback, then editor crawl/cache. Use before planning writes when target pages or elements may "
-        "have changed."
+        "Build or refresh the unified Bubble project context for a profile. A valid .bubble export is authoritative "
+        "and skips the crawler. Without an export, console.log(app) and editor crawler data are combined; either "
+        "source alone remains partial. Use before planning writes when target pages or elements may have changed."
     ),
     "bubble_plan": (
         "Turn a short natural language Bubble edit request into a deterministic validated plan without writing to "
@@ -883,7 +948,7 @@ LEGACY_CATEGORY_DESCRIPTIONS: tuple[tuple[str, str], ...] = (
         "Create or modify Bubble styles, style conditions, and reusable design-system definitions.",
     ),
     (
-        "create_data_type rename_data_type delete_data_type create_data_field rename_data_field delete_data_field set_data_type_api_exposure list_privacy_rules create_privacy_rule delete_privacy_rule set_privacy_rule",
+        "create_data_type rename_data_type delete_data_type delete_data_type_permanently create_data_field rename_data_field delete_data_field set_data_type_api_exposure list_privacy_rules create_privacy_rule delete_privacy_rule set_privacy_rule",
         "Create or modify Bubble database types, fields, privacy rules, and API exposure settings.",
     ),
     (
@@ -952,22 +1017,25 @@ QUERY_FIELDS = (
     "query_sort_desc",
     "query_ignore_empty_constraints",
 )
+ACTION_QUERY_FIELDS = tuple(field for field in QUERY_FIELDS if field != "query_result_type")
 
 
 EXACT_TOOL_FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "refresh_profile_cache": (("profile",), ("dry_run", "settings_path", "skip_clear_cache", "skip_split", "skip_sync_events", "skip_scan_types", "skip_sync_element_refs", "capture_file")),
     "sync_cache": (("profile",), ("dry_run", "settings_path", "mode", "skip_clear_cache", "skip_split", "skip_sync_events", "skip_scan_types", "skip_sync_element_refs", "capture_file")),
     "sync_event_cache": (("profile",), ("dry_run", "settings_path", "context", "clear", "json")),
+    "sync_workflow_ref_cache": (("profile",), ("dry_run", "settings_path", "context", "clear", "json")),
     "inspect_context": (("profile",), ("dry_run", "settings_path", "context", "scope", "include_elements", "include_workflows", "include_styles", "limit", "json")),
     "resolve_refs": (("profile",), ("dry_run", "settings_path", "context", "parent_ref", "parent_match_index", "element_ref", "element_ref_kind", "match_index", "event_ref", "event_ref_kind", "style_ref", "style_element_type", "data_type_ref", "data_type_ref_kind", "option_set_ref", "option_set_ref_kind", "option_value_ref", "json")),
     "verify_write": (("profile",), ("dry_run", "settings_path", "path", "context", "entity", "ref", "property_path", "ref_kind", "element_ref_kind", "match_index", "expected", "value_type", "json")),
     "sync_element_ref_cache": (("profile", "capture_file"), ("dry_run", "settings_path", "json")),
-    "scan_types": (("profile",), ("dry_run", "settings_path", "json")),
-    "list_data_types": (("profile",), ("dry_run", "settings_path", "include_cache", "json")),
+    "scan_types": (("profile",), ("app_id", "app_version", "context_file", "dry_run", "include_cache", "json")),
+    "list_data_types": (("profile",), ("app_id", "app_version", "context_file", "dry_run", "include_cache", "json")),
     "create_page": (("profile", "name"), ("dry_run", "settings_path", "title", "layout", "default_builder_width", "min_width", "min_height", "row_gap", "column_gap", "container_alignment", "style", "keep_overrides", "type_of_content", "url_backup_field", "meta_title", "meta_description", "html_header", *BACKGROUND_FIELDS)),
     "delete_page": (("profile", "name"), ("dry_run", "settings_path", "confirm")),
     "clone_page": (("profile", "source", "name"), ("dry_run", "settings_path", "title")),
     "create_reusable": (("profile", "name"), ("dry_run", "settings_path", "type", "element_type", "layout", *VISUAL_STYLE_FIELDS, "float_v_relative", "float_h_relative", "float_zindex", "parallax", "data_class", "data_source", "properties")),
+    "update_reusable": (("profile", "context", "element_name"), ("dry_run", "settings_path", "prefer_last", "width", "height", "is_visible", "collapse_when_hidden", "html_id", "unique_id", *VISUAL_STYLE_FIELDS)),
     "update_reusable_type": (("profile", "name", "type"), ("dry_run", "settings_path")),
     "clone_reusable": (("profile", "source", "name"), ("dry_run", "settings_path")),
     "delete_reusable": (("profile", "name"), ("dry_run", "settings_path", "confirm")),
@@ -980,15 +1048,30 @@ EXACT_TOOL_FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "update_name": (("profile", "context", "element_name", "new_name"), ("dry_run", "settings_path")),
     "update_placeholder": (("profile", "context", "element_name", "new_placeholder"), ("dry_run", "settings_path")),
     "update_style": (("profile", "context", "element_name", "new_style"), ("dry_run", "settings_path", "keep_overrides")),
-    "update_style_all": (("profile", "context", "from_style", "to_style"), ("dry_run", "settings_path", "element_type", "keep_overrides")),
+    "update_style_all": (("profile", "context", "from_style", "to_style"), ("dry_run", "settings_path", "element_type", "keep_overrides", "by_contains")),
     "update_image": (("profile", "context", "element_name", "new_source"), ("dry_run", "settings_path", "prefer_last")),
     "update_icon": (("profile", "context", "element_name", "new_icon"), ("dry_run", "settings_path", "prefer_last")),
     "update_layout": (("profile", "context", "element_name", "property", "value"), ("dry_run", "settings_path")),
     "create_style": (("profile", "name", "element_type"), ("dry_run", "settings_path", "default", "map_type", "map_style", "custom_style", *VISUAL_STYLE_FIELDS)),
     "create_styles_from_html": (("profile", "style_name", "element_type"), ("url", "html_file", "file", "html", "selector", "execute", "rendered_html", "include_states", "states", "extra_css")),
+    "sync_figma_tokens": (
+        ("profile", "tokens_path"),
+        (
+            "config_path",
+            "dry_run",
+            "types",
+            "color_bases",
+            "all_tokens",
+            "list_options",
+            "filter",
+            "settings_path",
+        ),
+    ),
     "edit_style": (("profile", "name", "element_type"), ("dry_run", "settings_path", "map_type", "map_style", "custom_style", *VISUAL_STYLE_FIELDS)),
     "add_style_condition": (("profile", "name", "condition"), ("dry_run", "settings_path", *VISUAL_STYLE_FIELDS)),
     "reorder_style_states": (("profile", "name", "order"), ("dry_run", "settings_path")),
+    "rename_style": (("profile", "style_id", "new_name"), ("dry_run", "settings_path")),
+    "create_button_style": (("profile", "name", "theme_json"), ("dry_run", "settings_path")),
     "create_workflow": (("profile", "context", "element_name"), ("dry_run", "settings_path", "event")),
     "log_the_user_in": (("profile", "context", "event_ref", "email_input_ref", "password_input_ref"), ("dry_run", "settings_path", "workflow_id", "action_index", "action_id", "stay_logged_in", "remember_email")),
     "log_the_user_out": (("profile", "context", "event_ref"), ("dry_run", "settings_path", "workflow_id", "action_index", "action_id")),
@@ -1014,10 +1097,13 @@ EXACT_TOOL_FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "add_custom_event_parameter": (("profile", "context", "event_ref", "param_name", "btype_id"), ("dry_run", "settings_path", "is_list", "optional", "param_id", "ref_kind", "id_counter")),
     "set_custom_event_return_types": (("profile", "context", "event_ref", "return_types_json"), ("dry_run", "settings_path", "ref_kind", "id_counter")),
     "add_custom_event_return_type": (("profile", "context", "event_ref", "return_name", "btype_id"), ("dry_run", "settings_path", "is_list", "optional", "return_id", "ref_kind", "id_counter")),
-    "add_action": (("profile", "context", "action_type"), ("dry_run", "settings_path", "element_name", "event_ref", "event", "event_type", "ref_kind", "param", "data_type", "fields", "thing", "query_json", "query_source_type", "query_result_from_field", "query_constraints_json", "query_sort_field", "query_sort_desc", "query_ignore_empty_constraints", "to_email", "to", "subject", "body", "message", "title", "pause_ms", "hide_status_bar", "open_in_new_tab")),
+    "add_action": (("profile", "context", "element_name", "action_type"), ("dry_run", "settings_path", "event", "param", "data_type", "fields", "thing", *ACTION_QUERY_FIELDS, "to_email", "to", "subject", "body", "message", "title", "pause_ms", "hide_status_bar", "open_in_new_tab", "animation", "duration_ms", "customize_duration", "offset", "custom_state", "value", "element_ref_kind", "match_index")),
+    "add_event_action": (("profile", "context", "action_type"), ("dry_run", "settings_path", "event_ref", "event_type", "ref_kind", "param", "data_type", "fields", "thing", *ACTION_QUERY_FIELDS, "to_email", "to", "subject", "body", "message", "title", "pause_ms", "hide_status_bar", "open_in_new_tab", "animation", "duration_ms", "customize_duration", "offset", "custom_state", "value")),
     "replace_action": (("profile", "context", "element_name", "action_type", "param"), ("dry_run", "settings_path", "event")),
     "delete_action": (("profile", "context", "action_ref"), ("dry_run", "settings_path", "element_name", "event", "event_ref", "event_type", "ref_kind", "action_ref_kind", "confirm")),
     "cleanup_empty_actions": (("profile", "context"), ("dry_run", "settings_path", "element_name", "event", "event_ref", "event_type", "ref_kind")),
+    "create_301_redirect": (("profile", "from_url", "to_url"), ("dry_run", "settings_path", "rule_key", "id_counter")),
+    "set_comment": (("profile", "target_type", "target_id", "comment"), ("dry_run", "settings_path", "parent_id", "existing_comment", "append", "replace", "target_wire_type", "updated_by", "updated_at_ms", "id_counter")),
 }
 
 
@@ -1030,6 +1116,8 @@ FIELD_TYPES: dict[str, dict[str, Any]] = {
     "force": {"type": "boolean"},
     "compile": {"type": "boolean"},
     "clear": {"type": "boolean"},
+    "all_tokens": {"type": "boolean", "default": False},
+    "list_options": {"type": "boolean", "default": False},
     "json": {"type": "boolean"},
     "include_elements": {"type": "boolean"},
     "include_workflows": {"type": "boolean"},
@@ -1041,6 +1129,10 @@ FIELD_TYPES: dict[str, dict[str, Any]] = {
     "fixed_height": {"type": "boolean"},
     "fit_height": {"type": "boolean"},
     "keep_overrides": {"type": "boolean"},
+    "by_contains": {"type": "boolean"},
+    "show_default": {"type": "boolean", "default": True},
+    "show_custom": {"type": "boolean", "default": True},
+    "show_app": {"type": "boolean", "default": True},
     "default": {"type": "boolean"},
     "query_sort_desc": {"type": "boolean"},
     "query_ignore_empty_constraints": {"type": "boolean"},
@@ -1061,6 +1153,12 @@ FIELD_TYPES: dict[str, dict[str, Any]] = {
     "limit_image_size_before_upload": {"type": "boolean"},
     "prefer_last": {"type": "boolean"},
     "include_cache": {"type": "boolean"},
+    "parse_json": {"type": "boolean", "default": False},
+    "is_visible": {"type": "boolean"},
+    "collapse_when_hidden": {"type": "boolean"},
+    "append": {"type": "boolean", "default": True},
+    "replace": {"type": "boolean", "default": False},
+    "customize_duration": {"type": "boolean"},
     "include_states": {"type": "boolean", "default": True},
     "rows": {"type": "integer"},
     "limit": {"type": "integer"},
@@ -1068,6 +1166,11 @@ FIELD_TYPES: dict[str, dict[str, Any]] = {
     "parent_match_index": {"type": "integer"},
     "action_index": {"type": "integer"},
     "action_id": {"type": "string"},
+    "key": {"type": "string", "minLength": 1},
+    "attribute_key": {"type": "string", "minLength": 1},
+    "value_key": {"type": "string", "minLength": 1},
+    "db_value": {"type": "string", "minLength": 1},
+    "field_key": {"type": "string", "minLength": 1},
     "email_input_ref": {"type": "string"},
     "password_input_ref": {"type": "string"},
     "password_confirmation_input_ref": {"type": "string"},
@@ -1091,8 +1194,14 @@ FIELD_TYPES: dict[str, dict[str, Any]] = {
     "view_attachments": {"type": "boolean"},
     "search_for": {"type": "boolean"},
     "auto_binding": {"type": "boolean"},
+    "private": {"type": "boolean", "default": False},
+    "enabled": {"type": "boolean"},
     "include_everyone_default": {"type": "boolean", "default": True},
     "id_counter": {"type": "integer"},
+    "sort_factor": {"type": "integer"},
+    "updated_at_ms": {"type": "integer", "minimum": 0},
+    "duration_ms": {"type": "integer", "minimum": 0},
+    "offset": {"type": "integer"},
     "provider_app_id": {"type": "string"},
     "provider_app_secret": {"type": "string"},
     "provider_scopes": {"type": ["string", "array"], "items": {"type": "string"}},
@@ -1185,7 +1294,28 @@ FIELD_TYPES: dict[str, dict[str, Any]] = {
     "option_set_ref_kind": {"type": "string", "enum": ["auto", "id", "name"]},
     "option_value_ref_kind": {"type": "string", "enum": ["auto", "id", "name", "display"]},
     "scope": {"type": "string", "enum": ["elements", "workflows", "styles", "schema", "all"]},
+    "target_type": {
+        "type": "string",
+        "minLength": 1,
+        "examples": [
+            "page",
+            "element",
+            "reusable",
+            "workflow_event",
+            "action",
+            "data_type",
+            "data_field",
+            "option_set",
+            "option_attribute",
+            "option_value",
+        ],
+    },
     "mode": {"type": "string", "enum": ["full", "fast", "events", "types", "elements"]},
+    "rgba": {"type": "string"},
+    "description": {"type": "string"},
+    "font_family": {"type": "string"},
+    "color_name": {"type": "string"},
+    "target": {"type": "string"},
     "placement": {"type": "string", "enum": ["top", "bottom", "append", "prepend", "replace children"]},
     "table_direction": {"type": "string", "enum": ["vertical", "horizontal"]},
     "change_path": {"type": ["string", "array"], "items": {"type": "string"}},
@@ -1240,6 +1370,153 @@ def apply_legacy_specific_schema(tool: dict[str, Any]) -> None:
         field_schema = properties.setdefault(field, _property_schema(field))
         if field in defaults and isinstance(field_schema, dict):
             field_schema.setdefault("default", deepcopy(defaults[field]))
+    if name == "set_data_type_api_exposure":
+        input_schema["anyOf"] = [
+            {"required": ["enabled"]},
+            {"required": ["value"]},
+        ]
+        properties["value"] = {
+            "type": "boolean",
+            "deprecated": True,
+            "description": "Compatibility alias for enabled; new calls must use enabled.",
+        }
+    if name in {
+        "create_data_type",
+        "rename_data_type",
+        "delete_data_type",
+        "delete_data_type_permanently",
+        "create_data_field",
+        "rename_data_field",
+        "delete_data_field",
+        "set_data_type_api_exposure",
+    }:
+        for field in {"data_type_ref", "name", "type", "new_name"} & set(properties):
+            properties[field].setdefault("minLength", 1)
+    if name in {
+        "list_privacy_rules",
+        "create_privacy_rule",
+        "delete_privacy_rule",
+        "set_privacy_rule_name",
+        "set_privacy_rule_condition",
+        "set_privacy_rule_permission",
+        "set_privacy_rule_field_visibility",
+        "set_privacy_rule_auto_binding",
+    }:
+        for field in {"data_type_ref", "rule_key", "rule_name", "new_name"} & set(properties):
+            properties[field].setdefault("minLength", 1)
+    if name.startswith((
+        "create_option_",
+        "rename_option_",
+        "delete_option_",
+        "list_option_",
+        "set_option_",
+        "reorder_option_",
+    )):
+        for field in {
+            "name",
+            "type",
+            "new_name",
+            "option_set_ref",
+            "option_value_ref",
+            "attribute_key",
+            "value_key",
+            "db_value",
+        } & set(properties):
+            properties[field].setdefault("minLength", 1)
+    if name == "create_privacy_rule":
+        for field, default in {
+            "view_all": True,
+            "view_attachments": True,
+            "search_for": True,
+            "auto_binding": False,
+            "include_everyone_default": True,
+        }.items():
+            properties[field].setdefault("default", default)
+    if name == "set_privacy_rule_permission":
+        properties["value"] = {"type": "boolean"}
+    if name == "set_privacy_rule_field_visibility":
+        input_schema["anyOf"] = [
+            {"required": ["view_all"]},
+            {"required": ["view_fields"]},
+        ]
+    if name in {
+        "delete_option_value",
+        "rename_option_value",
+        "set_option_value_attribute",
+        "reorder_option_values",
+    }:
+        properties["ref_kind"] = {
+            "type": "string",
+            "enum": ["auto", "key", "label", "db_value"],
+            "default": "key",
+        }
+    if name == "reorder_option_values":
+        properties["order"] = {
+            "type": "array",
+            "items": {"type": "string", "minLength": 3},
+            "minItems": 1,
+            "description": "Complete value_key:sort_factor assignments; each active value must appear exactly once.",
+        }
+    if name in {"scan_types", "list_data_types", "list_option_values"}:
+        properties["json"]["default"] = False
+    if name == "add_event_action":
+        input_schema["anyOf"] = [
+            {"required": ["event_ref"]},
+            {"required": ["event_type"]},
+        ]
+    if name in {"add_action", "add_event_action"}:
+        properties["offset"]["description"] = (
+            "Vertical pixel offset used by a scroll-to-element workflow action."
+        )
+    if name == "delete_data_type_permanently":
+        properties.pop("write_payload", None)
+        properties.pop("payload", None)
+        properties["data_type_ref"]["description"] = (
+            "Exact internal Bubble data type key already soft-deleted in the same app branch. "
+            "Display-name and fuzzy resolution are not allowed for permanent deletion."
+        )
+        properties["data_type_ref_kind"] = {
+            "type": "string",
+            "enum": ["id"],
+            "default": "id",
+            "description": "Permanent deletion accepts only an exact internal data type id/key.",
+        }
+    if name == "delete_colors":
+        properties["names"] = {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "minItems": 1,
+            "description": "Exact custom color names to soft-delete in one grouped operation.",
+        }
+        properties["pattern"]["minLength"] = 1
+        input_schema["anyOf"] = [
+            {"required": ["names"]},
+            {"required": ["pattern"]},
+        ]
+    if name == "reorder_colors":
+        properties["mode"] = {
+            "type": "string",
+            "enum": ["sort-az", "sort-za", "move", "swap"],
+            "description": "Color reorder operation: alphabetical sort, positional move, or pairwise swap.",
+        }
+        properties["color_name"]["minLength"] = 1
+        properties["target"]["minLength"] = 1
+        input_schema["anyOf"] = [
+            {"properties": {"mode": {"enum": ["sort-az", "sort-za"]}}},
+            {
+                "properties": {"mode": {"const": "move"}},
+                "required": ["color_name", "target"],
+            },
+            {
+                "properties": {"mode": {"const": "swap"}},
+                "required": ["color_name", "target"],
+            },
+        ]
+    if name == "sync_figma_tokens":
+        properties["filter"]["description"] = (
+            "Case-insensitive substring filter applied to generated typography style names during "
+            "Figma token import."
+        )
     _apply_visual_create_metadata(name, input_schema, properties)
     _apply_data_field_reference_metadata(name, input_schema, properties)
 
@@ -1335,9 +1612,11 @@ def _documentation_family_for_name(name: str) -> str | None:
             "create_data_type",
             "rename_data_type",
             "delete_data_type",
+            "delete_data_type_permanently",
             "create_data_field",
             "rename_data_field",
             "delete_data_field",
+            "set_data_type_api_exposure",
             "list_privacy_rules",
             "create_privacy_rule",
             "delete_privacy_rule",
@@ -1407,16 +1686,24 @@ def _legacy_fields_for_name(name: str) -> tuple[tuple[str, ...], tuple[str, ...]
         return visual_fields
     if name.startswith(("create_data_type", "rename_data_type", "delete_data_type", "create_data_field", "rename_data_field", "delete_data_field", "set_data_type_api_exposure", "list_privacy_rules", "create_privacy_rule", "delete_privacy_rule", "set_privacy_rule")):
         return _data_schema_fields(name)
+    if name in {
+        "list_colors",
+        "create_color",
+        "update_color",
+        "delete_color",
+        "delete_colors",
+        "clear_custom_colors",
+        "reorder_colors",
+    }:
+        return _color_schema_fields(name)
+    if name in {"list_fonts", "create_font", "update_font", "delete_font"}:
+        return _font_schema_fields(name)
+    if name.startswith(("create_option_", "rename_option_", "delete_option_", "list_option_", "set_option_", "reorder_option_")):
+        return _option_schema_fields(name)
     if name.startswith(("delete_", "clear_", "regenerate_")):
         return (("profile",), ("dry_run", "settings_path", "name", "confirm"))
     if name.startswith(("list_", "inspect_", "scan_", "resolve_", "verify_")):
         return (("profile",), ("dry_run", "settings_path", "context", "query", "limit", "json"))
-    if name.startswith(("create_option_", "rename_option_", "delete_option_", "list_option_", "set_option_", "reorder_option_")):
-        return _option_schema_fields(name)
-    if name.startswith(("create_color", "update_color", "delete_color", "delete_colors", "clear_custom_colors", "reorder_colors")):
-        return _color_schema_fields(name)
-    if name.startswith(("create_font", "update_font", "delete_font")) or name == "list_fonts":
-        return (("profile",), ("dry_run", "settings_path", "name", "value", "confirm", "json"))
     if name.startswith(("set_app_setting", "set_project_setting", "list_project_settings")):
         return (("profile",), ("dry_run", "settings_path", "name", "value", "json"))
     if name.startswith(("create_api_token", "rename_api_token", "regenerate_api_token", "delete_api_token")):
@@ -1484,25 +1771,28 @@ def _visual_fields_for_name(name: str) -> tuple[tuple[str, ...], tuple[str, ...]
 
 def _data_schema_fields(name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     if name == "create_data_type":
-        return (("profile", "name"), ("dry_run", "settings_path", "fields", "exposed_api", "confirm"))
+        return (("profile", "name"), ("dry_run", "key", "private"))
     if name == "rename_data_type":
-        return (("profile", "data_type_ref", "new_name"), ("dry_run", "settings_path", "data_type_ref_kind"))
+        return (("profile", "data_type_ref", "new_name"), ("dry_run",))
     if name == "delete_data_type":
-        return (("profile", "data_type_ref"), ("dry_run", "settings_path", "data_type_ref_kind", "confirm"))
+        return (("profile", "data_type_ref"), ("dry_run", "confirm"))
+    if name == "delete_data_type_permanently":
+        return (("profile", "data_type_ref"), ("dry_run", "data_type_ref_kind", "confirm"))
     if name == "create_data_field":
-        return (("profile", "data_type_ref", "name", "type"), ("dry_run", "settings_path", "is_list", "optional"))
+        return (("profile", "data_type_ref", "name", "type"), ("dry_run", "field_key"))
     if name == "rename_data_field":
-        return (("profile", "data_type_ref", "name", "new_name"), ("dry_run", "settings_path"))
+        return (("profile", "data_type_ref", "name", "new_name"), ("dry_run",))
     if name == "delete_data_field":
-        return (("profile", "data_type_ref", "name"), ("dry_run", "settings_path", "confirm"))
+        return (("profile", "data_type_ref", "name"), ("dry_run", "confirm"))
+    if name == "set_data_type_api_exposure":
+        return (("profile", "data_type_ref"), ("dry_run", "enabled", "ref_kind"))
     if name == "list_privacy_rules":
-        return (("profile", "data_type_ref"), ("dry_run", "settings_path", "json"))
+        return (("profile", "data_type_ref"), ("dry_run",))
     if name == "create_privacy_rule":
         return (
             ("profile", "data_type_ref"),
             (
                 "dry_run",
-                "settings_path",
                 "rule_key",
                 "rule_name",
                 "view_all",
@@ -1517,35 +1807,68 @@ def _data_schema_fields(name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
             ),
         )
     if name == "delete_privacy_rule":
-        return (("profile", "data_type_ref", "rule_key"), ("dry_run", "settings_path", "confirm"))
+        return (("profile", "data_type_ref", "rule_key"), ("dry_run", "confirm"))
     if name == "set_privacy_rule_name":
-        return (("profile", "data_type_ref", "rule_key", "new_name"), ("dry_run", "settings_path"))
+        return (("profile", "data_type_ref", "rule_key", "new_name"), ("dry_run",))
     if name == "set_privacy_rule_condition":
-        return (("profile", "data_type_ref", "rule_key", "condition_json"), ("dry_run", "settings_path"))
+        return (("profile", "data_type_ref", "rule_key", "condition_json"), ("dry_run",))
     if name == "set_privacy_rule_permission":
-        return (("profile", "data_type_ref", "rule_key", "permission", "value"), ("dry_run", "settings_path"))
+        return (("profile", "data_type_ref", "rule_key", "permission", "value"), ("dry_run",))
     if name == "set_privacy_rule_field_visibility":
-        return (("profile", "data_type_ref", "rule_key"), ("dry_run", "settings_path", "view_all", "view_fields"))
+        return (("profile", "data_type_ref", "rule_key"), ("dry_run", "view_all", "view_fields"))
     if name == "set_privacy_rule_auto_binding":
-        return (("profile", "data_type_ref", "rule_key", "auto_binding"), ("dry_run", "settings_path", "binding_fields"))
-    return (("profile", "data_type_ref"), ("dry_run", "settings_path", "value", "confirm"))
+        return (("profile", "data_type_ref", "rule_key", "auto_binding"), ("dry_run", "binding_fields"))
+    return (("profile", "data_type_ref"), ("dry_run", "value", "confirm"))
 
 
 def _option_schema_fields(name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    if name in {"create_option_set", "rename_option_set", "delete_option_set"}:
-        required = ("profile", "name") if name == "create_option_set" else ("profile", "option_set_ref")
-        return (required, ("dry_run", "settings_path", "new_name", "confirm", "values", "attributes"))
-    if name in {"create_option_attribute", "create_option_value", "rename_option_value", "delete_option_value", "set_option_value_attribute"}:
-        return (("profile", "option_set_ref", "name"), ("dry_run", "settings_path", "type", "value", "new_name", "option_value_ref", "confirm"))
-    return (("profile", "option_set_ref"), ("dry_run", "settings_path", "order", "json"))
+    controls = ("dry_run",)
+    value_reference = (*controls, "ref_kind")
+    if name == "create_option_set":
+        return (("profile", "name"), (*controls, "key"))
+    if name == "rename_option_set":
+        return (("profile", "option_set_ref", "new_name"), controls)
+    if name == "delete_option_set":
+        return (("profile", "option_set_ref"), controls)
+    if name == "create_option_attribute":
+        return (("profile", "option_set_ref", "name", "type"), (*controls, "attribute_key"))
+    if name == "create_option_value":
+        return (("profile", "option_set_ref", "name"), (*controls, "value_key", "db_value", "sort_factor", "id_counter"))
+    if name == "delete_option_value":
+        return (("profile", "option_set_ref", "option_value_ref"), value_reference)
+    if name == "rename_option_value":
+        return (("profile", "option_set_ref", "option_value_ref", "new_name"), value_reference)
+    if name == "set_option_value_attribute":
+        return (("profile", "option_set_ref", "option_value_ref", "name", "value"), (*value_reference, "parse_json"))
+    if name == "reorder_option_values":
+        return (("profile", "option_set_ref", "order"), value_reference)
+    return (("profile", "option_set_ref"), ("dry_run", "json"))
 
 
 def _color_schema_fields(name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     if name == "list_colors":
-        return (("profile",), ("dry_run", "settings_path", "json"))
-    if name in {"delete_colors", "clear_custom_colors", "reorder_colors"}:
-        return (("profile",), ("dry_run", "settings_path", "names", "pattern", "order", "confirm"))
-    return (("profile", "name"), ("dry_run", "settings_path", "color", "value", "confirm"))
+        return (("profile",), ("show_default", "show_custom", "dry_run", "settings_path", "json"))
+    if name == "create_color":
+        return (("profile", "name", "rgba"), ("description", "dry_run", "settings_path"))
+    if name == "update_color":
+        return (("profile", "name", "rgba"), ("dry_run", "settings_path"))
+    if name == "delete_color":
+        return (("profile", "name"), ("confirm", "dry_run", "settings_path"))
+    if name == "delete_colors":
+        return (("profile",), ("names", "pattern", "confirm", "dry_run", "settings_path"))
+    if name == "clear_custom_colors":
+        return (("profile",), ("confirm", "dry_run", "settings_path"))
+    return (("profile", "mode"), ("color_name", "target", "dry_run", "settings_path"))
+
+
+def _font_schema_fields(name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    if name == "list_fonts":
+        return (("profile",), ("show_app", "show_custom", "dry_run", "settings_path", "json"))
+    if name == "create_font":
+        return (("profile", "name", "font_family"), ("description", "dry_run", "settings_path"))
+    if name == "update_font":
+        return (("profile", "name", "font_family"), ("dry_run", "settings_path"))
+    return (("profile", "name"), ("confirm", "dry_run", "settings_path"))
 
 
 def _app_text_fields(name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:

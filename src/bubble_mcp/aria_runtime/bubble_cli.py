@@ -30,6 +30,7 @@ import unicodedata
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime
 from urllib.parse import urljoin
 from typing import Optional, Dict, List, Any, Tuple, Union, Callable
 try:
@@ -52,7 +53,6 @@ from bubble_sdk import (
     ColorBuilder,
     DEFAULT_COLOR_KEYS,
     DEFAULT_COLOR_NAMES,
-    FontBuilder,
     StyleBuilder,
     logger
 )
@@ -67,79 +67,22 @@ from html_to_bubble import (
 from color_mapper import ColorMapper
 from source_query_builder import build_search_source_expression, build_message_chain
 from element_capabilities import TOOL_ELEMENT_MAP, element_supported_properties
-
-PROJECT_SETTING_ALIASES: Dict[str, Dict[str, Any]] = {
-    # Application rights
-    "app-rights": {"path": ["settings", "client_safe", "app_rights"], "value_type": "string"},
-
-    # Preview password protection
-    "preview-password-protection": {"path": ["settings", "client_safe", "pw_protection"], "value_type": "bool"},
-    "preview-username": {"path": ["settings", "secure", "username"], "value_type": "string"},
-    "preview-password": {"path": ["settings", "secure", "%pw"], "value_type": "string"},
-    "preview-password-dev-only": {"path": ["settings", "client_safe", "pw_protection_dev_only"], "value_type": "bool"},
-
-    # User password policy
-    "password-policy-enabled": {"path": ["settings", "client_safe", "have_pw_policy"], "value_type": "bool"},
-    "password-min-length": {"path": ["settings", "client_safe", "pw_length"], "value_type": "int"},
-    "password-require-number": {"path": ["settings", "client_safe", "pw_require_number"], "value_type": "bool"},
-    "password-require-capital": {"path": ["settings", "client_safe", "pw_require_capital_letter"], "value_type": "bool"},
-    "password-require-special-char": {"path": ["settings", "client_safe", "pw_require_special_char"], "value_type": "bool"},
-    "temp-password-redirect-page": {"path": ["settings", "client_safe", "temp_pw_page_redirect"], "value_type": "string"},
-
-    # Additional settings
-    "iframe-policy": {"path": ["settings", "client_safe", "allow_iframe"], "value_type": "string"},
-    "cookie-opt-in": {"path": ["settings", "client_safe", "cookie_opt_in"], "value_type": "bool"},
-    "disable-file-upload-api": {"path": ["settings", "client_safe", "is_deprecated_fileupload_disabled"], "value_type": "bool"},
-
-    # General appearance
-    "favicon": {"path": ["favicon"], "value_type": "string"},
-    "status-bar-color": {"path": ["settings", "client_safe", "status_bar_color"], "value_type": "string"},
-    "spinner-color": {"path": ["settings", "client_safe", "spinner_color"], "value_type": "string"},
-    "ios-hide-safari-ui": {"path": ["settings", "client_safe", "ios_meta_tag_hide_safari_ui"], "value_type": "bool"},
-    "ios-prevent-zoom": {"path": ["settings", "client_safe", "ios_meta_tag_prevent_zoom"], "value_type": "bool"},
-
-    # Service/API keys
-    "google-geocode-key": {"path": ["settings", "secure", "general_keys", "google_geocode_key"], "value_type": "string"},
-    "google-map-key": {"path": ["settings", "client_safe", "general_keys", "google_map_key"], "value_type": "string"},
-
-    # Advanced options
-    "advanced-timezone-controls": {"path": ["settings", "client_safe", "advanced_features", "timezone_controls"], "value_type": "bool"},
-    "advanced-timezone-date-time-inputs": {"path": ["settings", "client_safe", "advanced_features", "timezone_controls_date_time_inputs"], "value_type": "bool"},
-    "advanced-timezone-page": {"path": ["settings", "client_safe", "advanced_features", "timezone_controls_page"], "value_type": "bool"},
-    "advanced-timezone-backend-workflows": {"path": ["settings", "client_safe", "advanced_features", "timezone_controls_backend_workflows"], "value_type": "bool"},
-    "advanced-expose-id-option": {"path": ["settings", "client_safe", "advanced_features", "expose_id_option"], "value_type": "bool"},
-    "advanced-show-parens": {"path": ["settings", "client_safe", "advanced_features", "parens"], "value_type": "bool"},
-
-    # Settings > API
-    "api-backend-workflows-enabled": {"path": ["settings", "client_safe", "exposes_wf_api"], "value_type": "bool"},
-    "api-data-enabled": {"path": ["settings", "client_safe", "exposes_get_api"], "value_type": "bool"},
-    "api-data-use-display-fields": {"path": ["settings", "client_safe", "use_captions_for_get"], "value_type": "bool"},
-    "api-hide-swagger-docs": {"path": ["settings", "client_safe", "hide_swagger_api"], "value_type": "bool"},
-
-    # Infinite recursion protection (accepts ints or null)
-    "workflow-max-depth-dev": {"path": ["settings", "client_safe", "max_recursive_workflow_depth_test"], "value_type": "auto"},
-    "workflow-max-depth-live": {"path": ["settings", "client_safe", "max_recursive_workflow_depth_live"], "value_type": "auto"},
-
-    # Settings > SEO and metatags
-    "meta-title": {"path": ["settings", "client_safe", "facebook_meta_tag_title"], "value_type": "string"},
-    "meta-site-name": {"path": ["settings", "client_safe", "facebook_meta_tag_site_name"], "value_type": "string"},
-    "meta-description": {"path": ["settings", "client_safe", "facebook_meta_tag_description"], "value_type": "string"},
-    "meta-thumbnail": {"path": ["settings", "client_safe", "facebook_meta_tag_image"], "value_type": "string"},
-    "seo-expose-text-tags": {"path": ["settings", "client_safe", "expose_text_tags"], "value_type": "bool"},
-    "seo-enable-canonical-url": {"path": ["settings", "client_safe", "enable_canonical_url"], "value_type": "bool"},
-    "seo-customize-robots-txt-enabled": {"path": ["settings", "client_safe", "customize_robots_txt"], "value_type": "bool"},
-    "seo-custom-robots-txt": {"path": ["settings", "client_safe", "custom_robot_txt"], "value_type": "string"},
-    "seo-generate-sitemap": {"path": ["settings", "client_safe", "generate_sitemap"], "value_type": "bool"},
-    "seo-sitemap-pages": {"path": ["settings", "client_safe", "sitemap_pages"], "value_type": "string"},
-    "seo-header-meta-tags": {"path": ["settings", "client_safe", "custom_header_meta_tag_content"], "value_type": "string"},
-    "seo-body-scripts": {"path": ["settings", "client_safe", "custom_header_meta_tag_body_content"], "value_type": "string"},
-    "seo-allow-wildcard-redirects": {"path": ["settings", "client_safe", "allow_wildcards"], "value_type": "bool"},
-
-    # App texts / i18n
-    "app-primary-language": {"path": ["settings", "client_safe", "app_language"], "value_type": "string"},
-    "user-language-field": {"path": ["settings", "client_safe", "language_field"], "value_type": "string"},
-}
-
+from cli_cache import (
+    BubbleCLICacheStore,
+    apply_cache_delta,
+    cache_payloads_equal,
+    default_cache_payload,
+    merge_cache_payloads,
+)
+from context_alias_registry import ContextAliasRegistry
+from context_reference_resolver import ContextReferenceResolver
+from visual_mutations import VisualMutationService
+try:
+    from .style_lifecycle import StyleLifecycleService, StyleReferenceResolver
+    from .schema_lifecycle import PROJECT_SETTING_ALIASES, SchemaLifecycleService  # noqa: F401
+except ImportError:  # pragma: no cover - direct BubbleCLI execution compatibility
+    from style_lifecycle import StyleLifecycleService, StyleReferenceResolver
+    from schema_lifecycle import PROJECT_SETTING_ALIASES, SchemaLifecycleService  # noqa: F401
 
 # ==========================================
 # EVENT MAPPER - CORREÇÃO CRÍTICA
@@ -401,7 +344,8 @@ class BubbleCLI:
         profile_name: Optional[str] = None,
         nl_config: Optional[Dict[str, Any]] = None,
         render_config: Optional[Dict[str, Any]] = None,
-        style_defaults: Optional[Dict[str, Any]] = None
+        style_defaults: Optional[Dict[str, Any]] = None,
+        app_version: Optional[str] = None
     ):
         app_json_path = self._remap_legacy_runtime_path(app_json_path)
         consolelog_json_path = self._remap_legacy_runtime_path(consolelog_json_path)
@@ -422,15 +366,37 @@ class BubbleCLI:
         suffix = (profile_name or os.path.basename(cache_dir) or "default").replace("/", "_")
         self._legacy_tmp_cache_file = os.path.join(tempfile.gettempdir(), f".bubble_cli_cache_{suffix}.json")
         self._cache_file = cache_file
+        self._cache_store = BubbleCLICacheStore(
+            self._cache_file,
+            legacy_path=self._legacy_tmp_cache_file,
+            warn=logger.warning,
+        )
         self._migrate_legacy_tmp_cache()
         self._cli_cache = self._load_cli_cache()
+        self._cli_cache_base = copy.deepcopy(self._cli_cache)
+        self._style_reference_revision = 0
+        self._schema_reference_revision = 0
 
         self.profile_name = profile_name
+        self.app_version = str(app_version or "test")
         self.webhook_url = webhook_url or os.getenv("BUBBLE_CLI_WEBHOOK_URL", "local://bubble-mcp")
         self.appname = appname or os.getenv("BUBBLE_CLI_APPNAME", "synthetic-page")
         self.nl_config = nl_config or {}
         self.render_config = render_config or {}
         self.style_defaults = style_defaults or {}
+        self._alias_registry = ContextAliasRegistry(
+            cache=lambda: self._cli_cache,
+            profile_key=self._schema_profile_key,
+            normalize=self._norm_lookup,
+            normalize_path=self._normalize_payload_path,
+            reload=self._reload_cli_cache_from_disk,
+            save=self._save_cli_cache,
+            transaction=self._transact_cli_cache,
+        )
+        self._context_reference_resolver = ContextReferenceResolver(self)
+        self._visual_mutations = VisualMutationService(self)
+        self._style_lifecycle = StyleLifecycleService(self)
+        self._schema_lifecycle = SchemaLifecycleService(self)
 
         self.color_mapper = ColorMapper(self.discovery.data)
         # Seed with cached colors
@@ -494,86 +460,53 @@ class BubbleCLI:
 
     def _load_cli_cache(self) -> Dict[str, Any]:
         """Load CLI cache from local JSON file."""
-        cache: Dict[str, Any] = {}
-        if os.path.exists(self._cache_file):
-            try:
-                with open(self._cache_file, 'r') as f:
-                    loaded = json.load(f)
-                    if isinstance(loaded, dict):
-                        cache = loaded
-            except (json.JSONDecodeError, IOError):
-                cache = {}
-
-        # Backward-compatible defaults
-        cache.setdefault("colors", {})
-        cache.setdefault("fonts", {})
-        cache.setdefault("styles", {})
-        cache.setdefault("components", {})
-        cache.setdefault("schema", {})
-        if not isinstance(cache["schema"], dict):
-            cache["schema"] = {}
-        cache["schema"].setdefault("profiles", {})
-        if not isinstance(cache["schema"]["profiles"], dict):
-            cache["schema"]["profiles"] = {}
-
-        return cache
+        return self._cache_store.load()
 
     @staticmethod
     def _merge_cache_payloads(base: Any, incoming: Any) -> Any:
-        if isinstance(base, dict) and isinstance(incoming, dict):
-            merged = dict(base)
-            for key, value in incoming.items():
-                if key in merged:
-                    merged[key] = BubbleCLI._merge_cache_payloads(merged[key], value)
-                else:
-                    merged[key] = value
-            return merged
-        return incoming if incoming is not None else base
+        return merge_cache_payloads(base, incoming)
 
     def _migrate_legacy_tmp_cache(self) -> None:
-        legacy_path = str(getattr(self, "_legacy_tmp_cache_file", "") or "").strip()
-        if not legacy_path or legacy_path == self._cache_file or not os.path.exists(legacy_path):
-            return
-        try:
-            with open(legacy_path, "r") as f:
-                legacy_payload = json.load(f)
-            if not isinstance(legacy_payload, dict):
-                return
-            canonical_payload: Dict[str, Any] = {}
-            if os.path.exists(self._cache_file):
-                try:
-                    with open(self._cache_file, "r") as f:
-                        loaded = json.load(f)
-                    if isinstance(loaded, dict):
-                        canonical_payload = loaded
-                except Exception:
-                    canonical_payload = {}
-            merged = self._merge_cache_payloads(canonical_payload, legacy_payload)
-            cache_dir = os.path.dirname(os.path.abspath(self._cache_file))
-            os.makedirs(cache_dir, exist_ok=True)
-            with open(self._cache_file, "w") as f:
-                json.dump(merged, f, indent=2)
-        except Exception as e:
-            logger.warning(f"Could not migrate legacy temp CLI cache: {e}")
+        self._cache_store.migrate_legacy()
 
     def _save_cli_cache(self) -> None:
         """Save CLI cache to local JSON file."""
-        try:
-            cache_dir = os.path.dirname(os.path.abspath(self._cache_file))
-            os.makedirs(cache_dir, exist_ok=True)
-            with open(self._cache_file, 'w') as f:
-                json.dump(self._cli_cache, f, indent=2)
-        except IOError as e:
-            logger.warning(f"Could not save CLI cache: {e}")
+        baseline = self._cli_cache_base
+        pending = self._cli_cache
+        baseline_styles = baseline.get("styles") if isinstance(baseline, dict) else None
+        pending_styles = pending.get("styles") if isinstance(pending, dict) else None
+        styles_changed = not cache_payloads_equal(baseline_styles, pending_styles)
+
+        def apply(latest: Dict[str, Any]) -> bool:
+            reconciled = apply_cache_delta(baseline, pending, latest)
+            if cache_payloads_equal(reconciled, latest):
+                return False
+            latest.clear()
+            latest.update(reconciled)
+            return True
+
+        updated, _changed = self._cache_store.transaction(baseline, apply)
+        self._cli_cache = updated
+        self._cli_cache_base = copy.deepcopy(updated)
+        if styles_changed:
+            self._invalidate_style_reference_index()
 
     def _reload_cli_cache_from_disk(self) -> None:
         """Reload the current cache file so schema alias writes do not clobber newer subprocess updates."""
-        try:
-            latest = self._load_cli_cache()
-        except Exception:
-            return
-        if isinstance(latest, dict):
+        self._cli_cache = self._cache_store.reload(self._cli_cache)
+        self._cli_cache_base = copy.deepcopy(self._cli_cache)
+
+    def _transact_cli_cache(self, mutation: Callable[[], bool]) -> bool:
+        """Apply an alias mutation to the latest cache under the store lock."""
+
+        def apply(latest: Dict[str, Any]) -> bool:
             self._cli_cache = latest
+            return mutation()
+
+        updated, changed = self._cache_store.transaction(self._cli_cache, apply)
+        self._cli_cache = updated
+        self._cli_cache_base = copy.deepcopy(updated)
+        return changed
 
     @staticmethod
     def _canonical_element_name_from_alias_payloads(payloads: List[Dict[str, Any]]) -> str:
@@ -1021,137 +954,289 @@ class BubbleCLI:
         raw = str(value or "").strip()
         return bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9]{4,}", raw))
 
+    def style_reference_snapshots(self) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Return the current discovery and CLI-cache snapshots by identity."""
+        discovery_data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
+        cache_data = self._cli_cache if isinstance(self._cli_cache, dict) else {}
+        return discovery_data, cache_data
+
+    def schema_reference_snapshots(self) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Return detached schema snapshots so reference callers cannot mutate live state."""
+        discovery_data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
+        cache_data = self._cli_cache if isinstance(self._cli_cache, dict) else {}
+        return copy.deepcopy(discovery_data), copy.deepcopy(cache_data)
+
+    def schema_reference_modules_dir(self) -> Optional[str]:
+        """Return the active split-module root, if it belongs to this app."""
+        return self._bubble_modules_project_dir()
+
+    def schema_reference_profile_key(self) -> str:
+        """Return the cache profile from which schema fallback entries may be read."""
+        return self._schema_profile_key()
+
+    def normalize_schema_reference(self, value: Any) -> str:
+        """Normalize a caller-facing schema label without changing its public spelling."""
+        return self._norm_lookup(value)
+
+    def slugify_schema_reference(self, value: str) -> str:
+        """Convert an option-set shorthand into Bubble's canonical key fragment."""
+        try:
+            return self._slugify_identifier(value)
+        except ValueError:
+            return ""
+
+    def schema_reference_revision(self) -> int:
+        """Return the revision used to invalidate detached schema reference indexes."""
+        return self._schema_reference_revision
+
+    def _invalidate_schema_reference_index(self, *families: str) -> None:
+        """Advance schema snapshot state after a successful relevant projected write."""
+        self._schema_reference_revision = getattr(self, "_schema_reference_revision", 0) + 1
+        lifecycle = getattr(self, "_schema_lifecycle", None)
+        references = getattr(lifecycle, "references", None)
+        if references is not None:
+            references.invalidate(*families)
+
+    def _invalidate_schema_reference_indexes_for_changes(self, changes: List[Dict[str, Any]]) -> None:
+        """Invalidate only indexes touched by a completed schema/settings payload."""
+        if getattr(self, "_schema_lifecycle_dispatching", False):
+            return
+        families: set[str] = set()
+        for change in changes:
+            if not isinstance(change, dict):
+                continue
+            path = self._normalize_capture_path(change.get("path_array"))
+            if not path:
+                continue
+            if path[0] == "user_types":
+                families.add("user_types")
+            elif path[0] == "option_sets":
+                families.add("option_sets")
+            elif path[:3] == ["settings", "client_safe", "301_redirects"]:
+                families.add("redirects")
+        if families:
+            self._invalidate_schema_reference_index(*sorted(families))
+
+    def new_style_token_payload(self) -> PayloadBuilder:
+        """Create token payloads with the SDK identity used by this BubbleCLI mode."""
+        return PayloadBuilder(appname=self.appname, app_version=self.app_version)
+
+    def dispatch_style_token_payload(self, payload: PayloadBuilder) -> None:
+        """Dispatch a completed token plan through BubbleCLI's mutation boundary."""
+        self._dispatch_payload(payload)
+
+    def put_style_token_cache(self, kind: str, token_id: str, data: Dict[str, Any]) -> None:
+        """Persist one successful token cache delta."""
+        self._add_to_cache(kind, token_id, data)
+
+    def remove_style_token_cache(self, kind: str, token_id: str) -> None:
+        """Remove one successfully deleted token from the cache."""
+        self._remove_from_cache(kind, token_id)
+
+    def clear_style_token_cache(self, kind: str) -> None:
+        """Clear one token cache family after a successful hard delete."""
+        self._cli_cache[kind] = {}
+        self._save_cli_cache()
+
+    def apply_style_token_cache_batch(
+        self,
+        kind: str,
+        *,
+        upserts: Dict[str, Dict[str, Any]],
+        removals: Tuple[str, ...] = (),
+        clear: bool = False,
+    ) -> None:
+        """Apply one successful bulk token delta and persist it once."""
+        if clear:
+            bucket: Dict[str, Any] = {}
+            self._cli_cache[kind] = bucket
+        else:
+            current = self._cli_cache.setdefault(kind, {})
+            if not isinstance(current, dict):
+                current = {}
+                self._cli_cache[kind] = current
+            bucket = current
+        for token_id in removals:
+            bucket.pop(token_id, None)
+        for token_id, data in upserts.items():
+            bucket[token_id] = data
+        self._save_cli_cache()
+
+    def resolve_style_definition_color(self, value: str) -> str:
+        """Resolve one style color through BubbleCLI's full live color boundary."""
+        return self._resolve_color_arg(value)
+
+    def dispatch_style_definition_payload(self, payload: PayloadBuilder) -> None:
+        """Dispatch a completed definition/state plan through the mutation boundary."""
+        self._dispatch_payload(payload)
+
+    def put_style_definition_cache(self, name: str, data: Dict[str, Any]) -> None:
+        """Stage one style cache value; the service controls persistence ordering."""
+        styles = self._cli_cache.setdefault("styles", {})
+        if not isinstance(styles, dict):
+            styles = {}
+            self._cli_cache["styles"] = styles
+        styles[name] = data
+
+    def remove_style_definition_cache(self, name: str) -> None:
+        """Stage removal of one style cache alias."""
+        styles = self._cli_cache.get("styles") if isinstance(self._cli_cache, dict) else None
+        if isinstance(styles, dict):
+            styles.pop(name, None)
+
+    def save_style_definition_cache(self) -> None:
+        """Persist staged definition cache changes once per successful operation."""
+        self._save_cli_cache()
+
+    def hydrate_style_definition(
+        self,
+        style_id: str,
+        name: str,
+        element_type: str,
+        properties: Dict[str, Any],
+        *,
+        clear_properties: Tuple[str, ...] = (),
+    ) -> None:
+        """Explicitly hydrate discovery for create and dry-run update chaining."""
+        styles = self.discovery.data.setdefault("styles", {})
+        if not isinstance(styles, dict):
+            styles = {}
+            self.discovery.data["styles"] = styles
+        current = styles.get(style_id)
+        if not isinstance(current, dict):
+            current = {}
+            styles[style_id] = current
+        current.update(
+            {
+                "name": name,
+                "display": name,
+                "%d": name,
+                "type": element_type,
+                "%x": element_type,
+            }
+        )
+        current_properties = current.get("%p")
+        if not isinstance(current_properties, dict):
+            current_properties = {}
+            current["%p"] = current_properties
+        current_properties.update(properties)
+        for property_name in clear_properties:
+            current_properties.pop(property_name, None)
+        self._invalidate_style_reference_index()
+
+    def base_style_properties(self, style_id: str) -> Dict[str, Any]:
+        """Return detached base properties for definition cache/state planning."""
+        return dict(self._style_lifecycle.references.base_properties(style_id))
+
+    def compensate_style_state_padding(
+        self,
+        style_id: str,
+        properties: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return self._compensate_padding_for_border_width(style_id, properties)
+
+    def augment_disabled_style_state(
+        self,
+        style_id: str,
+        properties: Dict[str, Any],
+        comparison_map: Dict[str, str],
+        base_properties: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return self._augment_not_clickable_condition_props(
+            style_id,
+            properties,
+            comparison_map,
+            base_properties,
+        )
+
+    def style_reference_revision(self) -> int:
+        """Return the explicit revision for in-place style snapshot mutations."""
+        return self._style_reference_revision
+
+    def _invalidate_style_reference_index(self) -> None:
+        """Advance style snapshot revision and invalidate a built resolver index."""
+        self._style_reference_revision = getattr(self, "_style_reference_revision", 0) + 1
+        lifecycle = getattr(self, "_style_lifecycle", None)
+        references = getattr(lifecycle, "references", None)
+        if references is not None:
+            references.invalidate()
+
+    def list_style_references(self) -> List[Dict[str, Any]]:
+        """Return discovery's normalized style rows for reference indexing."""
+        return list(self.discovery.list_styles() or [])
+
+    def list_style_reference_elements(self) -> List[Dict[str, Any]]:
+        """Return literal element snapshots used by catalog and semantic labels."""
+        elements: List[Dict[str, Any]] = []
+        seen: set[Tuple[str, ...]] = set()
+        for context in self._iter_contexts(scope="all"):
+            context_id = str(context.get("id") or "").strip()
+            context_type = str(context.get("type") or "").strip()
+            if not context_id or context_type not in {"page", "reusable"}:
+                continue
+            for source_rows in (
+                self.discovery.list_elements(context_id, context_type=context_type),
+                self._list_raw_context_elements(context_id, context_type),
+                self._list_module_context_elements(context_id, context_type),
+                self._list_index_context_elements(context_id, context_type),
+            ):
+                if not isinstance(source_rows, list):
+                    continue
+                for row in source_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    path = tuple(str(part) for part in row.get("path", []))
+                    element = row.get("element") if isinstance(row.get("element"), dict) else {}
+                    identity = (
+                        context_type,
+                        context_id,
+                        str(element.get("id") or row.get("id") or ""),
+                        *path,
+                    )
+                    if identity in seen:
+                        continue
+                    seen.add(identity)
+                    elements.append(row)
+        return elements
+
+    def normalize_style_reference(self, value: Any) -> str:
+        return self._norm_lookup(value)
+
+    def compact_style_reference(self, value: Any) -> str:
+        return self._norm_compact(value)
+
+    def plain_style_reference_text(self, value: Any) -> str:
+        return self._extract_plain_text_value(value)
+
     def _normalize_style_element_type(self, element_type: Optional[str]) -> str:
         """Normalize style element type casing/aliases (e.g. button -> Button)."""
-        raw = str(element_type or "").strip()
-        if not raw:
-            return raw
-        key = "".join(ch for ch in raw.lower() if ch.isalnum())
-        aliases = {
-            "button": "Button",
-            "text": "Text",
-            "group": "Group",
-            "popup": "Popup",
-            "input": "Input",
-            "multilineinput": "MultiLineInput",
-            "dropdown": "Dropdown",
-            "checkbox": "Checkbox",
-            "radio": "RadioButtons",
-            "radiobutton": "RadioButtons",
-            "radiobuttons": "RadioButtons",
-            "dateinput": "DateInput",
-            "datepicker": "DateInput",
-            "searchbox": "SearchBox",
-            "autocompletedropdown": "AutocompleteDropdown",
-            "fileinput": "FileInput",
-            "pictureinput": "PictureInput",
-            "pictureuploader": "PictureInput",
-            "slider": "SliderInput",
-            "sliderinput": "SliderInput",
-            "alert": "Alert",
-            "image": "Image",
-            "icon": "Icon",
-            "shape": "Shape",
-            "video": "Video",
-            "repeatinggroup": "RepeatingGroup",
-            "floatinggroup": "FloatingGroup",
-            "groupfocus": "GroupFocus",
-            "page": "Page",
-            "map": "GoogleMap",
-            "googlemap": "GoogleMap",
-            "html": "HTML",
-            "link": "Link",
-        }
-        return aliases.get(key, raw)
+        return self._style_lifecycle.references.normalize_element_type(element_type)
 
     def _default_style_settings_key(self, element_type: Optional[str]) -> str:
         """
         Map style element aliases to the canonical key used by
         settings.client_safe.default_styles.
         """
-        normalized = self._normalize_style_element_type(element_type)
-        key_map = {
-            # Bubble stores SearchBox defaults under AutocompleteDropdown.
-            "SearchBox": "AutocompleteDropdown",
-            # Bubble default style settings use pluralized key.
-            "RadioButton": "RadioButtons",
-        }
-        return key_map.get(normalized, normalized)
+        return self._style_lifecycle.references.default_style_settings_key(element_type)
 
     def _configured_default_style_id_for_element_type(self, element_type: Optional[str]) -> Optional[str]:
-        normalized = self._normalize_style_element_type(element_type)
-        if not normalized:
-            return None
-
-        settings_key = self._default_style_settings_key(normalized)
-        candidate_keys = [settings_key, normalized]
-        seen: set[str] = set()
-
-        settings = self.discovery.data.get("settings", {}) if isinstance(self.discovery.data, dict) else {}
-        if not isinstance(settings, dict):
-            settings = {}
-        client_safe = settings.get("client_safe", {}) if isinstance(settings.get("client_safe"), dict) else {}
-        default_styles = client_safe.get("default_styles", {}) if isinstance(client_safe.get("default_styles"), dict) else {}
-
-        for candidate_key in candidate_keys:
-            raw_style_id = str(default_styles.get(candidate_key) or "").strip()
-            if not raw_style_id or raw_style_id in seen:
-                continue
-            seen.add(raw_style_id)
-            return raw_style_id
-
-        return None
+        return self._style_lifecycle.references.configured_default_style_id(element_type)
 
     def _first_available_style_id_for_element_type(self, element_type: Optional[str]) -> Optional[str]:
-        normalized = self._normalize_style_element_type(element_type)
-        if not normalized:
-            return None
-
-        configured_default = self._configured_default_style_id_for_element_type(normalized)
-        if configured_default:
-            return configured_default
-
-        candidate_types = [normalized]
-        settings_key = self._default_style_settings_key(normalized)
-        if settings_key and settings_key not in candidate_types:
-            candidate_types.append(settings_key)
-
-        styles = list(self.discovery.list_styles() or [])
-        for preferred_default in (True, False):
-            for candidate_type in candidate_types:
-                for style in styles:
-                    style_id = str(style.get("id") or "").strip()
-                    style_type = str(style.get("type") or "").strip()
-                    if not style_id or style_type != candidate_type:
-                        continue
-                    if bool(style.get("is_default")) != preferred_default:
-                        continue
-                    return style_id
-
-        # Final loose fallback: infer by style-id prefix when discovery type aliases are inconsistent.
-        lowered_candidates = [candidate.lower() for candidate in candidate_types if candidate]
-        for style in styles:
-            style_id = str(style.get("id") or "").strip()
-            if not style_id:
-                continue
-            style_prefix = style_id.split("_")[0].lower()
-            if style_prefix in lowered_candidates:
-                return style_id
-
-        return None
+        return self._style_lifecycle.references.first_available_style_id(element_type)
 
     def clear_cache(self) -> bool:
         """Manually clear the persistent CLI cache file."""
-        if os.path.exists(self._cache_file):
-            try:
-                os.remove(self._cache_file)
-                self._cli_cache = {"colors": {}, "fonts": {}, "styles": {}, "schema": {"profiles": {}}}
-                logger.success(f"Successfully cleared cache: {self._cache_file}")
-                return True
-            except IOError as e:
-                logger.error(f"Failed to clear cache: {e}")
-                return False
-        logger.info("No cache file found to clear.")
+        cache_existed = os.path.exists(self._cache_file)
+        if not self._cache_store.clear():
+            logger.error(f"Failed to clear cache: {self._cache_file}")
+            return False
+        self._cli_cache = default_cache_payload()
+        self._cli_cache_base = copy.deepcopy(self._cli_cache)
+        if cache_existed:
+            logger.success(f"Successfully cleared cache: {self._cache_file}")
+        else:
+            logger.info("No cache file found to clear.")
         return True
 
     def refresh_profile_cache(
@@ -1222,95 +1307,31 @@ class BubbleCLI:
         return self.profile_name or "default"
 
     def _schema_profile_cache(self) -> Dict[str, Any]:
-        schema = self._cli_cache.setdefault("schema", {})
-        if not isinstance(schema, dict):
-            schema = {}
-            self._cli_cache["schema"] = schema
-        profiles = schema.setdefault("profiles", {})
-        if not isinstance(profiles, dict):
-            profiles = {}
-            schema["profiles"] = profiles
-        key = self._schema_profile_key()
-        profile_cache = profiles.setdefault(
-            key,
-            {
-                "option_sets": {},
-                "user_types": {},
-                "app_texts": {},
-                "events": {},
-                "workflow_refs": {},
-                "element_refs": {},
-                "components": {},
-                "contexts": {"page": {}, "reusable": {}},
-            }
-        )
-        if not isinstance(profile_cache, dict):
-            profile_cache = {
-                "option_sets": {},
-                "user_types": {},
-                "app_texts": {},
-                "events": {},
-                "workflow_refs": {},
-                "element_refs": {},
-                "components": {},
-                "contexts": {"page": {}, "reusable": {}},
-            }
-            profiles[key] = profile_cache
-        profile_cache.setdefault("option_sets", {})
-        profile_cache.setdefault("user_types", {})
-        profile_cache.setdefault("app_texts", {})
-        profile_cache.setdefault("events", {})
-        profile_cache.setdefault("workflow_refs", {})
-        profile_cache.setdefault("element_refs", {})
-        profile_cache.setdefault("components", {})
-        profile_cache.setdefault("contexts", {"page": {}, "reusable": {}})
-        if not isinstance(profile_cache["option_sets"], dict):
-            profile_cache["option_sets"] = {}
-        if not isinstance(profile_cache["user_types"], dict):
-            profile_cache["user_types"] = {}
-        if not isinstance(profile_cache["app_texts"], dict):
-            profile_cache["app_texts"] = {}
-        if not isinstance(profile_cache["events"], dict):
-            profile_cache["events"] = {}
-        if not isinstance(profile_cache["workflow_refs"], dict):
-            profile_cache["workflow_refs"] = {}
-        if not isinstance(profile_cache["element_refs"], dict):
-            profile_cache["element_refs"] = {}
-        if not isinstance(profile_cache["components"], dict):
-            profile_cache["components"] = {}
-        if not isinstance(profile_cache["contexts"], dict):
-            profile_cache["contexts"] = {"page": {}, "reusable": {}}
-        profile_cache["contexts"].setdefault("page", {})
-        profile_cache["contexts"].setdefault("reusable", {})
-        if not isinstance(profile_cache["contexts"]["page"], dict):
-            profile_cache["contexts"]["page"] = {}
-        if not isinstance(profile_cache["contexts"]["reusable"], dict):
-            profile_cache["contexts"]["reusable"] = {}
-        return profile_cache
+        return self._alias_registry.profile_cache()
 
     def _schema_option_sets_cache(self) -> Dict[str, Any]:
-        return self._schema_profile_cache()["option_sets"]
+        return self._alias_registry.bucket("option_sets")
 
     def _schema_user_types_cache(self) -> Dict[str, Any]:
-        return self._schema_profile_cache()["user_types"]
+        return self._alias_registry.bucket("user_types")
 
     def _schema_app_texts_cache(self) -> Dict[str, Any]:
-        return self._schema_profile_cache()["app_texts"]
+        return self._alias_registry.bucket("app_texts")
 
     def _schema_events_cache(self) -> Dict[str, Any]:
-        return self._schema_profile_cache()["events"]
+        return self._alias_registry.bucket("events")
 
     def _schema_workflow_refs_cache(self) -> Dict[str, Any]:
-        return self._schema_profile_cache()["workflow_refs"]
+        return self._alias_registry.bucket("workflow_refs")
 
     def _schema_element_refs_cache(self) -> Dict[str, Any]:
-        return self._schema_profile_cache()["element_refs"]
+        return self._alias_registry.bucket("element_refs")
 
     def _schema_components_cache(self) -> Dict[str, Any]:
-        return self._schema_profile_cache()["components"]
+        return self._alias_registry.bucket("components")
 
     def _schema_contexts_cache(self) -> Dict[str, Any]:
-        return self._schema_profile_cache()["contexts"]
+        return self._alias_registry.bucket("contexts")
 
     def _cache_context_alias(
         self,
@@ -1319,27 +1340,7 @@ class BubbleCLI:
         context_id: str,
         object_id: Optional[str] = None,
     ) -> None:
-        ctype = "reusable" if str(context_type).strip().lower() == "reusable" else "page"
-        cid = str(context_id or "").strip()
-        name = str(context_name or "").strip()
-        oid = str(object_id or "").strip()
-        if not cid:
-            return
-
-        contexts = self._schema_contexts_cache()
-        bucket = contexts.setdefault(ctype, {})
-        if not isinstance(bucket, dict):
-            bucket = {}
-            contexts[ctype] = bucket
-
-        payload = {"name": name, "context_id": cid, "object_id": oid}
-        # Save aliases by name, context key and object id for robust lookup.
-        for token in (name, cid, oid):
-            normalized = self._norm_lookup(token)
-            if normalized:
-                bucket[normalized] = payload
-
-        self._save_cli_cache()
+        self._alias_registry.cache_context(context_type, context_name, context_id, object_id)
 
     def _cache_component_entry(
         self,
@@ -1391,33 +1392,11 @@ class BubbleCLI:
         self._save_cli_cache()
 
     def _lookup_cached_context(self, name_or_id: str) -> Tuple[Optional[str], Optional[str]]:
-        normalized = self._norm_lookup(name_or_id)
-        if not normalized:
-            return None, None
-
-        contexts = self._schema_contexts_cache()
-
-        reusable_bucket = contexts.get("reusable", {})
-        if isinstance(reusable_bucket, dict):
-            payload = reusable_bucket.get(normalized)
-            if isinstance(payload, dict):
-                context_id = str(payload.get("context_id") or "").strip()
-                if context_id:
-                    return context_id, "reusable"
-
-        page_bucket = contexts.get("page", {})
-        if isinstance(page_bucket, dict):
-            payload = page_bucket.get(normalized)
-            if isinstance(payload, dict):
-                context_id = str(payload.get("context_id") or "").strip()
-                if context_id:
-                    return context_id, "page"
-
-        return None, None
+        return self._alias_registry.lookup_context(name_or_id)
 
     @staticmethod
     def _cache_element_ref_context_key(context_id: str, context_type: str) -> str:
-        return f"{context_type}:{context_id}"
+        return ContextAliasRegistry.context_key(context_id, context_type)
 
     def _cache_element_ref_alias(
         self,
@@ -1429,52 +1408,15 @@ class BubbleCLI:
         element_path: Optional[List[str]] = None,
         element_type: Optional[str] = None,
     ) -> None:
-        alias = str(alias_name or "").strip()
-        element = str(element_id or "").strip()
-        if not alias or not element:
-            return
-
-        normalized = self._norm_lookup(alias)
-        if not normalized:
-            return
-
-        # MCP/CLI tool calls often run in separate subprocesses. Reload before
-        # mutating element_refs so newly created aliases are not lost when a
-        # later process started from an older cache snapshot.
-        self._reload_cli_cache_from_disk()
-        cache = self._schema_element_refs_cache()
-        ctx_key = self._cache_element_ref_context_key(context_id, context_type)
-        ctx_cache = cache.setdefault(ctx_key, {})
-        if not isinstance(ctx_cache, dict):
-            ctx_cache = {}
-            cache[ctx_key] = ctx_cache
-
-        existing_payload = ctx_cache.get(normalized)
-        existing_key = ""
-        existing_path: Optional[List[str]] = None
-        if isinstance(existing_payload, dict):
-            existing_key = str(existing_payload.get("key") or "").strip()
-            existing_path = self._normalize_payload_path(existing_payload.get("path"))
-
-        resolved_key = str(element_key or "").strip() or existing_key
-        resolved_path = self._normalize_payload_path(element_path) or existing_path
-
-        payload: Dict[str, Any] = {
-            "name": alias,
-            "id": element,
-            "context_id": context_id,
-            "context_type": context_type
-        }
-        resolved_type = str(element_type or "").strip()
-        if resolved_key:
-            payload["key"] = resolved_key
-        if isinstance(resolved_path, list) and resolved_path:
-            payload["path"] = resolved_path
-        if resolved_type:
-            payload["type"] = resolved_type
-
-        ctx_cache[normalized] = payload
-        self._save_cli_cache()
+        self._alias_registry.cache_element(
+            context_id,
+            context_type,
+            alias_name,
+            element_id,
+            element_key=element_key,
+            element_path=element_path,
+            element_type=element_type,
+        )
 
     def _cache_created_element_aliases(
         self,
@@ -1487,39 +1429,15 @@ class BubbleCLI:
         element_type: Optional[str] = None,
     ) -> None:
         """Persist aliases for newly created elements so future CLI/MCP calls can resolve them."""
-        eid = str(element_id or "").strip()
-        ekey = str(element_key or "").strip()
-        if not eid and not ekey:
-            return
-
-        created_path: List[str] = []
-        if isinstance(parent_path, list):
-            created_path.extend([str(p) for p in parent_path if str(p).strip()])
-        if ekey:
-            created_path.extend(["%el", ekey])
-
-        alias_candidates = list(aliases or [])
-        if ekey:
-            alias_candidates.append(ekey)
-        if eid:
-            alias_candidates.append(eid)
-
-        seen: set[str] = set()
-        for raw_alias in alias_candidates:
-            alias = str(raw_alias or "").strip()
-            norm = self._norm_lookup(alias)
-            if not alias or not norm or norm in seen:
-                continue
-            seen.add(norm)
-            self._cache_element_ref_alias(
-                context_id=context_id,
-                context_type=context_type,
-                alias_name=alias,
-                element_id=eid or ekey,
-                element_key=ekey or None,
-                element_path=created_path or None,
-                element_type=element_type,
-            )
+        self._alias_registry.cache_created_elements(
+            context_id,
+            context_type,
+            aliases,
+            element_id,
+            element_key=element_key,
+            parent_path=parent_path,
+            element_type=element_type,
+        )
 
     def _resolve_cached_element_alias(
         self,
@@ -1546,28 +1464,7 @@ class BubbleCLI:
         context_type: str,
         alias_name: str
     ) -> Optional[str]:
-        # Always reload so newly created aliases from other subprocesses are visible.
-        self._reload_cli_cache_from_disk()
-        alias = str(alias_name or "").strip()
-        if not alias:
-            return None
-        normalized = self._norm_lookup(alias)
-        if not normalized:
-            return None
-
-        cache = self._schema_element_refs_cache()
-        ctx_key = self._cache_element_ref_context_key(context_id, context_type)
-        ctx_cache = cache.get(ctx_key, {})
-        if not isinstance(ctx_cache, dict):
-            return None
-        payload = ctx_cache.get(normalized)
-        if isinstance(payload, dict):
-            value = payload.get("id")
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        elif isinstance(payload, str) and payload.strip():
-            return payload.strip()
-        return None
+        return self._alias_registry.lookup_element_id(context_id, context_type, alias_name)
 
     def _lookup_cached_element_ref_payload(
         self,
@@ -1575,21 +1472,7 @@ class BubbleCLI:
         context_type: str,
         alias_name: str
     ) -> Optional[Dict[str, Any]]:
-        alias = str(alias_name or "").strip()
-        if not alias:
-            return None
-        normalized = self._norm_lookup(alias)
-        if not normalized:
-            return None
-        cache = self._schema_element_refs_cache()
-        ctx_key = self._cache_element_ref_context_key(context_id, context_type)
-        ctx_cache = cache.get(ctx_key, {})
-        if not isinstance(ctx_cache, dict):
-            return None
-        payload = ctx_cache.get(normalized)
-        if isinstance(payload, dict):
-            return payload
-        return None
+        return self._alias_registry.lookup_element_payload(context_id, context_type, alias_name)
 
     def _resolve_cached_element_alias(
         self,
@@ -1651,77 +1534,12 @@ class BubbleCLI:
         cached_payload: Optional[Dict[str, Any]],
         alias_name: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Rebuild a minimal local discovery chain from a cached alias path."""
-        if not isinstance(cached_payload, dict):
-            return cached_payload
-
-        normalized_path = self._normalize_payload_path(cached_payload.get("path"))
-        if not normalized_path:
-            return cached_payload
-
-        element_id = str(cached_payload.get("id") or cached_payload.get("key") or "").strip()
-        element_key = str(cached_payload.get("key") or element_id).strip()
-        element_name = str(cached_payload.get("name") or alias_name or element_key or element_id).strip()
-        if not element_key:
-            return cached_payload
-
-        root = self.discovery._get_context_root(context_id, context_type)
-        if not isinstance(root, dict):
-            container_key = "element_definitions" if context_type == "reusable" else "pages"
-            raw_key = "%ed" if context_type == "reusable" else "%p3"
-            if container_key in self.discovery.data:
-                target_key = container_key
-            elif raw_key in self.discovery.data:
-                target_key = raw_key
-            else:
-                self.discovery.data[container_key] = {}
-                target_key = container_key
-            self.discovery.data[target_key][context_id] = {
-                "id": context_id,
-                "name": context_id,
-                "elements": {},
-            }
-            root = self.discovery.data[target_key][context_id]
-
-        node = root
-        for index in range(0, len(normalized_path), 2):
-            if normalized_path[index] != "%el" or index + 1 >= len(normalized_path):
-                continue
-            current_key = str(normalized_path[index + 1] or "").strip()
-            if not current_key:
-                continue
-            children_key = "%el" if "%el" in node or "%x" in node else "elements"
-            children = node.get(children_key)
-            if not isinstance(children, dict):
-                children = {}
-                node[children_key] = children
-
-            child = children.get(current_key)
-            is_leaf = index + 2 >= len(normalized_path)
-            if not isinstance(child, dict):
-                child = {
-                    "id": element_id if is_leaf and element_id else current_key,
-                    "type": "Unknown",
-                    "default_name": element_name if is_leaf else current_key,
-                    "name": element_name if is_leaf else current_key,
-                    "elements": {},
-                }
-                children[current_key] = child
-            elif is_leaf:
-                if element_id:
-                    child["id"] = element_id
-                if element_name:
-                    child["default_name"] = child.get("default_name") or element_name
-                    child["name"] = child.get("name") or element_name
-            node = child
-
-        materialized = dict(cached_payload)
-        materialized["path"] = normalized_path
-        materialized["id"] = element_id or materialized.get("id")
-        materialized["key"] = element_key or materialized.get("key")
-        materialized["name"] = element_name or materialized.get("name")
-        materialized["element"] = node
-        return materialized
+        return self._context_reference_resolver.materialize_cached_element_stub(
+            context_id,
+            context_type,
+            cached_payload,
+            alias_name=alias_name,
+        )
 
     def list_element_ref_aliases(
         self,
@@ -1877,13 +1695,7 @@ class BubbleCLI:
         return idx, str(path_parts[idx])
 
     def _normalize_capture_path(self, raw_path: Any) -> List[str]:
-        try:
-            parts = self._parse_path_array(raw_path)
-            if not parts:
-                return []
-            return self._normalize_payload_path(parts)
-        except ValueError:
-            return []
+        return self._context_reference_resolver.normalize_capture_path(raw_path)
 
     def _collect_alias_ids_for_element_path(
         self,
@@ -1972,148 +1784,12 @@ class BubbleCLI:
         dry_run: bool = False,
         quiet: bool = False
     ) -> bool:
-        """
-        Import friendly element aliases from captured editor traffic.
-        Expected input format: scripts/capture_editor_traffic.js output (JSON array).
-        """
-        cap_path = str(capture_file or "").strip() or "page_payloads.json"
-        if not os.path.isabs(cap_path):
-            cap_path = os.path.abspath(cap_path)
-        if not os.path.isfile(cap_path):
-            if not quiet:
-                logger.error(f"Capture file not found: {cap_path}")
-            return False
-
-        try:
-            with open(cap_path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-        except Exception as e:
-            if not quiet:
-                logger.error(f"Could not read capture file: {e}")
-            return False
-
-        if not isinstance(raw, list):
-            if not quiet:
-                logger.error("Capture file must be a JSON array.")
-            return False
-
-        # Aggregate best-known names by concrete element path.
-        names_by_path: Dict[str, Dict[str, Any]] = {}
-
-        def register_name(path_parts: List[str], candidate_name: Optional[str]) -> None:
-            name = str(candidate_name or "").strip()
-            if not name:
-                return
-            norm_parts = self._normalize_payload_path(path_parts)
-            if len(norm_parts) < 4:
-                return
-            ctype = self._context_type_from_prefix(norm_parts[0])
-            if not ctype:
-                return
-            ctx_id = str(norm_parts[1])
-            el_idx, el_token = self._find_last_element_token(norm_parts)
-            if el_idx is None or not el_token:
-                return
-            element_path = norm_parts[:el_idx + 1]
-            key = ".".join(element_path)
-            if not key:
-                return
-            rec = names_by_path.setdefault(
-                key,
-                {"context_id": ctx_id, "context_type": ctype, "element_id": el_token, "names": set()}
-            )
-            rec["names"].add(name)
-
-        for item in raw:
-            if not isinstance(item, dict):
-                continue
-            path_parts = self._normalize_capture_path(item.get("path"))
-            if not path_parts:
-                continue
-
-            intent_name = ""
-            intent_payload = item.get("intent")
-            if isinstance(intent_payload, dict):
-                intent_name = str(intent_payload.get("name") or "")
-            elif isinstance(intent_payload, str):
-                intent_name = intent_payload
-
-            body = item.get("body")
-
-            # Direct name/default name writes.
-            if len(path_parts) >= 1 and path_parts[-1] in {"%nm", "%dn"} and isinstance(body, str):
-                register_name(path_parts[:-1], body)
-
-            # CreateElement payload may carry %nm/%dn.
-            if intent_name == "CreateElement" and isinstance(body, dict):
-                maybe_name = body.get("%nm") or body.get("%dn") or body.get("name") or body.get("default_name")
-                register_name(path_parts, maybe_name if isinstance(maybe_name, str) else None)
-
-            # Generic path observation: attempt to resolve current element names from source data.
-            el_idx, _ = self._find_last_element_token(path_parts)
-            if el_idx is not None:
-                element_path = path_parts[:el_idx + 1]
-                node = self._get_value_at_path(element_path)
-                if isinstance(node, dict):
-                    maybe_name = (
-                        node.get("%nm")
-                        or node.get("%dn")
-                        or node.get("name")
-                        or node.get("default_name")
-                    )
-                    if isinstance(maybe_name, str):
-                        register_name(element_path, maybe_name)
-
-        mappings_applied: List[Dict[str, str]] = []
-        for element_path_str, payload in names_by_path.items():
-            ctx_id = payload.get("context_id")
-            ctype = payload.get("context_type")
-            element_id = payload.get("element_id")
-            names = payload.get("names", set())
-            if not isinstance(ctx_id, str) or not isinstance(ctype, str) or not isinstance(element_id, str):
-                continue
-            if not isinstance(names, set) or not names:
-                continue
-
-            element_path = element_path_str.split(".")
-            alias_ids = self._collect_alias_ids_for_element_path(ctx_id, ctype, element_path)
-            target_ids = [element_id] + [aid for aid in alias_ids if aid != element_id]
-
-            for name in sorted(names, key=lambda x: self._norm_lookup(x)):
-                for target_id in target_ids:
-                    mappings_applied.append(
-                        {
-                            "context_type": ctype,
-                            "context_id": ctx_id,
-                            "name": name,
-                            "id": target_id,
-                        }
-                    )
-                    if not dry_run:
-                        self._cache_element_ref_alias(ctx_id, ctype, name, target_id)
-
-        # Deduplicate report rows
-        dedup: Dict[str, Dict[str, str]] = {}
-        for row in mappings_applied:
-            key = f"{row['context_type']}:{row['context_id']}:{self._norm_lookup(row['name'])}:{row['id']}"
-            dedup[key] = row
-        rows = sorted(
-            dedup.values(),
-            key=lambda r: (
-                r.get("context_type", ""),
-                r.get("context_id", ""),
-                self._norm_lookup(r.get("name", "")),
-                r.get("id", ""),
-            ),
+        return self._context_reference_resolver.sync_element_ref_cache(
+            capture_file,
+            as_json=as_json,
+            dry_run=dry_run,
+            quiet=quiet,
         )
-
-        if as_json:
-            logger.log(json.dumps(rows, indent=2, ensure_ascii=False))
-        elif not quiet:
-            logger.info(
-                f"{'[DRY RUN] ' if dry_run else ''}Imported {len(rows)} element alias mappings from {cap_path}"
-            )
-        return True
 
     def _nl_get(self, key: str, default: Any = None) -> Any:
         return self.nl_config.get(key, default)
@@ -2156,17 +1832,21 @@ class BubbleCLI:
             logger.error(f"Failed to send: {e}")
             return False
 
-    def _dispatch_payload(self, pb: PayloadBuilder) -> None:
+    def _dispatch_payload(self, pb: PayloadBuilder, *, sensitive: bool = False) -> None:
         """Send payload and opportunistically sync profile cache from emitted schema changes."""
+        if sensitive:
+            pb.send_to_webhook(self.webhook_url, sensitive=True)
+            return
         pb.send_to_webhook(self.webhook_url)
+        changes = getattr(pb, "changes", None)
+        normalized_changes = changes if isinstance(changes, list) else []
         try:
-            changes = getattr(pb, "changes", None)
-            normalized_changes = changes if isinstance(changes, list) else []
             self._apply_changes_to_discovery_cache(normalized_changes)
             self._sync_profile_cache_from_changes(normalized_changes)
             self.discovery.persist_disk_cache()
         except Exception as e:
             logger.warning(f"Post-write cache sync skipped: {e}")
+        self._invalidate_schema_reference_indexes_for_changes(normalized_changes)
 
     @staticmethod
     def _set_nested_cache_value(target: Dict[str, Any], path: List[str], value: Any) -> None:
@@ -2317,62 +1997,15 @@ class BubbleCLI:
         context_name: Optional[str] = None,
         object_id: Optional[str] = None,
     ) -> None:
-        contexts = self._schema_contexts_cache()
-        bucket = contexts.get("reusable" if context_type == "reusable" else "page", {})
-        if not isinstance(bucket, dict) or not bucket:
-            return
-
-        target_context_id = str(context_id or "").strip()
-        target_object_id = str(object_id or "").strip()
-        target_name = self._norm_lookup(context_name)
-        to_remove: List[str] = []
-
-        for alias_key, payload in bucket.items():
-            if not isinstance(payload, dict):
-                continue
-            payload_context_id = str(payload.get("context_id") or "").strip()
-            payload_object_id = str(payload.get("object_id") or "").strip()
-            payload_name = self._norm_lookup(payload.get("name"))
-            if target_context_id and payload_context_id == target_context_id:
-                to_remove.append(alias_key)
-                continue
-            if target_object_id and payload_object_id == target_object_id:
-                to_remove.append(alias_key)
-                continue
-            if target_name and payload_name == target_name:
-                to_remove.append(alias_key)
-
-        for alias_key in to_remove:
-            bucket.pop(alias_key, None)
-
-        if to_remove:
-            self._save_cli_cache()
+        self._alias_registry.remove_context_aliases(
+            context_type,
+            context_id=context_id,
+            context_name=context_name,
+            object_id=object_id,
+        )
 
     def _remove_context_scoped_cache_entries(self, context_id: str, context_type: str) -> None:
-        ctx_key = self._cache_element_ref_context_key(context_id, context_type)
-        changed = False
-
-        element_refs = self._schema_element_refs_cache()
-        if isinstance(element_refs, dict) and ctx_key in element_refs:
-            element_refs.pop(ctx_key, None)
-            changed = True
-
-        workflow_refs = self._schema_workflow_refs_cache()
-        if isinstance(workflow_refs, dict):
-            workflow_keys = [key for key in workflow_refs.keys() if str(key).startswith(f"{context_type}:{context_id}:")]
-            for key in workflow_keys:
-                workflow_refs.pop(key, None)
-                changed = True
-
-        events = self._schema_events_cache()
-        if isinstance(events, dict):
-            event_keys = [key for key in events.keys() if str(key).startswith(f"{context_type}:{context_id}:")]
-            for key in event_keys:
-                events.pop(key, None)
-                changed = True
-
-        if changed:
-            self._save_cli_cache()
+        self._alias_registry.remove_context_scope(context_id, context_type)
 
     def _collect_context_object_ids_from_index(self, context_id: str, context_type: str) -> List[str]:
         data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
@@ -2425,38 +2058,13 @@ class BubbleCLI:
         workflow_id: Optional[str] = None,
         workflow_name: Optional[str] = None,
     ) -> None:
-        cache = self._schema_workflow_refs_cache()
-        ctx_key = self._cache_element_ref_context_key(context_id, context_type)
-        ctx_cache = cache.get(ctx_key, {})
-        if not isinstance(ctx_cache, dict) or not ctx_cache:
-            return
-
-        wf_key = str(workflow_key or "").strip()
-        wf_id = str(workflow_id or "").strip()
-        wf_name = str(workflow_name or "").strip()
-        wf_name_norm = self._norm_lookup(wf_name) if wf_name else ""
-
-        to_remove: List[str] = []
-        for alias_key, payload in ctx_cache.items():
-            if not isinstance(payload, dict):
-                continue
-            payload_key = str(payload.get("key") or "").strip()
-            payload_id = str(payload.get("id") or "").strip()
-            payload_name = str(payload.get("name") or "").strip()
-            payload_name_norm = self._norm_lookup(payload_name) if payload_name else ""
-            if wf_key and payload_key == wf_key:
-                to_remove.append(alias_key)
-                continue
-            if wf_id and payload_id == wf_id:
-                to_remove.append(alias_key)
-                continue
-            if wf_name_norm and payload_name_norm == wf_name_norm:
-                to_remove.append(alias_key)
-                continue
-        for alias_key in to_remove:
-            ctx_cache.pop(alias_key, None)
-        if to_remove:
-            self._save_cli_cache()
+        self._alias_registry.remove_workflow_aliases(
+            context_id,
+            context_type,
+            workflow_key=workflow_key,
+            workflow_id=workflow_id,
+            workflow_name=workflow_name,
+        )
 
     def _remove_cached_element_aliases(
         self,
@@ -2466,34 +2074,13 @@ class BubbleCLI:
         element_key: Optional[str] = None,
         element_path: Optional[List[str]] = None,
     ) -> None:
-        cache = self._schema_element_refs_cache()
-        ctx_key = self._cache_element_ref_context_key(context_id, context_type)
-        ctx_cache = cache.get(ctx_key, {})
-        if not isinstance(ctx_cache, dict) or not ctx_cache:
-            return
-        eid = str(element_id or "").strip()
-        ekey = str(element_key or "").strip()
-        epath = self._normalize_payload_path(element_path) if isinstance(element_path, list) and element_path else []
-        to_remove: List[str] = []
-        for alias_key, payload in ctx_cache.items():
-            if not isinstance(payload, dict):
-                continue
-            pid = str(payload.get("id") or "").strip()
-            pkey = str(payload.get("key") or "").strip()
-            ppath = self._normalize_payload_path(payload.get("path")) if isinstance(payload.get("path"), list) else []
-            if eid and pid == eid:
-                to_remove.append(alias_key)
-                continue
-            if ekey and pkey == ekey:
-                to_remove.append(alias_key)
-                continue
-            if epath and ppath == epath:
-                to_remove.append(alias_key)
-                continue
-        for alias_key in to_remove:
-            ctx_cache.pop(alias_key, None)
-        if to_remove:
-            self._save_cli_cache()
+        self._alias_registry.remove_element_aliases(
+            context_id,
+            context_type,
+            element_id=element_id,
+            element_key=element_key,
+            element_path=element_path,
+        )
 
     @staticmethod
     def _set_nested_dict_value(target: Dict[str, Any], parts: List[str], value: Any) -> None:
@@ -4357,6 +3944,164 @@ class BubbleCLI:
             logger.error(f"Failed to send: {e}")
             return False
 
+    def new_schema_lifecycle_payload(self, *, include_app_version: bool = False) -> PayloadBuilder:
+        """Create a data-schema payload without widening lifecycle services to CLI internals."""
+        if include_app_version:
+            return PayloadBuilder(appname=self.appname, app_version=self.app_version)
+        return PayloadBuilder(appname=self.appname)
+
+    def add_schema_lifecycle_change(
+        self,
+        payload: PayloadBuilder,
+        intent_name: str,
+        path_array: List[str],
+        body: Any,
+        *,
+        intent_id: Optional[int] = None,
+        source_appname: Optional[str] = None,
+    ) -> None:
+        """Keep lifecycle payload wire records byte-compatible with legacy schema writes."""
+        self._add_schema_change(payload, intent_name, path_array, body, intent_id, source_appname)
+
+    def dispatch_schema_lifecycle_payload(self, payload: PayloadBuilder, *, sensitive: bool = False) -> None:
+        """Dispatch a lifecycle payload before its service applies the atomic projection."""
+        self._schema_lifecycle_dispatching = True
+        try:
+            if sensitive:
+                self._dispatch_payload(payload, sensitive=True)
+            else:
+                self._dispatch_payload(payload)
+        finally:
+            self._schema_lifecycle_dispatching = False
+
+    @staticmethod
+    def preview_schema_lifecycle_payload(payload: PayloadBuilder) -> None:
+        print("\n DRY RUN - Payload preview:")
+        print(payload.to_json())
+
+    @staticmethod
+    def log_schema_lifecycle_success(message: str) -> None:
+        logger.success(message)
+
+    @staticmethod
+    def log_schema_lifecycle_info(message: str) -> None:
+        logger.info(message)
+
+    @staticmethod
+    def log_schema_lifecycle_error(message: str) -> None:
+        logger.error(message)
+
+    def project_schema_data_type(self, key: str, entry: Optional[Dict[str, Any]]) -> Optional[str]:
+        """Apply one completed data-type delta to discovery and profile cache before invalidation."""
+        discovery_data = self.discovery.data
+        data = discovery_data if isinstance(discovery_data, dict) else {}
+        if not isinstance(discovery_data, dict):
+            self.discovery._data = data
+        user_types = data.get("user_types")
+        if not isinstance(user_types, dict):
+            user_types = {}
+            data["user_types"] = user_types
+        cached_types = self._schema_user_types_cache()
+        projected = copy.deepcopy(entry) if isinstance(entry, dict) else None
+        if projected is None:
+            user_types.pop(key, None)
+            cached_types.pop(key, None)
+        else:
+            user_types[key] = projected
+            cached_types[key] = copy.deepcopy(projected)
+        warning: Optional[str] = None
+        try:
+            self.discovery.persist_disk_cache()
+            self._save_cli_cache()
+        except Exception as exc:
+            warning = f"Post-write data type cache update failed: {exc}"
+        self._invalidate_schema_reference_index("user_types")
+        return warning
+
+    def project_schema_option_set(self, key: str, entry: Optional[Dict[str, Any]]) -> Optional[str]:
+        """Apply one completed option-set delta before invalidating option references."""
+        discovery_data = self.discovery.data
+        data = discovery_data if isinstance(discovery_data, dict) else {}
+        if not isinstance(discovery_data, dict):
+            self.discovery._data = data
+        option_sets = data.get("option_sets")
+        if not isinstance(option_sets, dict):
+            option_sets = {}
+            data["option_sets"] = option_sets
+        cached_sets = self._schema_option_sets_cache()
+        projected = copy.deepcopy(entry) if isinstance(entry, dict) else None
+        if projected is None:
+            option_sets.pop(key, None)
+            cached_sets.pop(key, None)
+        else:
+            option_sets[key] = projected
+            cached_sets[key] = copy.deepcopy(projected)
+        warning: Optional[str] = None
+        try:
+            self.discovery.persist_disk_cache()
+            self._save_cli_cache()
+        except Exception as exc:
+            warning = f"Post-write option set cache update failed: {exc}"
+        self._invalidate_schema_reference_index("option_sets")
+        return warning
+
+    def next_schema_option_value_key(self) -> str:
+        """Return the Bubble-native ID used for a newly-created option value."""
+        return self.id_gen.element_id()
+
+    def coerce_schema_option_value(self, value: Any, *, parse_json: bool = False) -> Any:
+        """Keep option attribute coercion at BubbleCLI's established boundary."""
+        return self._coerce_schema_value(value, parse_json=parse_json)
+
+    def parse_schema_setting_path(self, value: Any) -> List[str]:
+        """Keep setting-path parsing at BubbleCLI's established public boundary."""
+        if isinstance(value, list):
+            return [str(part) for part in value]
+        text = str(value or "").strip()
+        if text and not text.startswith("["):
+            separator = "." if "." in text else "/"
+            if separator in text:
+                return [part.strip() for part in text.split(separator)]
+        return self._parse_path_array(value)
+
+    def coerce_schema_setting_value(self, value: Any, *, value_type: str = "string") -> Any:
+        """Keep setting value coercion at BubbleCLI's established public boundary."""
+        return self._coerce_setting_value(value, value_type=value_type)
+
+    @staticmethod
+    def next_schema_setting_intent_id() -> int:
+        """Preserve legacy random ChangeAppSetting intent identifiers."""
+        return random.randint(1, 999999)
+
+    def next_schema_redirect_key(self) -> str:
+        """Return the Bubble-native ID used for a newly-created redirect rule."""
+        return self.id_gen.element_id()
+
+    def project_schema_settings(self, updates: List[Tuple[List[str], Any]]) -> Optional[str]:
+        """Project successful setting writes without persisting values into schema cache."""
+        discovery_data = self.discovery.data
+        data = discovery_data if isinstance(discovery_data, dict) else {}
+        if not isinstance(discovery_data, dict):
+            self.discovery._data = data
+        redirect_changed = False
+        for path, value in updates:
+            normalized = [str(token) for token in path if str(token).strip()]
+            if not normalized:
+                continue
+            if value is None:
+                self._delete_nested_cache_value(data, normalized)
+            else:
+                self._set_nested_cache_value(data, normalized, copy.deepcopy(value))
+            redirect_changed = redirect_changed or normalized[:3] == ["settings", "client_safe", "301_redirects"]
+        warning: Optional[str] = None
+        try:
+            self.discovery.persist_disk_cache()
+        except Exception as exc:
+            warning = f"Post-write setting cache update failed: {exc}"
+        if redirect_changed:
+            self._invalidate_schema_reference_index("redirects")
+        return warning
+
     def _lookup_existing_comment(
         self,
         target_type: str,
@@ -4453,32 +4198,8 @@ class BubbleCLI:
         value_type: str = "string",
         dry_run: bool = False
     ) -> bool:
-        """
-        Generic app settings mutation via ChangeAppSetting.
-        Works for both settings paths and root keys like `favicon`.
-        """
-        try:
-            path_array = self._parse_path_array(path)
-            coerced_value = self._coerce_setting_value(value, value_type=value_type)
-        except ValueError as e:
-            logger.error(str(e))
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "ChangeAppSetting",
-            path_array,
-            coerced_value,
-            intent_id=random.randint(1, 999999),
-            source_appname=""
-        )
-        joined_path = ".".join(path_array)
-        return self._send_schema_payload(
-            pb,
-            dry_run,
-            f"App setting '{joined_path}' updated."
-        )
+        """Generic app settings mutation via ChangeAppSetting."""
+        return self._schema_lifecycle.settings.set_app_setting(path, value, value_type, dry_run)
 
     def set_project_setting(
         self,
@@ -4487,89 +4208,16 @@ class BubbleCLI:
         value_type: Optional[str] = None,
         dry_run: bool = False
     ) -> bool:
-        """
-        Set a mapped project setting alias.
-        Example alias: `preview-password-protection`.
-        """
-        normalized_key = str(setting_key or "").strip().lower().replace("_", "-")
-        spec = PROJECT_SETTING_ALIASES.get(normalized_key)
-        if not spec:
-            logger.error(
-                f"Unknown project setting '{setting_key}'. "
-                "Use 'list-project-settings' to inspect available aliases."
-            )
-            return False
-
-        resolved_value_type = (value_type or spec.get("value_type", "string")).strip().lower()
-        return self.set_app_setting(
-            spec["path"],
-            value,
-            value_type=resolved_value_type,
-            dry_run=dry_run
-        )
+        """Set a mapped project setting alias."""
+        return self._schema_lifecycle.settings.set_project_setting(setting_key, value, value_type, dry_run)
 
     def list_project_settings(self, as_json: bool = False) -> bool:
         """List mapped project-setting aliases and target paths."""
-        rows: List[Dict[str, Any]] = []
-        for alias in sorted(PROJECT_SETTING_ALIASES.keys()):
-            spec = PROJECT_SETTING_ALIASES[alias]
-            rows.append({
-                "alias": alias,
-                "path": ".".join(spec.get("path", [])),
-                "value_type": spec.get("value_type", "string")
-            })
-
-        if as_json:
-            print(json.dumps(rows, indent=2, ensure_ascii=False))
-            return True
-
-        print(f"📋 Project setting aliases ({len(rows)}):")
-        for row in rows:
-            print(f"- {row['alias']} ({row['value_type']}): {row['path']}")
-        return True
+        return self._schema_lifecycle.settings.list_project_settings(as_json)
 
     def _get_user_types(self, include_cache: bool = True) -> Dict[str, Any]:
         """Get user_types map from discovery, optionally merging cache fallback."""
-        data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
-        source = data.get("user_types")
-        merged: Dict[str, Any] = {}
-        if isinstance(source, dict):
-            merged.update(source)
-        if include_cache:
-            cache_types = self._schema_user_types_cache()
-            if isinstance(cache_types, dict):
-                for key, value in cache_types.items():
-                    if key not in merged and isinstance(value, dict):
-                        merged[key] = value
-
-        # Fallback to bubble_modules user_types index to preserve renamed display labels.
-        project_dir = self._bubble_modules_project_dir()
-        if project_dir:
-            index_path = os.path.join(project_dir, "user_types", "__index.json")
-            try:
-                with open(index_path, "r", encoding="utf-8") as f:
-                    index_payload = json.load(f)
-                if isinstance(index_payload, dict):
-                    for key, display in index_payload.items():
-                        key_str = str(key)
-                        display_str = str(display) if isinstance(display, str) else key_str
-                        if key_str in merged:
-                            entry = merged.get(key_str)
-                            if isinstance(entry, dict):
-                                if not entry.get("%d"):
-                                    entry["%d"] = display_str
-                                if not entry.get("display"):
-                                    entry["display"] = display_str
-                                merged[key_str] = entry
-                            continue
-                        merged[key_str] = {
-                            "%d": display_str,
-                            "display": display_str,
-                            "%f3": {},
-                        }
-            except Exception:
-                pass
-        return merged
+        return self._schema_lifecycle.references.user_types(include_cache=include_cache)
 
     def _resolve_data_type_key(
         self,
@@ -4577,71 +4225,11 @@ class BubbleCLI:
         ref_kind: str = "key",
         include_cache: bool = True
     ) -> Optional[str]:
-        user_types = self._get_user_types(include_cache=include_cache)
-        if not user_types:
-            return None
-
-        kind = (ref_kind or "key").strip().lower()
-        raw_ref = str(data_type_ref or "").strip()
-        if not raw_ref:
-            return None
-        if raw_ref.lower().startswith("custom."):
-            raw_ref = raw_ref.split(".", 1)[1].strip()
-        if raw_ref.lower() in {"user", "current user", "current_user"}:
-            return "user"
-        needle = self._norm_lookup(raw_ref)
-        needle_slug = self._slugify_identifier(raw_ref)
-
-        def _match_by_display() -> Optional[str]:
-            for key, data in user_types.items():
-                if not isinstance(data, dict):
-                    continue
-                display = str(data.get("%d") or "").strip()
-                if not display:
-                    continue
-                if self._norm_lookup(display) == needle:
-                    return key
-                if needle_slug and self._slugify_identifier(display) == needle_slug:
-                    return key
-            return None
-
-        def _match_by_key_like() -> Optional[str]:
-            for key in user_types.keys():
-                key_str = str(key or "").strip()
-                if not key_str:
-                    continue
-                if self._norm_lookup(key_str) == needle:
-                    return key_str
-                if needle_slug and self._slugify_identifier(key_str) == needle_slug:
-                    return key_str
-            return None
-
-        if kind == "key":
-            if raw_ref in user_types:
-                return raw_ref
-            # Convenience fallback: try display name.
-            matched = _match_by_display()
-            if matched:
-                return matched
-            matched = _match_by_key_like()
-            if matched:
-                return matched
-            return None
-
-        if kind in {"label", "name", "display"}:
-            matched = _match_by_display()
-            if matched:
-                return matched
-            return None
-
-        if kind == "auto":
-            if raw_ref in user_types:
-                return raw_ref
-            for resolver in (_match_by_display, _match_by_key_like):
-                matched = resolver()
-                if matched:
-                    return matched
-        return None
+        return self._schema_lifecycle.references.resolve_data_type(
+            data_type_ref,
+            ref_kind=ref_kind,
+            include_cache=include_cache,
+        )
 
     def set_data_type_api_exposure(
         self,
@@ -4651,45 +4239,9 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Enable/disable Data API exposure for a specific data type (key or display name)."""
-        # Safety first: do not use cache fallback here to avoid recreating ghost data types.
-        resolved_key = self._resolve_data_type_key(
-            data_type_ref,
-            ref_kind=ref_kind,
-            include_cache=False
+        return self._schema_lifecycle.data_types.set_data_type_api_exposure(
+            data_type_ref, enabled, ref_kind, dry_run
         )
-        if not resolved_key:
-            known = sorted(self._get_user_types(include_cache=False).keys())
-            if known:
-                logger.error(
-                    f"Could not resolve data type '{data_type_ref}' by {ref_kind}. "
-                    f"Known keys: {', '.join(known[:12])}" + ("..." if len(known) > 12 else "")
-                )
-            else:
-                logger.error(
-                    f"Could not resolve data type '{data_type_ref}': no user_types metadata available. "
-                    "Run scan-types first or use a known key."
-                )
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteCustom",
-            ["user_types", resolved_key, "exposed_api"],
-            bool(enabled)
-        )
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Data API exposure for data type '{resolved_key}' set to {bool(enabled)}."
-        )
-        if ok and not dry_run:
-            user_types = self._schema_user_types_cache()
-            entry = user_types.get(resolved_key, {}) if isinstance(user_types.get(resolved_key), dict) else {}
-            entry["exposed_api"] = bool(enabled)
-            user_types[resolved_key] = entry
-            self._save_cli_cache()
-        return ok
 
     def list_data_types(self, as_json: bool = False, include_cache: bool = False) -> bool:
         """List data type keys and labels."""
@@ -4749,75 +4301,92 @@ class BubbleCLI:
                 source_appname=""
             )
 
-        ok = self._send_schema_payload(pb, dry_run, f"API token '{resolved_token_id}' created.")
+        ok = self._send_api_token_payload(pb, dry_run, f"API token '{resolved_token_id}' created.")
         if ok:
             logger.info(f"Token id: {resolved_token_id}")
-            logger.info(f"Private key: {resolved_private_key}")
+            logger.info("Private key: [REDACTED]")
         return ok
+
+    @staticmethod
+    def _redact_api_token_payload(payload: PayloadBuilder) -> PayloadBuilder:
+        """Copy a token payload for display without exposing its private-key material."""
+        preview = copy.deepcopy(payload)
+        for change in preview.changes:
+            if not isinstance(change, dict):
+                continue
+            path = change.get("path_array")
+            if not isinstance(path, list) or path[:3] != ["settings", "secure", "api_tokens"]:
+                continue
+            body = change.get("body")
+            if path[-1:] == ["private_key"]:
+                change["body"] = "[REDACTED]"
+            elif isinstance(body, dict) and "private_key" in body:
+                body["private_key"] = "[REDACTED]"
+        return preview
+
+    def _send_api_token_payload(self, pb: PayloadBuilder, dry_run: bool, success_message: str) -> bool:
+        """Send API-token writes while keeping previews local and redacted."""
+        if dry_run:
+            print("\n DRY RUN - Payload preview:")
+            print(self._redact_api_token_payload(pb).to_json())
+            return True
+        try:
+            self._dispatch_payload(pb, sensitive=True)
+            logger.success(success_message)
+            return True
+        except Exception:
+            logger.error("Failed to send: API token write failed.")
+            return False
+
+    def _mutate_api_token_setting(self, path: List[str], value: Any, dry_run: bool, success_message: str) -> bool:
+        """Keep API-token CRUD on BubbleCLI's dedicated, non-settings-service path."""
+        pb = PayloadBuilder(appname=self.appname)
+        self._add_schema_change(
+            pb,
+            "ChangeAppSetting",
+            path,
+            value,
+            intent_id=random.randint(1, 999999),
+            source_appname="",
+        )
+        return self._send_api_token_payload(pb, dry_run, success_message)
 
     def rename_api_token(self, token_id: str, new_label: str, dry_run: bool = False) -> bool:
         """Rename API token label (%nm)."""
-        return self.set_app_setting(
+        return self._mutate_api_token_setting(
             ["settings", "secure", "api_tokens", token_id, "%nm"],
             new_label,
-            value_type="string",
-            dry_run=dry_run
+            dry_run,
+            f"App setting 'settings.secure.api_tokens.{token_id}.%nm' updated.",
         )
 
     def regenerate_api_token_private_key(self, token_id: str, private_key: Optional[str] = None, dry_run: bool = False) -> bool:
         """Regenerate/set API token private key."""
         resolved_private_key = private_key or self._generate_token_hex()
-        ok = self.set_app_setting(
+        ok = self._mutate_api_token_setting(
             ["settings", "secure", "api_tokens", token_id, "private_key"],
             resolved_private_key,
-            value_type="string",
-            dry_run=dry_run
+            dry_run,
+            f"App setting 'settings.secure.api_tokens.{token_id}.private_key' updated.",
         )
         if ok:
-            logger.info(f"New private key: {resolved_private_key}")
+            logger.info("New private key: [REDACTED]")
         return ok
 
     def delete_api_token(self, token_id: str, dry_run: bool = False) -> bool:
         """Delete API token by writing null at token object path."""
-        return self.set_app_setting(
+        return self._mutate_api_token_setting(
             ["settings", "secure", "api_tokens", token_id],
-            "null",
-            value_type="auto",
-            dry_run=dry_run
+            None,
+            dry_run,
+            f"App setting 'settings.secure.api_tokens.{token_id}' updated.",
         )
 
     def _get_301_redirects(self) -> Dict[str, Any]:
-        data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
-        settings = data.get("settings")
-        if not isinstance(settings, dict):
-            return {}
-        client_safe = settings.get("client_safe")
-        if not isinstance(client_safe, dict):
-            return {}
-        redirects = client_safe.get("301_redirects")
-        return redirects if isinstance(redirects, dict) else {}
+        return self._schema_lifecycle.references.redirects()
 
     def list_301_redirects(self, as_json: bool = False) -> bool:
-        redirects = self._get_301_redirects()
-        rows: List[Dict[str, Any]] = []
-        for key in sorted(redirects.keys()):
-            rule = redirects.get(key, {})
-            if not isinstance(rule, dict):
-                continue
-            rows.append({
-                "key": key,
-                "from": rule.get("%fr"),
-                "to": rule.get("to")
-            })
-
-        if as_json:
-            print(json.dumps(rows, indent=2, ensure_ascii=False))
-            return True
-
-        print(f"📋 301 redirects ({len(rows)}):")
-        for row in rows:
-            print(f"- {row['key']}: {row.get('from')} -> {row.get('to')}")
-        return True
+        return self._schema_lifecycle.settings.list_301_redirects(as_json)
 
     def create_301_redirect(
         self,
@@ -4828,37 +4397,11 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Create a 301 redirect rule."""
-        resolved_rule_key = rule_key or self.id_gen.element_id()
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "ChangeAppSetting",
-            ["settings", "client_safe", "301_redirects", resolved_rule_key],
-            {
-                "%fr": from_url,
-                "to": to_url
-            },
-            intent_id=random.randint(1, 999999),
-            source_appname=""
-        )
-        if id_counter is not None:
-            pb.add_change_raw({
-                "type": "id_counter",
-                "value": int(id_counter)
-            })
-        ok = self._send_schema_payload(pb, dry_run, f"301 redirect created ({resolved_rule_key}).")
-        if ok:
-            logger.info(f"Redirect key: {resolved_rule_key}")
-        return ok
+        return self._schema_lifecycle.settings.create_301_redirect(from_url, to_url, rule_key, id_counter, dry_run)
 
     def delete_301_redirect(self, rule_key: str, dry_run: bool = False) -> bool:
         """Delete a 301 redirect rule by key."""
-        return self.set_app_setting(
-            ["settings", "client_safe", "301_redirects", rule_key],
-            "null",
-            value_type="auto",
-            dry_run=dry_run
-        )
+        return self._schema_lifecycle.settings.delete_301_redirect(rule_key, dry_run)
 
     def _settings_client_safe(self) -> Dict[str, Any]:
         data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
@@ -5827,97 +5370,9 @@ class BubbleCLI:
         return -1
 
     def _find_elements_by_ref(self, context_id: str, context_type: str, element_ref: str, ref_kind: str = "auto") -> List[Dict[str, Any]]:
-        kind = (ref_kind or "auto").strip().lower()
-        matches: List[Tuple[int, Dict[str, Any]]] = []
-        seen_keys: set[str] = set()
-
-        def push(item: Dict[str, Any], key_hint: Optional[str] = None) -> None:
-            if not isinstance(item, dict):
-                return
-            normalized = dict(item)
-            normalized_path = self._normalize_payload_path(normalized.get("path", []))
-            normalized["path"] = normalized_path
-            match_key = f"{normalized.get('id')}|{'.'.join(normalized_path)}|{key_hint or ''}"
-            if match_key in seen_keys:
-                return
-            score = self._score_raw_element_match(
-                normalized.get("element", {}) if isinstance(normalized.get("element"), dict) else {},
-                element_ref,
-                kind,
-                element_key=key_hint,
-            )
-            if score < 0:
-                return
-            seen_keys.add(match_key)
-            matches.append((score, normalized))
-
-        elements = self.discovery.list_elements(context_id, context_type=context_type)
-        lookup_kind = kind if kind in {"name", "text", "id", "key"} else "auto"
-        for item in elements:
-            path_parts = item.get("path", [])
-            element_key = path_parts[-1] if isinstance(path_parts, list) and path_parts else None
-            if self._match_raw_element(item.get("element", {}), element_ref, lookup_kind, element_key=element_key):
-                push(item, key_hint=str(element_key or ""))
-
-        # Fallback for raw console.log structures
-        raw_elements = self._list_raw_context_elements(context_id, context_type)
-        for item in raw_elements:
-            path_parts = item.get("path", [])
-            element_key = path_parts[-1] if isinstance(path_parts, list) and path_parts else None
-            if self._match_raw_element(item.get("element", {}), element_ref, lookup_kind, element_key=element_key):
-                push(item, key_hint=str(element_key or ""))
-
-        # Fallback for parsed module files: src/bubble_modules/<app>/pages|element_definitions
-        module_elements = self._list_module_context_elements(context_id, context_type)
-        for item in module_elements:
-            if self._match_raw_element(
-                item.get("element", {}),
-                element_ref,
-                lookup_kind,
-                element_key=item.get("key")
-            ):
-                push(item, key_hint=str(item.get("key") or ""))
-
-        # Fallback for _index.id_to_path aliases (event-target element ids, etc.).
-        index_elements = self._list_index_context_elements(context_id, context_type)
-        for item in index_elements:
-            alias_id = str(item.get("id") or "")
-            element_key = str(item.get("key") or "")
-            element_payload = item.get("element", {}) if isinstance(item.get("element"), dict) else {}
-
-            if lookup_kind == "id":
-                if alias_id == str(element_ref):
-                    push(item, key_hint=element_key)
-                continue
-
-            if lookup_kind == "key":
-                if element_key and element_key == str(element_ref):
-                    push(item, key_hint=element_key)
-                continue
-
-            if lookup_kind in {"name", "text"}:
-                if element_payload and self._match_raw_element(
-                    element_payload,
-                    element_ref,
-                    lookup_kind,
-                    element_key=element_key
-                ):
-                    push(item, key_hint=element_key)
-                continue
-
-            # auto
-            if alias_id == str(element_ref) or (element_key and element_key == str(element_ref)):
-                push(item, key_hint=element_key)
-                continue
-            if element_payload and self._match_raw_element(
-                element_payload,
-                element_ref,
-                "auto",
-                element_key=element_key
-            ):
-                push(item, key_hint=element_key)
-        matches.sort(key=lambda item: item[0], reverse=True)
-        return [item for _, item in matches]
+        return self._context_reference_resolver.find_elements_by_ref(
+            context_id, context_type, element_ref, ref_kind=ref_kind
+        )
 
     def _find_element_by_ref(
         self,
@@ -5927,13 +5382,9 @@ class BubbleCLI:
         ref_kind: str = "auto",
         match_index: int = 1
     ) -> Optional[Dict[str, Any]]:
-        matches = self._find_elements_by_ref(context_id, context_type, element_ref, ref_kind=ref_kind)
-        if not matches:
-            return None
-        idx = max(1, int(match_index)) - 1
-        if idx >= len(matches):
-            return None
-        return matches[idx]
+        return self._context_reference_resolver.find_element_by_ref(
+            context_id, context_type, element_ref, ref_kind=ref_kind, match_index=match_index
+        )
 
     def list_app_texts(self, language: Optional[str] = None, as_json: bool = False) -> bool:
         catalog = self._get_app_text_catalog(include_cache=True)
@@ -6049,241 +5500,15 @@ class BubbleCLI:
         ref_kind: str = "auto",
         match_index: Optional[int] = None
     ) -> Tuple[Optional[str], Optional[str], Optional[Dict[str, Any]]]:
-        context_id, context_type = self._find_context(context_name)
-        if not context_id:
-            logger.error(f"Context '{context_name}' not found.")
-            return None, None, None
-
-        matches = self._find_elements_by_ref(context_id, context_type, element_ref, ref_kind=ref_kind)
-        if not matches:
-            logger.error(f"Element '{element_ref}' not found in '{context_name}' by {ref_kind}.")
-            return None, None, None
-
-        resolved_match_index = match_index if match_index is not None else (len(matches) if len(matches) > 1 else 1)
-        if len(matches) > 1 and ref_kind in {"text", "name", "auto"}:
-            logger.warning(
-                f"Multiple matches found ({len(matches)}) for '{element_ref}' in '{context_name}'. "
-                f"Using match #{resolved_match_index}. Use --match-index or --ref-kind id/key to target explicitly."
-            )
-            for idx, item in enumerate(matches[:5], start=1):
-                path_str = ".".join(item.get("path", []))
-                logger.info(f"  [{idx}] id={item.get('id')} path={path_str}")
-
-        pick_idx = max(1, int(resolved_match_index)) - 1
-        if pick_idx >= len(matches):
-            logger.error(f"match-index {resolved_match_index} out of range; found {len(matches)} matches.")
-            return None, None, None
-        return context_id, context_type, matches[pick_idx]
+        return self._context_reference_resolver.select_element_match(
+            context_name, element_ref, ref_kind=ref_kind, match_index=match_index
+        )
 
     def _iter_contexts(self, scope: str = "all") -> List[Dict[str, str]]:
-        """Enumerate page/reusable contexts from discovery data and module indexes."""
-        normalized_scope = (scope or "all").strip().lower()
-        include_pages = normalized_scope in {"all", "pages", "page"}
-        include_reusables = normalized_scope in {"all", "reusables", "reusable"}
-
-        contexts: Dict[Tuple[str, str], Dict[str, str]] = {}
-        data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
-
-        if include_pages:
-            pages = data.get("pages")
-            if isinstance(pages, dict):
-                for context_id, payload in pages.items():
-                    if not isinstance(payload, dict):
-                        continue
-                    name = payload.get("name") or payload.get("%nm") or str(context_id)
-                    contexts[("page", str(context_id))] = {
-                        "id": str(context_id),
-                        "type": "page",
-                        "name": str(name)
-                    }
-
-            raw_pages = data.get("%p3")
-            if isinstance(raw_pages, dict):
-                for context_id, payload in raw_pages.items():
-                    if not isinstance(payload, dict):
-                        continue
-                    if str(payload.get("%x", "")).lower() == "reusableelement":
-                        continue
-                    key = ("page", str(context_id))
-                    if key in contexts:
-                        continue
-                    name = payload.get("%nm") or payload.get("name") or str(context_id)
-                    contexts[key] = {
-                        "id": str(context_id),
-                        "type": "page",
-                        "name": str(name)
-                    }
-
-            for context_id, display_name in self._load_modules_index("page").items():
-                key = ("page", str(context_id))
-                if key not in contexts:
-                    contexts[key] = {
-                        "id": str(context_id),
-                        "type": "page",
-                        "name": str(display_name or context_id)
-                    }
-
-        if include_reusables:
-            reusables = data.get("element_definitions")
-            if isinstance(reusables, dict):
-                for context_id, payload in reusables.items():
-                    if not isinstance(payload, dict):
-                        continue
-                    name = payload.get("name") or payload.get("%nm") or str(context_id)
-                    contexts[("reusable", str(context_id))] = {
-                        "id": str(context_id),
-                        "type": "reusable",
-                        "name": str(name)
-                    }
-
-            raw_reusables = data.get("%ed")
-            if isinstance(raw_reusables, dict):
-                for context_id, payload in raw_reusables.items():
-                    if not isinstance(payload, dict):
-                        continue
-                    key = ("reusable", str(context_id))
-                    if key in contexts:
-                        continue
-                    name = payload.get("%nm") or payload.get("name") or str(context_id)
-                    contexts[key] = {
-                        "id": str(context_id),
-                        "type": "reusable",
-                        "name": str(name)
-                    }
-
-            for context_id, display_name in self._load_modules_index("reusable").items():
-                key = ("reusable", str(context_id))
-                if key not in contexts:
-                    contexts[key] = {
-                        "id": str(context_id),
-                        "type": "reusable",
-                        "name": str(display_name or context_id)
-                    }
-
-        # Include contexts persisted in CLI cache, useful right after create-page/reusable.
-        cached_contexts = self._schema_contexts_cache()
-        if include_pages:
-            page_cache = cached_contexts.get("page", {})
-            if isinstance(page_cache, dict):
-                for payload in page_cache.values():
-                    if not isinstance(payload, dict):
-                        continue
-                    context_id = str(payload.get("context_id") or "").strip()
-                    if not context_id:
-                        continue
-                    key = ("page", context_id)
-                    if key in contexts:
-                        continue
-                    context_name = str(payload.get("name") or context_id)
-                    contexts[key] = {"id": context_id, "type": "page", "name": context_name}
-        if include_reusables:
-            reusable_cache = cached_contexts.get("reusable", {})
-            if isinstance(reusable_cache, dict):
-                for payload in reusable_cache.values():
-                    if not isinstance(payload, dict):
-                        continue
-                    context_id = str(payload.get("context_id") or "").strip()
-                    if not context_id:
-                        continue
-                    key = ("reusable", context_id)
-                    if key in contexts:
-                        continue
-                    context_name = str(payload.get("name") or context_id)
-                    contexts[key] = {"id": context_id, "type": "reusable", "name": context_name}
-
-        rows = list(contexts.values())
-        rows.sort(key=lambda item: (item.get("type", ""), self._norm_lookup(item.get("name")), item.get("id", "")))
-        return rows
+        return self._context_reference_resolver.iter_contexts(scope)
 
     def _collect_context_elements(self, context_id: str, context_type: str) -> List[Dict[str, Any]]:
-        """Collect context elements across discovery/raw/module/index sources with deduped rows."""
-        rows_by_key: Dict[str, Dict[str, Any]] = {}
-
-        def _looks_like_opaque_ref(value: Any) -> bool:
-            raw = str(value or "").strip()
-            if not raw:
-                return True
-            return bool(re.fullmatch(r"[A-Za-z0-9]{3,8}", raw)) and not any(ch in raw for ch in "_- ")
-
-        def _is_placeholder(value: Any) -> bool:
-            return str(value or "").strip() == "[truncated_max_depth]"
-
-        def _row_score(row: Dict[str, Any]) -> int:
-            name = str(row.get("name") or "").strip()
-            element_type = str(row.get("type") or "").strip()
-            path = row.get("path") or []
-            element_id = str(row.get("id") or "").strip()
-            score = 0
-            if name:
-                score += 2
-                if not _looks_like_opaque_ref(name):
-                    score += 5
-            if element_type and element_type.lower() != "unknown":
-                score += 4
-            if isinstance(path, list) and path:
-                score += 2
-            if element_id and not _looks_like_opaque_ref(element_id):
-                score += 1
-            return score
-
-        def push(item: Dict[str, Any]) -> None:
-            if not isinstance(item, dict):
-                return
-            path = self._normalize_payload_path(item.get("path", []))
-            element = item.get("element") if isinstance(item.get("element"), dict) else {}
-            element_id = str(element.get("id") or item.get("id") or "").strip()
-            key = str(item.get("key") or (path[-1] if path else "")).strip()
-            name = (
-                str(
-                    element.get("%dn")
-                    or element.get("%nm")
-                    or element.get("name")
-                    or element.get("default_name")
-                    or ""
-                ).strip()
-            )
-            element_type = str(element.get("%x") or element.get("type") or "").strip()
-            style_id = str(element.get("%s1") or "").strip()
-            if _is_placeholder(element_id) or _is_placeholder(name) or _is_placeholder(element_type):
-                return
-            if any(_is_placeholder(part) for part in path):
-                return
-            if not element_id and not name and not element_type:
-                return
-            dedupe_key = f"{element_id}|{'.'.join(path)}|{key}"
-            candidate = {
-                "id": element_id or None,
-                "key": key or None,
-                "name": name,
-                "type": element_type,
-                "style_id": style_id or None,
-                "path": path,
-            }
-            current = rows_by_key.get(dedupe_key)
-            if not current or _row_score(candidate) > _row_score(current):
-                rows_by_key[dedupe_key] = candidate
-
-        for item in self.discovery.list_elements(context_id, context_type=context_type):
-            push(item)
-        for item in self._list_raw_context_elements(context_id, context_type):
-            push(item)
-        for item in self._list_module_context_elements(context_id, context_type):
-            push(item)
-        for item in self._list_index_context_elements(context_id, context_type):
-            push(item)
-        for item in self._list_cached_context_elements(context_id, context_type):
-            push(item)
-
-        rows = list(rows_by_key.values())
-        rows.sort(
-            key=lambda r: (
-                self._norm_lookup(r.get("name")),
-                self._norm_lookup(r.get("type")),
-                ".".join(r.get("path", [])),
-                str(r.get("id") or ""),
-            )
-        )
-        return rows
+        return self._context_reference_resolver.collect_context_elements(context_id, context_type)
 
     def inspect_context(
         self,
@@ -6295,152 +5520,15 @@ class BubbleCLI:
         limit: int = 200,
         as_json: bool = False,
     ) -> bool:
-        """
-        Inspect one context or list contexts with counts/details.
-        """
-        limit_n = max(1, int(limit))
-
-        def style_name_map() -> Dict[str, str]:
-            mapping: Dict[str, str] = {}
-            for style in self.discovery.list_styles():
-                sid = str(style.get("id") or "").strip()
-                sname = str(style.get("name") or "").strip()
-                if sid:
-                    mapping[sid] = sname
-            return mapping
-
-        if context_name:
-            context_id, context_type = self._find_context(context_name)
-            if not context_id:
-                logger.error(f"Context '{context_name}' not found.")
-                return False
-
-            contexts = self._iter_contexts(scope="all")
-            context_label = next(
-                (row.get("name") for row in contexts if row.get("id") == context_id and row.get("type") == context_type),
-                context_name,
-            )
-
-            elements = self._collect_context_elements(context_id, context_type)
-            workflows = self._list_context_workflows(context_id, context_type)
-
-            output: Dict[str, Any] = {
-                "context": {
-                    "id": context_id,
-                    "type": context_type,
-                    "name": context_label,
-                },
-                "counts": {
-                    "elements": len(elements),
-                    "workflows": len(workflows),
-                },
-            }
-
-            if include_elements:
-                output["elements"] = elements[:limit_n]
-                output["elements_truncated"] = len(elements) > limit_n
-
-            if include_workflows:
-                wf_rows: List[Dict[str, Any]] = []
-                for wf in workflows[:limit_n]:
-                    wf_obj = wf.get("workflow", {}) if isinstance(wf.get("workflow"), dict) else {}
-                    wf_props = wf_obj.get("%p") if isinstance(wf_obj.get("%p"), dict) else wf_obj.get("properties", {})
-                    if not isinstance(wf_props, dict):
-                        wf_props = {}
-                    wf_rows.append({
-                        "key": str(wf.get("key") or ""),
-                        "id": str(wf.get("id") or ""),
-                        "type": str(wf.get("type") or wf_obj.get("%x") or wf_obj.get("type") or ""),
-                        "name": str(wf.get("name") or ""),
-                        "element_id": str(wf_props.get("%ei") or wf_props.get("element_id") or "") or None,
-                    })
-                output["workflows"] = wf_rows
-                output["workflows_truncated"] = len(workflows) > limit_n
-
-            if include_styles:
-                style_ids = sorted({
-                    str(r.get("style_id") or "").strip()
-                    for r in elements
-                    if str(r.get("style_id") or "").strip()
-                })
-                styles_by_id = style_name_map()
-                output["styles_used"] = [
-                    {"id": sid, "name": styles_by_id.get(sid) or ""}
-                    for sid in style_ids[:limit_n]
-                ]
-                output["styles_used_truncated"] = len(style_ids) > limit_n
-                output["counts"]["styles_used"] = len(style_ids)
-
-            if as_json:
-                print(json.dumps(output, indent=2, ensure_ascii=False))
-                return True
-
-            logger.log(
-                f"Context: {output['context']['name']} ({output['context']['type']}, {output['context']['id']})"
-            )
-            logger.log(
-                f"Counts: elements={output['counts']['elements']} workflows={output['counts']['workflows']}"
-            )
-            if include_styles:
-                logger.log(f"Styles used: {output['counts'].get('styles_used', 0)}")
-            if include_elements:
-                logger.log(f"Elements (showing up to {limit_n}):")
-                for row in output.get("elements", []):
-                    logger.log(
-                        f"  - {row.get('name') or '<unnamed>'} "
-                        f"[{row.get('type') or 'unknown'}] id={row.get('id') or '?'}"
-                    )
-            if include_workflows:
-                logger.log(f"Workflows (showing up to {limit_n}):")
-                for wf in output.get("workflows", []):
-                    logger.log(
-                        f"  - key={wf.get('key')} id={wf.get('id')} type={wf.get('type')} "
-                        f"element={wf.get('element_id') or '-'}"
-                    )
-            return True
-
-        # Multi-context listing mode
-        contexts = self._iter_contexts(scope=scope)
-        rows: List[Dict[str, Any]] = []
-        for ctx in contexts:
-            context_id = str(ctx.get("id") or "")
-            context_type = str(ctx.get("type") or "")
-            context_row: Dict[str, Any] = {
-                "id": context_id,
-                "type": context_type,
-                "name": str(ctx.get("name") or ""),
-            }
-            if include_elements:
-                context_row["elements_count"] = len(self._collect_context_elements(context_id, context_type))
-            if include_workflows:
-                context_row["workflows_count"] = len(self._list_context_workflows(context_id, context_type))
-            if include_styles:
-                style_ids = {
-                    str(r.get("style_id") or "").strip()
-                    for r in self._collect_context_elements(context_id, context_type)
-                    if str(r.get("style_id") or "").strip()
-                }
-                context_row["styles_used_count"] = len(style_ids)
-            rows.append(context_row)
-
-        if as_json:
-            print(json.dumps(rows, indent=2, ensure_ascii=False))
-            return True
-
-        logger.log(f"Contexts ({len(rows)}):")
-        for row in rows:
-            suffix = []
-            if "elements_count" in row:
-                suffix.append(f"elements={row.get('elements_count')}")
-            if "workflows_count" in row:
-                suffix.append(f"workflows={row.get('workflows_count')}")
-            if "styles_used_count" in row:
-                suffix.append(f"styles={row.get('styles_used_count')}")
-            suffix_text = f" ({', '.join(suffix)})" if suffix else ""
-            logger.log(
-                f"- {row.get('name') or '<unnamed>'} [{row.get('type')}] id={row.get('id')}{suffix_text}"
-            )
-        return True
+        return self._context_reference_resolver.inspect_context(
+            context_name,
+            scope,
+            include_elements,
+            include_workflows,
+            include_styles,
+            limit,
+            as_json,
+        )
 
     def resolve_refs(
         self,
@@ -6462,222 +5550,24 @@ class BubbleCLI:
         option_value_ref: Optional[str] = None,
         as_json: bool = False,
     ) -> bool:
-        """
-        Resolve user-friendly references into canonical ids/keys.
-        """
-        payload: Dict[str, Any] = {}
-        errors: List[str] = []
-
-        context_id: Optional[str] = None
-        context_type: Optional[str] = None
-        if context_name:
-            context_id, context_type = self._find_context(context_name)
-            if not context_id:
-                errors.append(f"Context '{context_name}' not found.")
-            else:
-                payload["context"] = {"name": context_name, "id": context_id, "type": context_type}
-
-        if parent_ref:
-            if not context_id:
-                errors.append("parent_ref requires a resolvable context.")
-            else:
-                parent_found = self._resolve_parent_element(
-                    context_id,
-                    context_type or "page",
-                    context_name or context_id,
-                    parent_ref
-                )
-                if not parent_found:
-                    errors.append(f"Parent '{parent_ref}' not found.")
-                else:
-                    payload["parent"] = {
-                        "ref": parent_ref,
-                        "id": parent_found.get("id"),
-                        "path": parent_found.get("path", []),
-                    }
-
-        if element_ref:
-            if not context_id:
-                errors.append("element_ref requires a resolvable context.")
-            else:
-                element_found = self._find_element_by_ref(
-                    context_id,
-                    context_type or "page",
-                    element_ref,
-                    ref_kind=element_ref_kind,
-                    match_index=max(1, int(match_index)),
-                )
-                if not element_found and element_ref_kind in {"auto", "id"}:
-                    element_found = self._resolve_element_alias_from_id_to_path(
-                        context_id,
-                        context_type or "page",
-                        str(element_ref),
-                    )
-                if not element_found:
-                    element_found = self._resolve_cached_element_alias(
-                        context_id,
-                        context_type or "page",
-                        element_ref,
-                    )
-                if not element_found:
-                    errors.append(
-                        f"Element '{element_ref}' not found in '{context_name or context_id}' by {element_ref_kind}."
-                    )
-                else:
-                    element_payload = (
-                        element_found.get("element")
-                        if isinstance(element_found.get("element"), dict)
-                        else {}
-                    )
-                    path = self._normalize_payload_path(element_found.get("path", []))
-                    payload["element"] = {
-                        "ref": element_ref,
-                        "id": str(element_found.get("id") or ""),
-                        "key": str(element_found.get("key") or (path[-1] if path else "")) or None,
-                        "name": (
-                            element_payload.get("%dn")
-                            or element_payload.get("%nm")
-                            or element_payload.get("name")
-                            or element_payload.get("default_name")
-                            or ""
-                        ),
-                        "type": element_payload.get("%x") or element_payload.get("type") or "",
-                        "path": path,
-                    }
-
-        if event_ref:
-            if not context_id:
-                errors.append("event_ref requires a resolvable context.")
-            else:
-                workflow = self._resolve_workflow_ref(
-                    context_id,
-                    context_type or "page",
-                    event_ref,
-                    ref_kind=event_ref_kind,
-                )
-                if not workflow:
-                    errors.append(
-                        f"Workflow '{event_ref}' not found in '{context_name or context_id}' by {event_ref_kind}."
-                    )
-                else:
-                    wf_obj = workflow.get("workflow", {}) if isinstance(workflow.get("workflow"), dict) else {}
-                    wf_props = (
-                        wf_obj.get("%p") if isinstance(wf_obj.get("%p"), dict)
-                        else wf_obj.get("properties", {}) if isinstance(wf_obj.get("properties"), dict)
-                        else {}
-                    )
-                    payload["event"] = {
-                        "ref": event_ref,
-                        "key": str(workflow.get("key") or ""),
-                        "id": str(workflow.get("id") or ""),
-                        "type": str(workflow.get("type") or wf_obj.get("%x") or wf_obj.get("type") or ""),
-                        "name": str(workflow.get("name") or ""),
-                        "element_id": str(wf_props.get("%ei") or wf_props.get("element_id") or "") or None,
-                    }
-
-        if style_ref:
-            style_id = self.find_style_id(style_ref, element_type=style_element_type)
-            if not style_id:
-                errors.append(f"Style '{style_ref}' not found.")
-            else:
-                style_obj = {}
-                data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
-                if isinstance(data.get("styles"), dict):
-                    style_obj = data.get("styles", {}).get(style_id, {}) if isinstance(data.get("styles", {}).get(style_id), dict) else {}
-                payload["style"] = {
-                    "ref": style_ref,
-                    "id": style_id,
-                    "name": style_obj.get("%d") or style_ref,
-                    "type": style_obj.get("%x") or style_element_type or "",
-                }
-
-        if data_type_ref:
-            dt_kind = (data_type_ref_kind or "auto").strip().lower()
-            if dt_kind == "auto":
-                data_type_key = self._resolve_data_type_key(data_type_ref, ref_kind="key")
-                if not data_type_key:
-                    data_type_key = self._resolve_data_type_key(data_type_ref, ref_kind="label")
-            else:
-                data_type_key = self._resolve_data_type_key(
-                    data_type_ref,
-                    ref_kind="label" if dt_kind in {"label", "name", "display"} else "key",
-                )
-            if not data_type_key:
-                errors.append(f"Data type '{data_type_ref}' not found.")
-            else:
-                dt_meta = self._get_user_types(include_cache=True).get(data_type_key, {})
-                payload["data_type"] = {
-                    "ref": data_type_ref,
-                    "key": data_type_key,
-                    "display": (
-                        dt_meta.get("%d") if isinstance(dt_meta, dict) else ""
-                    ) or "",
-                }
-
-        resolved_option_set_key: Optional[str] = None
-        if option_set_ref:
-            os_kind = (option_set_ref_kind or "auto").strip().lower()
-            resolved_option_set_key = self._resolve_option_set_key(
-                option_set_ref,
-                ref_kind=os_kind if os_kind in {"key", "label", "name", "display", "auto"} else "auto",
-            )
-            if not resolved_option_set_key:
-                errors.append(f"Option set '{option_set_ref}' not found.")
-            else:
-                os_meta = self._get_option_sets(include_cache=True).get(resolved_option_set_key, {})
-                payload["option_set"] = {
-                    "ref": option_set_ref,
-                    "key": resolved_option_set_key,
-                    "display": (
-                        os_meta.get("%d") or os_meta.get("display")
-                        if isinstance(os_meta, dict)
-                        else ""
-                    ) or "",
-                }
-
-        if option_value_ref:
-            if not resolved_option_set_key:
-                errors.append("option_value_ref requires a resolvable option_set_ref.")
-            else:
-                value_key = self._resolve_option_value_key(
-                    resolved_option_set_key,
-                    option_value_ref,
-                    ref_kind="key",
-                )
-                if not value_key:
-                    errors.append(
-                        f"Option value '{option_value_ref}' not found in option set '{resolved_option_set_key}'."
-                    )
-                else:
-                    values_map = self._get_option_set_values(resolved_option_set_key) or {}
-                    value_meta = values_map.get(value_key, {}) if isinstance(values_map, dict) else {}
-                    payload["option_value"] = {
-                        "ref": option_value_ref,
-                        "key": value_key,
-                        "db_value": value_meta.get("db_value") if isinstance(value_meta, dict) else None,
-                        "display": (
-                            value_meta.get("%d") or value_meta.get("display")
-                            if isinstance(value_meta, dict)
-                            else ""
-                        ) or "",
-                    }
-
-        payload["ok"] = len(errors) == 0
-        payload["errors"] = errors
-
-        if as_json:
-            print(json.dumps(payload, indent=2, ensure_ascii=False))
-            return payload["ok"] or bool(payload)
-
-        if payload.get("context"):
-            c = payload["context"]
-            logger.log(f"Context: {c.get('name')} -> {c.get('type')}:{c.get('id')}")
-        for key in ("parent", "element", "event", "style", "data_type", "option_set", "option_value"):
-            if key in payload:
-                logger.log(f"{key}: {json.dumps(payload[key], ensure_ascii=False)}")
-        for err in errors:
-            logger.error(err)
-        return len(errors) == 0
+        return self._context_reference_resolver.resolve_refs(
+            context_name=context_name,
+            parent_ref=parent_ref,
+            parent_match_index=parent_match_index,
+            element_ref=element_ref,
+            element_ref_kind=element_ref_kind,
+            match_index=match_index,
+            event_ref=event_ref,
+            event_ref_kind=event_ref_kind,
+            style_ref=style_ref,
+            style_element_type=style_element_type,
+            data_type_ref=data_type_ref,
+            data_type_ref_kind=data_type_ref_kind,
+            option_set_ref=option_set_ref,
+            option_set_ref_kind=option_set_ref_kind,
+            option_value_ref=option_value_ref,
+            as_json=as_json,
+        )
 
     def verify_write(
         self,
@@ -7617,87 +6507,11 @@ class BubbleCLI:
         return tuple(sorted(tokens))
 
     def _get_option_set_values(self, option_set_key: str) -> Optional[Dict[str, Any]]:
-        data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
-        option_sets = data.get("option_sets")
-        if isinstance(option_sets, dict):
-            option_set = option_sets.get(option_set_key)
-            if isinstance(option_set, dict):
-                values = option_set.get("values", {})
-                if isinstance(values, dict):
-                    return values
-
-        # Fallback to per-profile schema cache
-        cached_option_set = self._schema_option_sets_cache().get(option_set_key, {})
-        if isinstance(cached_option_set, dict):
-            values = cached_option_set.get("values", {})
-            if isinstance(values, dict):
-                return values
-
-        # Fallback to bubble_modules option set payload.
-        project_dir = self._bubble_modules_project_dir()
-        if project_dir:
-            candidate = os.path.join(project_dir, "option_sets", f"{option_set_key}.json")
-            if os.path.isfile(candidate):
-                try:
-                    with open(candidate, "r", encoding="utf-8") as f:
-                        payload = json.load(f)
-                    raw_values = payload.get("values", {}) if isinstance(payload, dict) else {}
-                    if isinstance(raw_values, dict):
-                        normalized_values: Dict[str, Any] = {}
-                        for value_key, value_data in raw_values.items():
-                            if not isinstance(value_data, dict):
-                                continue
-                            entry = dict(value_data)
-                            if "%d" not in entry and isinstance(entry.get("display"), str):
-                                entry["%d"] = entry.get("display")
-                            normalized_values[str(value_key)] = entry
-                        if normalized_values:
-                            return normalized_values
-                except Exception:
-                    pass
-        return None
+        return self._schema_lifecycle.references.option_values(option_set_key)
 
     def _get_option_sets(self, include_cache: bool = True) -> Dict[str, Any]:
         """Get option_sets map from discovery, optionally merging cache fallback."""
-        data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
-        source = data.get("option_sets")
-        merged: Dict[str, Any] = {}
-        if isinstance(source, dict):
-            merged.update(source)
-        if include_cache:
-            cache_sets = self._schema_option_sets_cache()
-            if isinstance(cache_sets, dict):
-                for key, value in cache_sets.items():
-                    if key not in merged and isinstance(value, dict):
-                        merged[key] = value
-
-        # Fallback to bubble_modules index to preserve renamed display labels.
-        project_dir = self._bubble_modules_project_dir()
-        if project_dir:
-            index_path = os.path.join(project_dir, "option_sets", "__index.json")
-            try:
-                with open(index_path, "r", encoding="utf-8") as f:
-                    index_payload = json.load(f)
-                if isinstance(index_payload, dict):
-                    for key, display in index_payload.items():
-                        key_str = str(key)
-                        if key_str in merged:
-                            entry = merged.get(key_str)
-                            if isinstance(entry, dict):
-                                if not entry.get("%d") and isinstance(display, str):
-                                    entry["%d"] = display
-                                if not entry.get("display") and isinstance(display, str):
-                                    entry["display"] = display
-                                merged[key_str] = entry
-                            continue
-                        merged[key_str] = {
-                            "%d": display if isinstance(display, str) else key_str,
-                            "display": display if isinstance(display, str) else key_str,
-                            "values": self._get_option_set_values(key_str) or {},
-                        }
-            except Exception:
-                pass
-        return merged
+        return self._schema_lifecycle.references.option_sets(include_cache=include_cache)
 
     def _resolve_option_set_key(
         self,
@@ -7705,56 +6519,11 @@ class BubbleCLI:
         ref_kind: str = "key",
         include_cache: bool = True
     ) -> Optional[str]:
-        option_sets = self._get_option_sets(include_cache=include_cache)
-        if not option_sets:
-            return None
-
-        raw_ref = str(option_set_ref or "").strip()
-        if not raw_ref:
-            return None
-        needle = self._norm_lookup(raw_ref)
-        needle_trimmed = needle[3:] if needle.startswith("os:") else needle
-        needle_slug = self._slugify_identifier(needle_trimmed)
-        kind = (ref_kind or "key").strip().lower()
-
-        if kind in {"key", "auto"}:
-            if raw_ref in option_sets:
-                return raw_ref
-            if raw_ref.startswith("option."):
-                key = raw_ref.split(".", 1)[1]
-                if key in option_sets:
-                    return key
-            if raw_ref.lower().startswith("option."):
-                key = raw_ref.split(".", 1)[1]
-                if key in option_sets:
-                    return key
-            if raw_ref.lower().startswith("os:"):
-                slug = self._slugify_identifier(raw_ref.split(":", 1)[1])
-                key = f"os_{slug}" if slug else ""
-                if key in option_sets:
-                    return key
-            if raw_ref.lower().startswith("os_"):
-                normalized_key = f"os_{self._slugify_identifier(raw_ref[3:])}"
-                if normalized_key in option_sets:
-                    return normalized_key
-
-        if kind in {"label", "name", "display", "auto"}:
-            for key, data in option_sets.items():
-                if not isinstance(data, dict):
-                    continue
-                for candidate in (data.get("%d"), data.get("display"), data.get("name")):
-                    candidate_norm = self._norm_lookup(candidate)
-                    if not candidate_norm:
-                        continue
-                    if candidate_norm == needle:
-                        return key
-                    candidate_trimmed = candidate_norm[3:] if candidate_norm.startswith("os:") else candidate_norm
-                    if candidate_trimmed == needle_trimmed:
-                        return key
-                    if needle_slug and self._slugify_identifier(candidate_trimmed) == needle_slug:
-                        return key
-
-        return None
+        return self._schema_lifecycle.references.resolve_option_set(
+            option_set_ref,
+            ref_kind=ref_kind,
+            include_cache=include_cache,
+        )
 
     def _normalize_custom_state_type(self, state_type: str) -> str:
         """
@@ -11179,48 +9948,11 @@ class BubbleCLI:
         return raw
 
     def _resolve_option_value_key(self, option_set_key: str, value_ref: str, ref_kind: str = "key") -> Optional[str]:
-        values = self._get_option_set_values(option_set_key)
-        if values is None:
-            return None
-
-        kind = (ref_kind or "key").strip().lower()
-        needle = self._norm_lookup(value_ref)
-        needle_compact = re.sub(r"[\s_\-]+", "", needle)
-
-        def _matches(candidate_raw: Any) -> bool:
-            candidate = self._norm_lookup(candidate_raw)
-            if candidate == needle:
-                return True
-            candidate_compact = re.sub(r"[\s_\-]+", "", candidate)
-            return bool(candidate_compact) and candidate_compact == needle_compact
-
-        if kind == "key":
-            if value_ref in values:
-                return value_ref
-            # Convenience fallback when key is not found:
-            # try db_value first, then display label.
-            for key, data in values.items():
-                if not isinstance(data, dict):
-                    continue
-                if _matches(data.get("db_value")):
-                    return key
-            for key, data in values.items():
-                if not isinstance(data, dict):
-                    continue
-                if _matches(data.get("%d")) or _matches(data.get("display")):
-                    return key
-            return None
-
-        for key, data in values.items():
-            if not isinstance(data, dict):
-                continue
-            if kind in {"db", "db_value", "db-value"}:
-                if _matches(data.get("db_value")):
-                    return key
-            elif kind == "label":
-                if _matches(data.get("%d")) or _matches(data.get("display")):
-                    return key
-        return None
+        return self._schema_lifecycle.references.resolve_option_value(
+            option_set_key,
+            value_ref,
+            ref_kind=ref_kind,
+        )
 
     def _find_option_sets_with_value_ref(self, value_ref: str, exclude: Optional[str] = None, limit: int = 5) -> List[str]:
         needle = str(value_ref or "").strip()
@@ -11336,282 +10068,18 @@ class BubbleCLI:
         dry_run: bool = False,
         prune_missing: bool = False,
     ) -> bool:
-        """
-        Reorders style conditional states based on a provided list of triggers.
-        Triggers: 'disabled', 'hover', 'pressed', 'focus', 'visible', 'not_visible'
-        """
-        style_id = self.find_style_id(style_name)
-        if not style_id:
-            logger.error(f"Style '{style_name}' not found.")
-            return False
+        return self._style_lifecycle.definitions.reorder_style_states(
+            style_name,
+            order_list,
+            dry_run=dry_run,
+            prune_missing=prune_missing,
+        )
 
-        # 1. Fetch existing states
-        # Check discovery data
-        discovery_data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
-        styles = discovery_data.get("styles", {})
-        style_obj = styles.get(style_id)
-
-        # If not in discovery or states missing, check CLI cache
-        if not style_obj or "%s" not in style_obj:
-            if "styles" in self._cli_cache:
-                for sname, sdata in self._cli_cache["styles"].items():
-                    if sdata.get("id") == style_id and "%s" in sdata:
-                        style_obj = sdata
-                        break
-
-        if not style_obj or not style_obj.get("%s"):
-            logger.error(f"No states found for style '{style_name}'.")
-            return False
-
-        existing_states = style_obj.get("%s", {})
-
-        # 2. Map existing states by their friendly trigger name
-        # trigger_name -> state_obj
-        identified_states = {}
-
-        trigger_map = {
-            "isnt_clickable": "disabled",
-            "is_hovered": "hover",
-            "is_pressed": "pressed",
-            "is_focused": "focus",
-            "isnt_valid": "invalid",
-            "is_visible": "visible",
-            "isnt_visible": "not_visible",
-        }
-
-        # Bubble states are a Dict[cond_id, state_obj]
-        for sid, state in existing_states.items():
-            # Drill into %c to find trigger
-            cond = state.get("%c", {})
-            if isinstance(cond, dict):
-                # We need to find %nm - matches StyleBuilder.add_style_condition logic
-                node = cond.get("%n", {})
-                if isinstance(node, dict):
-                    nm = node.get("%nm")
-                    trigger = trigger_map.get(nm)
-                    if trigger:
-                        identified_states[trigger] = (sid, state)
-
-        if not identified_states:
-             logger.error(f"Could not identify any known triggers (hover, disabled, visible, etc.) in style '{style_name}' states.")
-             return False
-
-        # 3. Build ordered list, then reindex to 0..N.
-        # In practice, some transport layers normalize object key order; sending
-        # original keys like "1","0" can be collapsed back to old precedence.
-        # Reindexing guarantees deterministic order at the Bubble endpoint.
-        ordered_states: List[Dict[str, Any]] = []
-        ordered_triggers = self._parse_reorder_style_order(order_list)
-        if not ordered_triggers:
-            logger.error("Could not parse 'order'. Try values like 'hover,disabled' or 'disabled stronger than hover'.")
-            return False
-        logger.info(f" Parsed order: {', '.join(ordered_triggers)}")
-
-        # Add requested states in order
-        for trigger in ordered_triggers:
-            if trigger in identified_states:
-                sid, state = identified_states.pop(trigger)
-                if isinstance(state, dict) and "%x" not in state:
-                    # Defensive repair: malformed state objects break precedence behavior.
-                    state = {**state, "%x": "State"}
-                ordered_states.append(state)
-
-        if not prune_missing:
-            # Add any remaining identified states at the end.
-            for trigger in sorted(identified_states.keys()):
-                sid, state = identified_states[trigger]
-                if isinstance(state, dict) and "%x" not in state:
-                    state = {**state, "%x": "State"}
-                ordered_states.append(state)
-
-        ordered_states_map: Dict[str, Dict[str, Any]] = {
-            str(idx): st for idx, st in enumerate(ordered_states)
-        }
-
-        payloads = StyleBuilder.reorder_states(style_id, ordered_states_map)
-
-        if dry_run:
-            logger.info(f" DRY RUN - Reordering states for '{style_name}'")
-            logger.log(json.dumps(payloads, indent=2))
-            return True
-
-        pb = PayloadBuilder(self.appname)
-        for intent in payloads: pb.add_intent(intent)
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Reordered states for style '{style_name}'")
-
-            # Update cache if this style is cached
-            if "styles" in self._cli_cache:
-                for sname, sdata in self._cli_cache["styles"].items():
-                    if sdata.get("id") == style_id:
-                        sdata["%s"] = dict(ordered_states_map)
-                        # Keep condition-id cache in sync after reorder.
-                        conds = {}
-                        for sid, s in ordered_states_map.items():
-                            nm = (((s.get("%c", {}) if isinstance(s, dict) else {}).get("%n", {})).get("%nm"))
-                            if nm == "is_hovered":
-                                conds["hover"] = sid
-                            elif nm == "is_pressed":
-                                conds["pressed"] = sid
-                            elif nm == "is_focused":
-                                conds["focus"] = sid
-                            elif nm == "isnt_clickable":
-                                conds["not_clickable"] = sid
-                            elif nm == "isnt_valid":
-                                conds["isnt_valid"] = sid
-                            elif nm == "is_visible":
-                                conds["visible"] = sid
-                            elif nm == "isnt_visible":
-                                conds["not_visible"] = sid
-                        if conds:
-                            sdata["conditions"] = {**sdata.get("conditions", {}), **conds}
-                        self._save_cli_cache()
-                        break
-            return True
-        except Exception as e:
-            logger.error(f"Failed to reorder states: {e}")
-            return False
-
-    @staticmethod
-    def _normalize_style_trigger_alias(token: str) -> Optional[str]:
-        raw = str(token or "").strip().lower()
-        if not raw:
-            return None
-        normalized = re.sub(r"[_-]+", " ", raw)
-        normalized = re.sub(r"\s+", " ", normalized).strip()
-
-        aliases = {
-            "hover": "hover",
-            "hovered": "hover",
-            "is hovered": "hover",
-            "is hover": "hover",
-            "is hovered yes": "hover",
-            "is_hovered": "hover",
-            "disabled": "disabled",
-            "disable": "disabled",
-            "is disabled": "disabled",
-            "not clickable": "disabled",
-            "isnt clickable": "disabled",
-            "isn't clickable": "disabled",
-            "not_clickable": "disabled",
-            "isnt_clickable": "disabled",
-            "pressed": "pressed",
-            "is pressed": "pressed",
-            "active": "pressed",
-            "focus": "focus",
-            "focused": "focus",
-            "is focused": "focus",
-            "invalid": "invalid",
-            "isnt valid": "invalid",
-            "isn't valid": "invalid",
-            "not valid": "invalid",
-            "isnt_valid": "invalid",
-            "visible": "visible",
-            "is visible": "visible",
-            "shown": "visible",
-            "is shown": "visible",
-            "is_visible": "visible",
-            "hidden": "not_visible",
-            "is hidden": "not_visible",
-            "not visible": "not_visible",
-            "isnt visible": "not_visible",
-            "isn't visible": "not_visible",
-            "is_not_visible": "not_visible",
-            "isnt_visible": "not_visible",
-            "invisible": "not_visible",
-        }
-        if normalized in aliases:
-            return aliases[normalized]
-
-        # Fuzzy fallback for common phrases.
-        if "clickable" in normalized and ("not" in normalized or "isnt" in normalized or "isn't" in normalized):
-            return "disabled"
-        if "hover" in normalized:
-            return "hover"
-        if "press" in normalized or "active" in normalized:
-            return "pressed"
-        if "focus" in normalized:
-            return "focus"
-        if "valid" in normalized and ("not" in normalized or "isnt" in normalized or "isn't" in normalized):
-            return "invalid"
-        if "visible" in normalized:
-            if any(x in normalized for x in ["not", "isnt", "isn't", "hidden", "invisible"]):
-                return "not_visible"
-            return "visible"
-        if "hidden" in normalized or "invisible" in normalized:
-            return "not_visible"
-        return None
+    def _normalize_style_trigger_alias(self, token: str) -> Optional[str]:
+        return self._style_lifecycle.definitions.normalize_trigger_alias(token)
 
     def _parse_reorder_style_order(self, order_input: Union[List[str], str]) -> List[str]:
-        """
-        Accepts:
-        - CSV: "hover,disabled"
-        - natural sequence: "hover then disabled"
-        - strength relation: "disabled stronger than hover"
-        Returns canonical order list from weaker -> stronger.
-        """
-        if isinstance(order_input, list):
-            raw = ",".join(str(x) for x in order_input if str(x).strip())
-        else:
-            raw = str(order_input or "")
-        text = raw.strip().lower()
-        if not text:
-            return []
-
-        def _dedupe(seq: List[str]) -> List[str]:
-            seen = set()
-            out: List[str] = []
-            for item in seq:
-                if item and item not in seen:
-                    out.append(item)
-                    seen.add(item)
-            return out
-
-        # Relation form with explicit precedence language.
-        # left STRONGER than right => [right, left]
-        # left WEAKER than right => [left, right]
-        relation_specs = [
-            (r"(.+?)\s+(?:stronger than|overrides|override|below|under|after)\s+(.+)", "stronger"),
-            (r"(.+?)\s+(?:weaker than|above|before|prior to)\s+(.+)", "weaker"),
-        ]
-        for pattern, relation in relation_specs:
-            m = re.fullmatch(pattern, text)
-            if not m:
-                continue
-            left = self._normalize_style_trigger_alias(m.group(1))
-            right = self._normalize_style_trigger_alias(m.group(2))
-            if not left or not right:
-                continue
-            pair = [right, left] if relation == "stronger" else [left, right]
-            return _dedupe(pair)
-
-        # Sequence form: split by common separators/connectors.
-        seq = text
-        seq = re.sub(r"\b(and then|then|next)\b", ",", seq)
-        seq = re.sub(r"[>/;|]", ",", seq)
-        parts = [p.strip() for p in seq.split(",") if p.strip()]
-        parsed = _dedupe([self._normalize_style_trigger_alias(p) for p in parts])
-        if parsed:
-            return parsed
-
-        # Last resort: infer by token position in free text.
-        find_patterns: List[Tuple[str, str]] = [
-            ("disabled", r"\b(disabled|isn['’]?t clickable|isnt clickable|not clickable|not_clickable|isnt_clickable)\b"),
-            ("hover", r"\b(hover|hovered|is_hovered)\b"),
-            ("pressed", r"\b(pressed|active|is_pressed)\b"),
-            ("focus", r"\b(focus|focused|is_focused)\b"),
-            ("invalid", r"\b(invalid|isn['’]?t valid|isnt valid|not valid|isnt_valid)\b"),
-            ("not_visible", r"\b(hidden|invisible|not visible|isn['’]?t visible|isnt visible|isnt_visible|is_not_visible)\b"),
-            ("visible", r"\b(visible|is visible|is_visible)\b"),
-        ]
-        hits: List[Tuple[int, str]] = []
-        for trig, pat in find_patterns:
-            for m in re.finditer(pat, text):
-                hits.append((m.start(), trig))
-        hits.sort(key=lambda x: x[0])
-        return _dedupe([trig for _, trig in hits])
+        return self._style_lifecycle.definitions.parse_reorder_order(order_input)
 
     def add_style_condition(
         self,
@@ -11621,242 +10089,26 @@ class BubbleCLI:
         index: Optional[str] = None,
         **props: Any
     ) -> bool:
-        """
-        Add or update a conditional style state.
-        Supports simple and compound conditions:
-        - "hover"
-        - "disabled"
-        - "invalid + hover, focus"
-        """
-        import string
-
-        style_id = self.find_style_id(style_name)
-        if not style_id:
-            logger.error(f"Style '{style_name}' not found.")
-            return False
-
-        # Normalize condition chain: token + token (AND), token,token (OR)
-        raw_cond = str(condition or "").strip()
-        if not raw_cond:
-            logger.error("Missing condition.")
-            return False
-
-        tokens: List[str] = []
-        operators: List[str] = []
-        current_token = ""
-        for ch in raw_cond:
-            if ch == "+":
-                tokens.append(current_token.strip())
-                operators.append("and_")
-                current_token = ""
-            elif ch == ",":
-                tokens.append(current_token.strip())
-                operators.append("or_")
-                current_token = ""
-            else:
-                current_token += ch
-        tokens.append(current_token.strip())
-
-        mapping = {
-            "disabled": "not_clickable",
-            "not clickable": "not_clickable",
-            "not_clickable": "not_clickable",
-            "isnt_clickable": "not_clickable",
-            "invalid": "isnt_valid",
-            "pressed": "is_pressed",
-            "visible": "is_visible",
-            "not_visible": "isnt_visible",
-        }
-
-        chain: List[Tuple[str, Optional[str]]] = []
-        for idx, token in enumerate(tokens):
-            if not token:
-                continue
-            norm_token = token.strip().lower()
-            normalized_alias = self._normalize_style_trigger_alias(norm_token)
-            canonical_token = normalized_alias or norm_token
-            mapped_token = mapping.get(canonical_token, canonical_token)
-            op = operators[idx] if idx < len(operators) else None
-            chain.append((mapped_token, op))
-
-        if not chain:
-            logger.error(f"Could not parse condition '{condition}'.")
-            return False
-
-        cond_type: Union[str, List[Tuple[str, Optional[str]]]] = chain
-
-        comparison_map = self._style_state_prop_wire_map()
-        base_props = self._get_base_style_props(style_id)
-
-        def base_value_for_property(prop_name: str) -> Any:
-            wire_key = comparison_map.get(prop_name, prop_name)
-            if wire_key in base_props:
-                return base_props.get(wire_key)
-            return base_props.get(prop_name)
-
-        # Resolve color args, but do not collapse a conditional color into the
-        # same token/value as the base style. In that case the state would be
-        # present but visually identical to default.
-        color_keys = {
-            "bg_color", "font_color", "icon_color", "border_color", "shadow_color",
-            "border_color_top", "border_color_bottom", "border_color_left", "border_color_right",
-            "text_shadow_color",
-        }
-        clean_props: Dict[str, Any] = {}
-        for key, value in props.items():
-            if value is None:
-                continue
-            if isinstance(value, bool) and value is False:
-                # Keep explicit booleans only when true (style props are additive here).
-                continue
-            if key in color_keys and isinstance(value, str):
-                resolved = self._resolve_color_arg(value)
-                clean_props[key] = value if resolved != value and base_value_for_property(key) == resolved else resolved
-            else:
-                clean_props[key] = value
-
-        is_disabled_state = bool(chain and chain[0][0] == "not_clickable")
-        if is_disabled_state:
-            clean_props = self._augment_not_clickable_condition_props(
-                style_id=style_id,
-                diff_props=clean_props,
-                comparison_map=comparison_map,
-                base_props=base_props,
-            )
-
-        clean_props = self._compensate_padding_for_border_width(style_id, clean_props)
-        transition_intents = self._build_style_transition_intents(
-            style_id,
-            clean_props,
-            comparison_map=comparison_map,
+        return self._style_lifecycle.definitions.add_style_condition(
+            style_name,
+            condition,
+            dry_run=dry_run,
+            index=index,
+            **props,
         )
-
-        existing_cond_id = self.find_style_condition_id(style_id, cond_type)
-        if index:
-            cond_id = str(index)
-            is_new = existing_cond_id is None or cond_id != existing_cond_id
-        elif existing_cond_id:
-            cond_id = existing_cond_id
-            is_new = False
-        else:
-            cond_id = f"b{''.join(random.choices(string.ascii_letters + string.digits, k=5))}"
-            is_new = True
-
-        payloads = StyleBuilder.add_style_condition(
-            style_id=style_id,
-            condition_id=cond_id,
-            condition_type=cond_type,
-            properties=clean_props,
-            is_new=is_new,
-        )
-
-        if dry_run:
-            logger.info(
-                f" DRY RUN - add/update condition '{condition}' on style '{style_name}'"
-            )
-            logger.log(json.dumps(transition_intents + payloads, indent=2))
-            return True
-
-        if transition_intents:
-            pb_transitions = PayloadBuilder(appname=self.appname)
-            for intent in transition_intents:
-                pb_transitions.add_intent(intent)
-            if not self._send_payload(pb_transitions):
-                logger.error("Failed to apply style transitions.")
-                return False
-
-        creation_payload = [p for p in payloads if p.get("intent") == "NewStyleState"]
-        property_payloads = [p for p in payloads if p.get("intent") != "NewStyleState"]
-
-        if creation_payload:
-            pb_create = PayloadBuilder(appname=self.appname)
-            for p in creation_payload:
-                pb_create.add_intent(p)
-            pb_create.add_change_raw({
-                "type": "id_counter",
-                "value": random.randint(10000000, 20000000),
-            })
-            if not self._send_payload(pb_create):
-                logger.error("Failed to initialize style condition.")
-                return False
-
-        if property_payloads:
-            pb_props = PayloadBuilder(appname=self.appname)
-            for p in property_payloads:
-                pb_props.add_intent(p)
-            if not self._send_payload(pb_props):
-                logger.error("Failed to apply condition properties.")
-                return False
-
-        # Update condition cache when style is known.
-        if "styles" in self._cli_cache:
-            style_cache = self._cli_cache["styles"].get(style_name)
-            if isinstance(style_cache, dict):
-                conds = style_cache.get("conditions")
-                if not isinstance(conds, dict):
-                    conds = {}
-                if len(chain) == 1:
-                    friendly_map = {
-                        "is_hovered": "hover",
-                        "is_pressed": "pressed",
-                        "is_focused": "focus",
-                        "not_clickable": "not_clickable",
-                        "isnt_valid": "isnt_valid",
-                        "is_visible": "visible",
-                        "isnt_visible": "not_visible",
-                    }
-                    token = chain[0][0]
-                    conds[friendly_map.get(token, token)] = cond_id
-                else:
-                    conds[raw_cond] = cond_id
-                style_cache["conditions"] = conds
-                self._save_cli_cache()
-
-        logger.success(
-            f"Condition '{condition}' applied on style '{style_name}' (ID: {cond_id})."
-        )
-        return True
 
     def find_style_id(self, style_name: str, element_type: Optional[str] = None) -> Optional[str]:
-        """Find style ID by name, checking CLI cache first."""
-        if not str(style_name or "").strip():
-            return None
-
-        # 1. Check local CLI cache (for recently created styles)
-        if "styles" in self._cli_cache:
-            if style_name in self._cli_cache["styles"]:
-                return self._cli_cache["styles"][style_name]["id"]
-
-        # 2. Check sync metadata
-        return self.find_style_id_by_name(style_name, element_type=element_type)
+        """Find a style ID by normalized name or explicit ID."""
+        return self._style_lifecycle.references.find_style_id(style_name, element_type)
 
     @staticmethod
     def _canonical_style_id_from_name(style_name: str, element_type: str) -> Optional[str]:
         """Best-effort canonical style-id inference (Type_snake_case_name_)."""
-        raw_name = str(style_name or "").strip()
-        raw_type = str(element_type or "").strip()
-        if not raw_name or not raw_type:
-            return None
-        # If caller already passed an explicit style id for this type, preserve it.
-        lower_type = raw_type.lower()
-        lower_name = raw_name.lower()
-        if lower_name.startswith(f"{lower_type}_") and "_" in raw_name:
-            return raw_name
-        normalized_name = raw_name.lower().replace(" ", "_")
-        normalized_name = "".join(c for c in normalized_name if c.isalnum() or c == "_")
-        if not normalized_name:
-            return None
-        return f"{raw_type}_{normalized_name}_"
+        return StyleReferenceResolver.canonical_style_id(style_name, element_type)
 
     @staticmethod
     def _looks_like_style_id(value: Any, element_type: Optional[str] = None) -> bool:
-        raw = str(value or "").strip()
-        if not raw or "_" not in raw:
-            return False
-        if element_type:
-            prefix = str(element_type).strip().lower() + "_"
-            return raw.lower().startswith(prefix) and len(raw) > len(prefix)
-        return bool(re.match(r"^[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+_?$", raw))
+        return StyleReferenceResolver.looks_like_style_id(value, element_type)
 
     @staticmethod
     def _is_generic_style_context_name(value: Any) -> bool:
@@ -11878,98 +10130,29 @@ class BubbleCLI:
         return False
 
     def _known_style_ids(self, element_type: Optional[str] = None) -> set:
-        ids: set = set()
-        target_type = str(element_type or "").strip().lower()
-
-        styles = list(self.discovery.list_styles() or [])
-        for style_obj in styles:
-            if not isinstance(style_obj, dict):
-                continue
-            sid = str(style_obj.get("id") or "").strip()
-            stype = str(style_obj.get("type") or "").strip().lower()
-            if not sid:
-                continue
-            if target_type and stype and stype != target_type:
-                continue
-            if target_type and not stype and not sid.lower().startswith(f"{target_type}_"):
-                continue
-            ids.add(sid)
-
-        cache_styles = self._cli_cache.get("styles", {}) if isinstance(self._cli_cache, dict) else {}
-        if isinstance(cache_styles, dict):
-            for _, cache_obj in cache_styles.items():
-                if not isinstance(cache_obj, dict):
-                    continue
-                sid = str(cache_obj.get("id") or "").strip()
-                stype = str(cache_obj.get("type") or "").strip().lower()
-                if not sid:
-                    continue
-                if target_type and stype and stype != target_type:
-                    continue
-                if target_type and not stype and not sid.lower().startswith(f"{target_type}_"):
-                    continue
-                ids.add(sid)
-
-        return ids
+        return self._style_lifecycle.references.known_style_ids(element_type)
 
     def _known_non_default_style_ids(self, element_type: Optional[str] = None) -> set:
-        ids: set = set()
-        target_type = str(element_type or "").strip().lower()
-
-        for style_obj in list(self.discovery.list_styles() or []):
-            if not isinstance(style_obj, dict):
-                continue
-            sid = str(style_obj.get("id") or "").strip()
-            stype = str(style_obj.get("type") or "").strip().lower()
-            if not sid:
-                continue
-            if target_type and stype and stype != target_type:
-                continue
-            if target_type and not stype and not sid.lower().startswith(f"{target_type}_"):
-                continue
-            if bool(style_obj.get("is_default")):
-                continue
-            ids.add(sid)
-
-        cache_styles = self._cli_cache.get("styles", {}) if isinstance(self._cli_cache, dict) else {}
-        if isinstance(cache_styles, dict):
-            for _, cache_obj in cache_styles.items():
-                if not isinstance(cache_obj, dict):
-                    continue
-                sid = str(cache_obj.get("id") or "").strip()
-                stype = str(cache_obj.get("type") or "").strip().lower()
-                if not sid:
-                    continue
-                if target_type and stype and stype != target_type:
-                    continue
-                if target_type and not stype and not sid.lower().startswith(f"{target_type}_"):
-                    continue
-                ids.add(sid)
-
-        return ids
+        return self._style_lifecycle.references.known_non_default_style_ids(element_type)
 
     def _current_snapshot_style_ids(self, element_type: Optional[str] = None) -> set:
-        ids: set = set()
-        target_type = str(element_type or "").strip().lower()
-        styles_map = self.discovery.data.get("styles", {}) if isinstance(self.discovery.data, dict) else {}
-        if not isinstance(styles_map, dict):
-            styles_map = {}
-
-        for sid, style_obj in styles_map.items():
-            sid = str(sid or "").strip()
-            if not sid:
-                continue
-            style_obj = style_obj if isinstance(style_obj, dict) else {}
-            stype = str(style_obj.get("type") or style_obj.get("%x") or "").strip().lower()
-            if target_type and stype and stype != target_type:
-                continue
-            if target_type and not stype and not sid.lower().startswith(f"{target_type}_"):
-                continue
-            ids.add(sid)
-
-        return ids
+        return self._style_lifecycle.references.current_snapshot_style_ids(element_type)
 
     def _resolve_style_reference(
+        self,
+        style_value: Optional[str],
+        *,
+        element_type: Optional[str] = None,
+        strict: bool = False,
+    ) -> Optional[str]:
+        """Resolve a style name or explicit ID through the lifecycle boundary."""
+        return self._style_lifecycle.references.resolve(
+            style_value,
+            element_type=element_type,
+            strict=strict,
+        )
+
+    def _legacy_resolve_style_reference(
         self,
         style_value: Optional[str],
         *,
@@ -12272,134 +10455,7 @@ class BubbleCLI:
         return None
 
     def find_style_condition_id(self, style_id: str, condition_type: Union[str, List[Tuple[str, Optional[str]]]]) -> Optional[str]:
-        """Look up existing condition ID for a given trigger in discovery data or CLI cache."""
-
-        # Normalize target to list of (name, op)
-        target_chain = []
-        if isinstance(condition_type, str):
-            # Legacy lookups (simple string)
-            mapping = {
-                "hover": "is_hovered",
-                "pressed": "is_pressed",
-                "focus": "is_focused",
-                "not_clickable": "isnt_clickable",
-                "isnt_valid": "isnt_valid",
-                "invalid": "isnt_valid",
-                "disabled": "isnt_clickable",
-                "visible": "is_visible",
-                "not_visible": "isnt_visible",
-                "hidden": "isnt_visible",
-            }
-            # Simple comma split
-            triggers = [t.strip().lower() for t in condition_type.split(",")]
-            for i, t in enumerate(triggers):
-                nm = mapping.get(t, t)
-                op = "or_" if i < len(triggers) - 1 else None
-                target_chain.append((nm, op))
-        elif isinstance(condition_type, list):
-            # Assumed to be list of (nm, op) from new parsing logic
-            # We need to map the names here too if they aren't already
-            mapping = {
-                "hover": "is_hovered",
-                "pressed": "is_pressed",
-                "focus": "is_focused",
-                "not_clickable": "isnt_clickable",
-                "isnt_valid": "isnt_valid",
-                "invalid": "isnt_valid",
-                "disabled": "isnt_clickable",
-                "visible": "is_visible",
-                "not_visible": "isnt_visible",
-                "hidden": "isnt_visible",
-            }
-            for item in condition_type:
-                if isinstance(item, tuple):
-                    nm, op = item
-                    mnm = mapping.get(nm, nm)
-                    target_chain.append((mnm, op))
-                else:
-                    mnm = mapping.get(item, item)
-                    target_chain.append((mnm, None))
-
-        if not target_chain:
-            return None
-
-        # Helper to extract chain from Bubble definition
-        def extract_chain(c_def: Dict) -> List[Tuple[str, Optional[str]]]:
-            chain = []
-            if not isinstance(c_def, dict): return chain
-
-            node = c_def.get("%n", {})
-            if not isinstance(node, dict): return chain
-
-            nm = node.get("%nm")
-
-            # Recursive check for operators
-            if nm in ["or_", "and_"]:
-                # This explicitly starts with an operator? Unlikely base case for style conditions.
-                # Usually it's Condition -> Operator -> Condition
-                pass
-
-            # Current condition
-            current_nm = nm
-
-            # Check for next operator
-            next_node = node.get("%n", {})
-            op = None
-            remaining_chain = []
-
-            if isinstance(next_node, dict):
-                next_nm = next_node.get("%nm")
-                if next_nm in ["or_", "and_"]:
-                    op = next_nm
-                    # The next condition is inside the operator's argument
-                    arg_node = next_node.get("%a", {}) # -> %x: ThisElement, %n: Condition
-                    remaining_chain = extract_chain(arg_node)
-
-            chain.append((current_nm, op))
-            chain.extend(remaining_chain)
-            return chain
-
-        # 1. Prefer discovery data
-        data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
-        styles = data.get("styles", {})
-        style_obj = styles.get(style_id, {})
-
-        conditions = style_obj.get("%s", {})
-        if isinstance(conditions, dict):
-            for cid, cdata in conditions.items():
-                c_def = cdata.get("%c", {})
-                if not isinstance(c_def, dict): continue
-
-                found_chain = extract_chain(c_def)
-
-                # Compare chains
-                # For exact match, length and content must match.
-                # Note: "or_" order technically doesn't matter for logic, but Bubble stores strictly.
-                # "hover OR focus" != "focus OR hover" structurally?
-                # Yes, but for our update logic, we probably want to match loosely if query is just a list?
-                # Actually, with mixed AND/OR (A and B or C), order MATTERS significantly.
-                # So let's require strict sequence match for now.
-
-                if len(found_chain) != len(target_chain):
-                    continue
-
-                match = True
-                for i in range(len(target_chain)):
-                    t_nm, t_op = target_chain[i]
-                    f_nm, f_op = found_chain[i]
-
-                    if t_nm != f_nm:
-                        match = False; break
-
-                    # If target op is specified, match it. If found op is None (end) matches target None.
-                    # Normalized op check?
-                    if t_op != f_op:
-                        match = False; break
-
-                if match:
-                    return cid
-
-        return None
+        return self._style_lifecycle.definitions.find_style_condition_id(style_id, condition_type)
 
     def _apply_width_unset(self, properties: Dict[str, Any]) -> Dict[str, Any]:
         """Remove width-related defaults and disable fit-width behavior."""
@@ -12902,60 +10958,15 @@ class BubbleCLI:
         context_name: str,
         parent_name: str
     ) -> Optional[Dict[str, Any]]:
-        """Resolve parent element with cache-aware fallbacks."""
-        parent_ref = str(parent_name or "").strip()
-        if not parent_ref:
-            logger.error("Parent element is required.")
-            return None
-
-        logger.info(f" [DEBUG] _resolve_parent_element: ref='{parent_ref}', context='{context_id}'")
-
-        if parent_ref == context_name or parent_ref.lower() == "root":
-            # logger.success(f"Found {context_type}: {context_name} -> {context_id} (Targeting Root)")
-            return {"path": [], "id": context_id}
-
-        # 1. Check if the parent_ref is an exact Bubble element ID
-        # (Bubble IDs are typically 5-20 characters long)
-        if len(parent_ref) >= 5 and " " not in parent_ref:
-            found_by_id = self.discovery.find_element_by_id(context_id, parent_ref, context_type=context_type)
-            if found_by_id:
-                logger.info(f" [DEBUG] Found parent by ID: {parent_ref}")
-                return found_by_id
-
-        found = self.discovery.find_element_by_name(context_id, parent_ref, context_type=context_type)
-        if found:
-            logger.info(f" [DEBUG] Found parent by name: {parent_ref}")
-            return found
-
-        logger.info(f" [DEBUG] Falling back to _find_element_by_ref for '{parent_ref}'")
-        found = self._find_element_by_ref(
-            context_id,
-            context_type,
-            parent_ref,
-            ref_kind="auto",
-            match_index=1,
+        return self._visual_mutations.creations.resolve_parent(
+            context_id, context_type, context_name, parent_name
         )
-        if found:
-             return found
-
-        cached_payload = self._resolve_cached_element_alias(context_id, context_type, parent_ref)
-        if cached_payload:
-            logger.info(f"Resolved parent '{parent_ref}' via local alias cache.")
-            return cached_payload
-
-        if self._auto_sync_element_ref_aliases():
-            cached_payload = self._resolve_cached_element_alias(context_id, context_type, parent_ref)
-            if cached_payload:
-                logger.info(f"Resolved parent '{parent_ref}' after auto-syncing alias cache.")
-                return cached_payload
-
-        logger.error(f" [DEBUG] Parent '{parent_ref}' NOT FOUND in context {context_id}")
-        return None
-
-        logger.error(f"Parent element '{parent_ref}' not found")
-        return None
 
     def find_style_id_by_name(self, style_name: str, element_type: Optional[str] = None) -> Optional[str]:
+        """Find a style ID through the lifecycle boundary."""
+        return self._style_lifecycle.references.find_style_id(style_name, element_type)
+
+    def _legacy_find_style_id_by_name(self, style_name: str, element_type: Optional[str] = None) -> Optional[str]:
         """
         Find a Style ID by its name.
         1. Exact/Partial match via discovery.list_styles
@@ -13197,70 +11208,48 @@ class BubbleCLI:
         return None
 
     def update_text(self, context_name: str, search_text: str, new_text: str, dry_run: bool = False) -> bool:
-        """
-        Update text content of an element found by its current text.
-
-        Args:
-            context_name: Name of the reusable or page
-            search_text: Text to search for (partial match)
-            new_text: New text to set
-            dry_run: If True, show payload but don't send
-        """
+        """Update text content of an element found by name or visible text."""
         logger.info(f"Searching for context: {context_name}")
         context_id, context_type = self._find_context(context_name)
-
-        if not context_id:
+        if not context_id or not context_type:
             logger.error(f"'{context_name}' not found (tried reusable and page)")
             return False
-
         if not search_text or not str(search_text).strip():
             logger.error("Missing search text for update-text.")
             return False
 
         logger.success(f"Found {context_type}: {context_name} -> {context_id}")
-
         logger.info(f"Searching for element/text: '{search_text}'")
-        # Prefer exact element-name match first (most deterministic for MCP/CLI usage),
-        # then fallback to visible text search.
-        result = self.discovery.find_element_by_exact_name(context_id, search_text, context_type=context_type)
+        result = self.discovery.find_element_by_exact_name(
+            context_id,
+            search_text,
+            context_type=context_type,
+        )
         if not result:
-            result = self.discovery.find_element_by_text(context_id, search_text, context_type=context_type)
-
-        if not result:
+            result = self.discovery.find_element_by_text(
+                context_id,
+                search_text,
+                context_type=context_type,
+            )
+        if not isinstance(result, dict):
             logger.error(f"Element with text '{search_text}' not found")
             return False
         logger.success(f"Found element at path: {result['path']}")
 
-        # Existing element writes must use the canonical path from _index.id_to_path.
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            str(result.get("id") or ((result.get("element") or {}).get("id") if isinstance(result.get("element"), dict) else "") or "").strip(),
-        )
-
-        # Create payload:
-        # - Keep plain string writes as default (same behavior used by create-text follow-up SetData).
-        # - Only send expression objects when dynamic tokens are explicitly detected.
+        target = self._visual_mutations.targets.from_result(context_id, context_type, result)
+        if target is None:
+            logger.error(f"Could not resolve element id for '{search_text}'.")
+            return False
         dynamic_expr = self._build_dynamic_text_expr_from_string(new_text)
         text_value = dynamic_expr if dynamic_expr else new_text
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_set_data(path_array + ["%p", "%3"], text_value)
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        # Send to webhook
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully updated text to: '{new_text}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.updates.apply(
+            context_name,
+            search_text,
+            prop_updates={"%3": text_value},
+            resolved_target=target,
+            dry_run=dry_run,
+            success_message=f"Successfully updated text to: '{new_text}'",
+        )
 
     @staticmethod
     def _parse_issues_sub_children(raw_value: Any) -> List[str]:
@@ -13428,104 +11417,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('text',)),
+            expected_label='text',
+            success_label='group',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "text":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'text'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_element_delete_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            # Fallback: infer parent by payload path and context root id.
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted group: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_group(
         self,
@@ -13534,104 +11434,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('custom_type', 'group')),
+            expected_label='group or custom_type',
+            success_label='group',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "group" and element_type != "custom_type":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'group' or 'custom_type'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            # Fallback: infer parent by payload path and context root id.
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted group: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_floating_group(
         self,
@@ -13640,104 +11451,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        """Delete a floating group element by name/id."""
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('floatinggroup',)),
+            expected_label='floatinggroup',
+            success_label='floating group',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "floatinggroup":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'floatinggroup'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted floating group: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_group_focus(
         self,
@@ -13746,104 +11468,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        """Delete a group focus element by name/id."""
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('groupfocus',)),
+            expected_label='groupfocus',
+            success_label='group focus',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type not in {"groupfocus", "unknown"}:
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'groupfocus'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted group focus: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_reusable(
         self,
@@ -13959,105 +11592,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        """Delete a repeating group element."""
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('repeatinggroup',)),
+            expected_label='repeatinggroup',
+            success_label='repeating group',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "repeatinggroup":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'repeatinggroup'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            # Fallback: infer parent by payload path and context root id.
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted repeating group: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_table(
         self,
@@ -14066,140 +11609,16 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        """Delete a table element (including nested table children)."""
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('table',)),
+            expected_label='table',
+            success_label='table',
+            dry_run=dry_run,
             prefer_last=prefer_last,
+            cascade_descendants=True,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "table":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'table'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        target_node = self._get_value_at_path(path_array)
-        if not isinstance(target_node, dict):
-            target_node = element_obj if isinstance(element_obj, dict) else {}
-
-        delete_entries: List[Tuple[str, List[str], Optional[str], bool]] = []
-
-        def _collect_delete_entries(node: Dict[str, Any], node_path: List[str], parent_id: Optional[str]) -> None:
-            children = node.get("%el") if isinstance(node.get("%el"), dict) else {}
-            current_key = str(node_path[-1] if node_path else "").strip()
-            node_id = str(node.get("id") or current_key).strip()
-            if not node_id:
-                return
-
-            for child_key, child_node in children.items():
-                if child_key == "length" or not isinstance(child_node, dict):
-                    continue
-                child_path = list(node_path) + ["%el", str(child_key)]
-                _collect_delete_entries(child_node, child_path, node_id)
-
-            delete_entries.append((node_id, list(node_path), parent_id, node_id == target_id))
-
-        _collect_delete_entries(target_node, path_array, None)
-
-        if not delete_entries:
-            delete_entries = [(target_id, list(path_array), None, True)]
-
-        pb = PayloadBuilder(appname=self.appname)
-        for node_id, node_path, parent_id, is_root in delete_entries:
-            pb.add_update_index(["_index", "id_to_path", node_id], None)
-            if is_root:
-                intent_details = {
-                    "user_action": "Keyboard Press Delete",
-                    "selected_element": target_id,
-                }
-            else:
-                intent_details = {
-                    "user_action": "Deleted by parent element",
-                    "parent_user_action": "Deleted by parent element",
-                }
-                if parent_id:
-                    intent_details["parent_id"] = parent_id
-            pb.changes.append(
-                {
-                    "intent": {
-                        "name": "RemoveElement",
-                        "id": random.randint(1, 999999),
-                        "intent_details": intent_details,
-                        "source_appname": "",
-                    },
-                    "path_array": node_path,
-                    "body": None,
-                    "version_control_api_version": 4,
-                    "changelog_data": [],
-                    "session_id": pb.session_id,
-                }
-            )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted table: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
 
     def delete_button(
@@ -14209,126 +11628,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        logger.info(f"Searching for context: {context_name}")
-        context_id, context_type = self._find_context(context_name)
-        if not context_id:
-            logger.error(f"'{context_name}' not found")
-            return False
-
-        label_candidates: List[str] = []
-        raw_name = str(element_name or "").strip()
-        if raw_name:
-            label_candidates.append(raw_name)
-        if raw_name.lower().startswith("button "):
-            stripped = raw_name[7:].strip()
-            if stripped and stripped not in label_candidates:
-                label_candidates.insert(0, stripped)
-
-        result: Optional[Dict[str, Any]] = None
-        for label_candidate in label_candidates:
-            result = self._find_button_by_label(context_id, context_type, label_candidate)
-            if result:
-                logger.info(f"Resolved '{element_name}' by button label.")
-                break
-
-        if not result:
-            resolved = self._resolve_element_for_updates(
-                context_name=context_name,
-                element_name=element_name,
-                prefer_last=prefer_last,
-            )
-            if not resolved:
-                return False
-            _, _, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type not in {"button", "unknown"}:
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'button'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_element_delete_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('button',)),
+            expected_label='button',
+            success_label='button',
+            dry_run=dry_run,
+            prefer_last=prefer_last,
         )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted button: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_input(
         self,
@@ -14337,104 +11645,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('input',)),
+            expected_label='input',
+            success_label='input',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type not in {"input", "multilineinput"}:
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'input'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            # Fallback: infer parent by payload path and context root id.
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted input: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_checkbox(
         self,
@@ -14443,103 +11662,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('checkbox',)),
+            expected_label='checkbox',
+            success_label='checkbox',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "checkbox":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'checkbox'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted checkbox: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_multiline_input(
         self,
@@ -14548,103 +11679,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('multilineinput',)),
+            expected_label='multilineinput',
+            success_label='multiline input',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "multilineinput":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'multilineinput'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted multiline input: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_dropdown(
         self,
@@ -14653,103 +11696,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('dropdown',)),
+            expected_label='dropdown',
+            success_label='dropdown',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "dropdown":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'dropdown'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted dropdown: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_datepicker(
         self,
@@ -14758,103 +11713,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('dateinput',)),
+            expected_label='dateinput',
+            success_label='datepicker',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "dateinput":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'dateinput'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted datepicker: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_searchbox(
         self,
@@ -14863,105 +11730,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('autocompletedropdown', 'searchbox')),
+            expected_label='autocompletedropdown/searchbox',
+            success_label='searchbox',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type not in {"autocompletedropdown", "searchbox"}:
-            logger.error(
-                f"Element '{element_name}' is type '{element_type}', expected 'autocompletedropdown/searchbox'."
-            )
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted searchbox: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_icon(
         self,
@@ -14970,103 +11747,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('icon',)),
+            expected_label='icon',
+            success_label='icon',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "icon":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'icon'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted icon: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_image(
         self,
@@ -15075,103 +11764,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('image',)),
+            expected_label='image',
+            success_label='image',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "image":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'image'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted image: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_link(
         self,
@@ -15180,106 +11781,16 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('link',)),
+            expected_label='link',
+            success_label='link',
+            dry_run=dry_run,
             prefer_last=prefer_last,
+            issues_list_bodies=('[]',),
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "link":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'link'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        # Keep index issues payload aligned with captured editor behavior.
-        pb.add_update_index(["_index", "issues_list", target_id], "[]")
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted link: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_shape(
         self,
@@ -15288,103 +11799,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('shape',)),
+            expected_label='shape',
+            success_label='shape',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "shape":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'shape'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted shape: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_alert(
         self,
@@ -15393,103 +11816,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('alert',)),
+            expected_label='alert',
+            success_label='alert',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "alert":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'alert'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted alert: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_video(
         self,
@@ -15498,103 +11833,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('video',)),
+            expected_label='video',
+            success_label='video',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "video":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'video'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted video: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_html(
         self,
@@ -15603,103 +11850,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('html',)),
+            expected_label='html',
+            success_label='html',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "html":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'html'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted html: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_map(
         self,
@@ -15708,103 +11867,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('map',)),
+            expected_label='map',
+            success_label='map',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip()
-        if element_type and not self._element_type_matches(element_type, "map"):
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'map'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted map: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def update_name(self, context_name: str, element_name: str, new_name: str, dry_run: bool = False) -> bool:
         """
@@ -16048,6 +12119,9 @@ class BubbleCLI:
 
         # Resolve Style ID
         final_style = self.find_style_id_by_name(new_style)
+        if final_style is None:
+            logger.error(f"Style '{new_style}' could not be resolved; no update was emitted.")
+            return False
 
         # Build Payload
         pb = PayloadBuilder(appname=self.appname)
@@ -16649,131 +12723,12 @@ class BubbleCLI:
         *,
         prefer_last: bool = False,
     ) -> Optional[Tuple[str, str, Dict[str, Any]]]:
-        """Resolve context + element robustly for update operations."""
-        logger.info(f"Searching for context: {context_name}")
-        context_id, context_type = self._find_context(context_name)
-        if not context_id:
-            logger.error(f"'{context_name}' not found")
-            return None
-
-        logger.info(f"Searching for element: '{element_name}'")
-        result = self.discovery.find_element_by_name(
-            context_id,
+        """Compatibility facade for the typed visual target resolver."""
+        return self._visual_mutations.targets.resolve_existing_tuple(
+            context_name,
             element_name,
-            context_type=context_type,
             prefer_last=prefer_last,
         )
-        if not result:
-            label_candidates: List[str] = []
-            raw_name = str(element_name or "").strip()
-            if raw_name:
-                label_candidates.append(raw_name)
-            if raw_name.lower().startswith("button "):
-                stripped = raw_name[7:].strip()
-                if stripped and stripped not in label_candidates:
-                    label_candidates.insert(0, stripped)
-            for label_candidate in label_candidates:
-                result = self._find_button_by_label(context_id, context_type, label_candidate)
-                if result:
-                    logger.info(f"Resolved '{element_name}' by button label.")
-                    break
-        if not result:
-            result = self._find_element_by_ref(
-                context_id,
-                context_type,
-                element_name,
-                ref_kind="auto",
-                match_index=1,
-            )
-            if result:
-                logger.info(f"Resolved '{element_name}' by reference lookup.")
-        if not result:
-            result = self._resolve_cached_element_alias(context_id, context_type, element_name)
-            if result:
-                logger.info(f"Resolved '{element_name}' via local alias cache.")
-        if not result:
-            logger.error(f"Element '{element_name}' not found")
-            return None
-
-        # Alias/cache lookups may return only id/path metadata. Hydrate the
-        # full element object from discovery so update flows can access raw %p.
-        if isinstance(result, dict):
-            hydrated_element = result.get("element")
-            needs_hydration = (
-                not isinstance(hydrated_element, dict)
-                or not hydrated_element
-                or (
-                    not isinstance(hydrated_element.get("%p"), dict)
-                    and not isinstance(hydrated_element.get("properties"), dict)
-                )
-            )
-            candidate_path = result.get("path")
-            if needs_hydration and isinstance(candidate_path, list) and candidate_path:
-                resolved_path = self.discovery.build_path_array(
-                    context_id,
-                    candidate_path,
-                    context_type=context_type,
-                )
-                resolved_node = self._get_value_at_path(resolved_path)
-                if isinstance(resolved_node, dict):
-                    hydrated_result = dict(result)
-                    hydrated_result["element"] = resolved_node
-                    if not hydrated_result.get("id"):
-                        resolved_id = str(resolved_node.get("id") or "").strip()
-                        if resolved_id:
-                            hydrated_result["id"] = resolved_id
-                    result = hydrated_result
-
-            # Secondary hydration fallback: resolve from normalized element list.
-            hydrated_element = result.get("element") if isinstance(result, dict) else None
-            still_missing_props = (
-                not isinstance(hydrated_element, dict)
-                or (
-                    not isinstance(hydrated_element.get("%p"), dict)
-                    and not isinstance(hydrated_element.get("properties"), dict)
-                )
-            )
-            if still_missing_props:
-                target_id = str(result.get("id") or result.get("key") or "").strip()
-                target_path = result.get("path")
-                try:
-                    candidate_elements = self.discovery.list_elements(context_id, context_type=context_type) or []
-                except Exception:
-                    candidate_elements = []
-                matched_item: Optional[Dict[str, Any]] = None
-                if isinstance(candidate_elements, list):
-                    if target_id:
-                        for item in candidate_elements:
-                            if not isinstance(item, dict):
-                                continue
-                            item_element = item.get("element")
-                            item_id = ""
-                            if isinstance(item_element, dict):
-                                item_id = str(item_element.get("id") or "").strip()
-                            if not item_id:
-                                item_id = str(item.get("id") or "").strip()
-                            if item_id and item_id == target_id:
-                                matched_item = item
-                                break
-                    if matched_item is None and isinstance(target_path, list):
-                        for item in candidate_elements:
-                            if isinstance(item, dict) and item.get("path") == target_path:
-                                matched_item = item
-                                break
-                if isinstance(matched_item, dict):
-                    hydrated_result = dict(result)
-                    item_element = matched_item.get("element")
-                    if isinstance(item_element, dict):
-                        hydrated_result["element"] = item_element
-                        if not hydrated_result.get("id"):
-                            resolved_id = str(item_element.get("id") or "").strip()
-                            if resolved_id:
-                                hydrated_result["id"] = resolved_id
-                    if not hydrated_result.get("path") and isinstance(matched_item.get("path"), list):
-                        hydrated_result["path"] = matched_item.get("path")
-                    result = hydrated_result
-
-        return context_id, context_type, result
 
     @staticmethod
     def _normalize_element_type_token(value: Any) -> str:
@@ -16936,107 +12891,17 @@ class BubbleCLI:
         target_style_id: Optional[str] = None,
     ) -> List[str]:
         """Collect style-driven property keys for a given element type."""
-        normalized_type = self._normalize_element_type_token(element_type)
-        if not normalized_type:
-            return []
-
-        keys: List[str] = []
-        seen: set = set()
-
-        def _add_key(key: Any) -> None:
-            key_str = str(key or "").strip()
-            if not key_str or key_str in {"%s1", "style"}:
-                return
-            if key_str in seen:
-                return
-            seen.add(key_str)
-            keys.append(key_str)
-
-        # Baseline visual/style keys used across style-capable elements.
-        for key in self._alert_style_override_keys():
-            _add_key(key)
-
-        def _collect_from_style_obj(style_obj: Dict[str, Any]) -> None:
-            if not isinstance(style_obj, dict):
-                return
-            style_type = str(style_obj.get("%x") or style_obj.get("type") or "").strip()
-            if self._normalize_element_type_token(style_type) != normalized_type:
-                return
-            style_props = style_obj.get("%p")
-            if isinstance(style_props, dict):
-                for style_key in style_props.keys():
-                    _add_key(style_key)
-
-        styles_data = self.discovery.data.get("styles", {}) if isinstance(self.discovery.data, dict) else {}
-        if isinstance(styles_data, dict):
-            for style_obj in styles_data.values():
-                _collect_from_style_obj(style_obj)
-
-        cached_styles = self._cli_cache.get("styles", {}) if isinstance(self._cli_cache, dict) else {}
-        if isinstance(cached_styles, dict):
-            for style_obj in cached_styles.values():
-                _collect_from_style_obj(style_obj)
-
-        if target_style_id:
-            target_style_props = self._get_base_style_props(str(target_style_id))
-            if isinstance(target_style_props, dict):
-                for style_key in target_style_props.keys():
-                    _add_key(style_key)
-
-        if normalized_type == "repeatinggroup":
-            for key in ("%ss", "%sw", "%sc", "separator_style", "separator_width", "separator_color"):
-                _add_key(key)
-
-        # Clear both compressed and expanded aliases to prevent stale overrides.
-        alias_map: Dict[str, List[str]] = {
-            "%bas": ["background_style", "bg_style"],
-            "%bgc": ["background_color", "bg_color", "bgcolor"],
-            "%bgi": ["background_image", "bg_image"],
-            "%bgf": ["background_gradient_color1", "gradient_color1"],
-            "%bgt": ["background_gradient_color2", "gradient_color2"],
-            "%bgd": ["background_gradient_style", "gradient_style"],
-            "%bgp": ["background_repeat"],
-            "%cb": ["center_background"],
-            "%rbv": ["repeat_background_vertical"],
-            "%rbh": ["repeat_background_horizontal"],
-            "%bc": ["border_color"],
-            "%bw": ["border_width"],
-            "%bos": ["border_style"],
-            "%br": ["border_roundness", "border_radius"],
-            "%bs": ["shadow_style"],
-            "%bh": ["shadow_h"],
-            "%bv": ["shadow_v"],
-            "%bsb": ["shadow_blur"],
-            "%bsp": ["shadow_spread"],
-            "%bsc": ["shadow_color"],
-            "%fa": ["font_alignment"],
-            "%fs": ["font_size"],
-            "%fc": ["font_color"],
-            "%lh": ["line_height"],
-            "%ls": ["letter_spacing"],
-            "%ws": ["word_spacing"],
-            "%ss": ["separator_style"],
-            "%sw": ["separator_width"],
-            "%sc": ["separator_color"],
-            "padding_top": ["pt"],
-            "padding_bottom": ["pb"],
-            "padding_left": ["pl"],
-            "padding_right": ["pr"],
-            "greyout_color": ["grayout_color"],
-            "greyout_blur": ["grayout_blur"],
-        }
-        for canonical_key, aliases in alias_map.items():
-            canonical_present = canonical_key in seen
-            alias_present = any(alias in seen for alias in aliases)
-            if canonical_present or alias_present:
-                _add_key(canonical_key)
-                for alias_key in aliases:
-                    _add_key(alias_key)
-
-        return keys
+        return self._style_lifecycle.assignments.overrides.override_keys(
+            element_type,
+            target_style_id=target_style_id,
+        )
 
     def _infer_element_type_from_style_id(self, style_id: Optional[str]) -> Optional[str]:
-        """Best-effort style->element-type resolution from discovery/cache."""
+        """Best-effort style-to-element-type resolution through the lifecycle boundary."""
+        return self._style_lifecycle.references.infer_element_type(style_id)
+
+    def _legacy_infer_element_type_from_style_id(self, style_id: Optional[str]) -> Optional[str]:
+        """Legacy style->element-type resolution retained during staged extraction."""
         sid = str(style_id or "").strip()
         if not sid:
             return None
@@ -17077,20 +12942,12 @@ class BubbleCLI:
 
         return None
 
-    @staticmethod
-    def _style_marker_prop_keys() -> List[str]:
+    def _style_marker_prop_keys(self) -> List[str]:
         """
         `%p` keys that can keep Bubble's "style overridden" state sticky
         even after visual keys are reset.
         """
-        return [
-            "%s1",
-            "style",
-            "style_id",
-            "style_name",
-            "style_ref",
-            "style_reference",
-        ]
+        return self._style_lifecycle.assignments.overrides.marker_keys()
 
     def _queue_clear_style_marker_props(
         self,
@@ -17101,19 +12958,12 @@ class BubbleCLI:
         extra_keys: Optional[List[str]] = None,
     ) -> None:
         """Clear style marker aliases stored under `%p` before assigning a new style."""
-        if not isinstance(pb, PayloadBuilder):
-            return
-        blocked = {str(k) for k in (prop_updates or {}).keys()}
-        keys: List[str] = list(self._style_marker_prop_keys())
-        if isinstance(extra_keys, list):
-            keys.extend(str(k) for k in extra_keys if str(k).strip())
-        seen: set[str] = set()
-        for key in keys:
-            key_str = str(key or "").strip()
-            if not key_str or key_str in seen or key_str in blocked:
-                continue
-            seen.add(key_str)
-            pb.add_set_data(element_path + ["%p", key_str], None)
+        self._style_lifecycle.assignments.clear_markers(
+            pb,
+            element_path,
+            prop_updates=prop_updates,
+            extra_keys=extra_keys,
+        )
 
     def _prune_style_redundant_prop_updates(
         self,
@@ -17126,93 +12976,11 @@ class BubbleCLI:
         Remove style-driven prop updates that are equivalent to the target style.
         This avoids sticky "(overridden)" tags when callers pass style-default values.
         """
-        if not isinstance(prop_updates, dict):
-            return
-        resolved_style = str(style_id or "").strip()
-        if not resolved_style:
-            return
-
-        style_props = self._get_base_style_props(resolved_style)
-        style_props = style_props if isinstance(style_props, dict) else {}
-        style_override_keys = set(
-            self._style_override_keys_for_element_type(element_type, target_style_id=resolved_style)
+        self._style_lifecycle.assignments.overrides.prune(
+            prop_updates,
+            element_type=element_type,
+            style_id=style_id,
         )
-        if not style_override_keys:
-            return
-
-        # Bubble defaults these style-driven booleans to false when absent in style %p.
-        default_false_style_keys = {
-            "crop_responsive",
-            "background_size_cover",
-            "center_background",
-            "repeat_background_vertical",
-            "repeat_background_horizontal",
-            "%cb",
-            "%rbv",
-            "%rbh",
-        }
-
-        # Canonical/alias equivalence for value comparison.
-        alias_groups: Dict[str, Tuple[str, ...]] = {
-            "%cb": ("%cb", "center_background"),
-            "%rbv": ("%rbv", "repeat_background_vertical"),
-            "%rbh": ("%rbh", "repeat_background_horizontal"),
-            "center_background": ("%cb", "center_background"),
-            "repeat_background_vertical": ("%rbv", "repeat_background_vertical"),
-            "repeat_background_horizontal": ("%rbh", "repeat_background_horizontal"),
-            "%bas": ("%bas", "background_style", "bg_style"),
-            "%bgc": ("%bgc", "background_color", "bg_color"),
-            "%bgi": ("%bgi", "background_image", "bg_image"),
-            "%bos": ("%bos", "border_style"),
-            "%bw": ("%bw", "border_width"),
-            "%bc": ("%bc", "border_color"),
-            "%br": ("%br", "border_roundness", "border_radius"),
-            "%bs": ("%bs", "shadow_style"),
-            "%bh": ("%bh", "shadow_h"),
-            "%bv": ("%bv", "shadow_v"),
-            "%bsb": ("%bsb", "shadow_blur"),
-            "%bsp": ("%bsp", "shadow_spread"),
-            "%bsc": ("%bsc", "shadow_color"),
-            "%fa": ("%fa", "font_alignment"),
-            "%fs": ("%fs", "font_size"),
-            "%fc": ("%fc", "font_color"),
-            "%lh": ("%lh", "line_height"),
-            "%ls": ("%ls", "letter_spacing"),
-            "%ws": ("%ws", "word_spacing"),
-            "padding_top": ("padding_top", "pt"),
-            "padding_bottom": ("padding_bottom", "pb"),
-            "padding_left": ("padding_left", "pl"),
-            "padding_right": ("padding_right", "pr"),
-        }
-
-        removed: List[str] = []
-        for key in list(prop_updates.keys()):
-            key_str = str(key or "").strip()
-            if not key_str or key_str not in style_override_keys:
-                continue
-            value = prop_updates.get(key)
-
-            aliases = alias_groups.get(key_str, (key_str,))
-            style_match_found = False
-            for alias in aliases:
-                if alias in style_props and style_props.get(alias) == value:
-                    style_match_found = True
-                    break
-            if style_match_found:
-                prop_updates.pop(key, None)
-                removed.append(key_str)
-                continue
-
-            if key_str in default_false_style_keys and value is False:
-                if not any(alias in style_props for alias in aliases):
-                    prop_updates.pop(key, None)
-                    removed.append(key_str)
-
-        if removed:
-            logger.info(
-                "Pruned redundant style overrides (matching target style/defaults): "
-                + ", ".join(sorted(set(removed)))
-            )
 
     def _apply_element_updates(
         self,
@@ -17230,99 +12998,31 @@ class BubbleCLI:
         prefer_last: bool = False,
         success_label: str = "element",
     ) -> bool:
-        resolved = resolved_target
-        if resolved is None:
-            resolved = self._resolve_element_for_updates(
-                context_name=context_name,
-                element_name=element_name,
-                prefer_last=prefer_last,
+        """Compatibility facade for the typed visual update service."""
+        typed_target = None
+        if resolved_target is not None:
+            context_id, context_type, result = resolved_target
+            typed_target = self._visual_mutations.targets.from_result(
+                context_id,
+                context_type,
+                result,
             )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-        path = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            str(result.get("id") or ((result.get("element") or {}).get("id") if isinstance(result.get("element"), dict) else "") or "").strip(),
-        )
-        pb = PayloadBuilder(appname=self.appname)
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip() or None
-
-        resolved_style: Optional[str] = None
-
-        if style is not None:
-            raw_style = str(style).strip()
-            if self._looks_like_style_id(raw_style, element_type=element_type):
-                resolved_style = raw_style
-            else:
-                resolved_style = self._resolve_style_reference(
-                    raw_style,
-                    element_type=element_type,
-                    strict=False,
-                )
-            if resolved_style is None:
+            if typed_target is None:
                 return False
-
-            if not element_type:
-                inferred_type = self._infer_element_type_from_style_id(resolved_style)
-                if inferred_type:
-                    element_type = inferred_type
-
-            effective_clear_keys = clear_style_override_keys
-            if effective_clear_keys is None and style_assign_props is None:
-                effective_clear_keys = self._style_override_keys_for_element_type(
-                    element_type,
-                    target_style_id=resolved_style,
-                )
-            if effective_clear_keys:
-                for key in effective_clear_keys:
-                    key_str = str(key)
-                    if key_str in prop_updates:
-                        continue
-                    pb.add_set_data(path + ["%p", key_str], None)
-            self._queue_clear_style_marker_props(
-                pb,
-                path,
-                prop_updates=prop_updates,
-            )
-
-            # For some element types (notably Alert), editor-consistent AssignStyle
-            # payloads are required to clear stale override flags reliably.
-            if force_style_assign or style_assign_props is not None:
-                self._queue_style_assignment_changes(
-                    pb,
-                    path,
-                    resolved_style,
-                    style_props=style_assign_props,
-                    include_set_data=style_assign_with_set_data,
-                )
-            else:
-                pb.add_set_data(path + ["%s1"], resolved_style)
-
-        for key, value in prop_updates.items():
-            if value is None:
-                continue
-            pb.add_set_data(path + ["%p", key], value)
-
-        if not pb.changes:
-            logger.warning("No update fields were provided.")
-            return True
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully updated {success_label}: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.updates.apply(
+            context_name,
+            element_name,
+            prop_updates=prop_updates,
+            style=style,
+            clear_style_override_keys=clear_style_override_keys,
+            style_assign_props=style_assign_props,
+            force_style_assign=force_style_assign,
+            style_assign_with_set_data=style_assign_with_set_data,
+            resolved_target=typed_target,
+            dry_run=dry_run,
+            prefer_last=prefer_last,
+            success_label=success_label,
+        )
 
     def _apply_surface_visual_updates(
         self,
@@ -19770,103 +15470,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('radiobuttons',)),
+            expected_label='radiobuttons',
+            success_label='radio',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type not in {"radiobuttons", "radiobutton"}:
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'radiobuttons'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted radio: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def update_slider(
         self,
@@ -19974,103 +15586,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('sliderinput',)),
+            expected_label='sliderinput',
+            success_label='slider',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "sliderinput":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'sliderinput'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted slider: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def update_file_uploader(
         self,
@@ -21029,105 +16553,16 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('fileinput',)),
+            expected_label='fileinput',
+            success_label='file uploader',
+            dry_run=dry_run,
             prefer_last=prefer_last,
+            issues_list_bodies=(None, '[]'),
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "fileinput":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'fileinput'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-        pb.add_update_index(["_index", "issues_list", target_id], None)
-        pb.add_update_index(["_index", "issues_list", target_id], "[]")
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted file uploader: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def delete_picture_uploader(
         self,
@@ -21136,105 +16571,16 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(('pictureinput',)),
+            expected_label='pictureinput',
+            success_label='picture uploader',
+            dry_run=dry_run,
             prefer_last=prefer_last,
+            issues_list_bodies=(None, '[]'),
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "pictureinput":
-            logger.error(f"Element '{element_name}' is type '{element_type}', expected 'pictureinput'.")
-            return False
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-        pb.add_update_index(["_index", "issues_list", target_id], None)
-        pb.add_update_index(["_index", "issues_list", target_id], "[]")
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted picture uploader: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def update_shape(
         self,
@@ -24135,7 +19481,7 @@ class BubbleCLI:
         """Update a layout/property key under element %p."""
         logger.info(f"Searching for context: {context_name}")
         context_id, context_type = self._find_context(context_name)
-        if not context_id:
+        if not context_id or not context_type:
             logger.error(f"'{context_name}' not found")
             return False
 
@@ -24146,28 +19492,34 @@ class BubbleCLI:
 
         logger.info(f"Searching for element: '{element_name}'")
         result = self.discovery.find_element_by_name(
-            context_id, element_name, context_type=context_type, prefer_last=prefer_last
+            context_id,
+            element_name,
+            context_type=context_type,
+            prefer_last=prefer_last,
         )
         if not result and element_name.lower().startswith("text "):
             alt = element_name[5:].strip()
             if alt:
-                result = self.discovery.find_element_by_text(context_id, alt, context_type=context_type)
-        if not result:
+                result = self.discovery.find_element_by_text(
+                    context_id,
+                    alt,
+                    context_type=context_type,
+                )
+        if not isinstance(result, dict):
             logger.error(f"Element '{element_name}' not found")
             return False
 
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str((element_obj or {}).get("type") or (element_obj or {}).get("%x") or "").strip().lower()
+        element_obj = result.get("element", {}) if isinstance(result.get("element"), dict) else {}
+        element_type = str(element_obj.get("type") or element_obj.get("%x") or "").strip().lower()
         if prop_key in {"float_v_relative", "float_h_relative", "float_zindex", "parallax"} and element_type != "floatinggroup":
             logger.error(f"Property '{prop_key}' is exclusive to FloatingGroup elements.")
             return False
 
         if prop_key == "style":
-            element_obj = result.get("element", {}) if isinstance(result.get("element"), dict) else {}
-            element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip() or None
+            raw_element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip() or None
             resolved_style = self._resolve_style_reference(
                 str(value).strip(),
-                element_type=element_type,
+                element_type=raw_element_type,
                 strict=False,
             )
             if resolved_style:
@@ -24178,45 +19530,43 @@ class BubbleCLI:
         else:
             try:
                 coerced_value = self._coerce_layout_value(prop_key, value)
-            except ValueError as e:
-                logger.error(f"{e}")
+            except ValueError as exc:
+                logger.error(f"{exc}")
                 return False
 
-        path = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            str(result.get("id") or ((result.get("element") or {}).get("id") if isinstance(result.get("element"), dict) else "") or "").strip(),
-        )
-        pb = PayloadBuilder(appname=self.appname)
+        target = self._visual_mutations.targets.from_result(context_id, context_type, result)
+        if target is None:
+            logger.error(f"Could not resolve element id for '{element_name}'.")
+            return False
+        direct_updates: List[Tuple[List[str], Any]] = []
         if prop_key == "container_alignment":
             horiz, vert = self._resolve_alignment_arg(str(value))
             if horiz is None and vert is None:
                 logger.error(f"Invalid container alignment: '{value}'")
                 return False
             if horiz is not None:
-                pb.add_set_data(path + ["%p", "container_horiz_alignment"], horiz)
+                direct_updates.append((["%p", "container_horiz_alignment"], horiz))
             if vert is not None:
-                pb.add_set_data(path + ["%p", "container_vert_alignment"], vert)
+                direct_updates.append((["%p", "container_vert_alignment"], vert))
         elif prop_key == "style":
-            pb.add_set_data(path + ["%s1"], coerced_value)
+            direct_updates.append((["%s1"], coerced_value))
         else:
             if prop_key in {"row_gap", "column_gap"}:
-                pb.add_set_data(path + ["%p", "use_gap"], True)
-            pb.add_set_data(path + ["%p", prop_key], coerced_value)
+                direct_updates.append((["%p", "use_gap"], True))
+            direct_updates.append((["%p", prop_key], coerced_value))
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully updated '{element_name}' property '{prop_key}' to '{coerced_value}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.updates.apply(
+            context_name,
+            element_name,
+            prop_updates={},
+            direct_updates=direct_updates,
+            resolved_target=target,
+            dry_run=dry_run,
+            success_message=(
+                f"Successfully updated '{element_name}' property "
+                f"'{prop_key}' to '{coerced_value}'"
+            ),
+        )
 
     def update_group(
         self,
@@ -24975,49 +20325,10 @@ class BubbleCLI:
                 style_element_type,
                 target_style_id=style_value,
             )
-            group_protected_non_style_keys: set[str] = set()
-            if style_element_type in {"Group", "FloatingGroup", "GroupFocus"}:
-                # Do not clear instance/behavior/data/layout keys while applying style.
-                # Everything else from style-derived override keys is fair game.
-                group_protected_non_style_keys = {
-                    # Data binding / identity
-                    "%gt",
-                    "%ds",
-                    "unique_id",
-                    # Visibility / behavior
-                    "%iv",
-                    "collapse_when_hidden",
-                    "button_disabled",
-                    # Layout mode and floating placement
-                    "container_layout",
-                    "%3f",
-                    "floating_reference_horizontal_resp",
-                    "%b4",
-                    "float_zindex",
-                    "parallax",
-                    # Dimensions (explicit element sizing should not be reset by style hydration)
-                    "%w",
-                    "%h",
-                    "min_width_css",
-                    "max_width_css",
-                    "min_height_css",
-                    "max_height_css",
-                    "single_width",
-                    "single_height",
-                    "fit_width",
-                    "fit_height",
-                    # Positioning (instance-level, not style)
-                    "%t",
-                    "%l",
-                    "margin_top",
-                    "margin_right",
-                    "margin_bottom",
-                    "margin_left",
-                    # GroupFocus anchor / offsets are instance-level.
-                    "reference",
-                    "offset_top",
-                    "offset_left",
-                }
+            group_protected_non_style_keys = (
+                self._style_lifecycle.assignments.overrides.protected_keys(style_element_type)
+            )
+            if group_protected_non_style_keys:
                 effective_clear_keys = [
                     k for k in effective_clear_keys
                     if str(k) not in group_protected_non_style_keys
@@ -26680,43 +21991,25 @@ class BubbleCLI:
             name_value=instance_name,
         )
         element_slot_key = self._resolved_created_slot_key(create_path, full_body)
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            try:
-                self.discovery.inject_element(
-                    context_id, context_type, parent_result["id"], full_body, element_key=element_slot_key
-                )
-            except Exception as e:
-                logger.warning(f"Injection warning (dry-run): {e}")
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created reusable instance: '{instance_name}' in '{parent_name}'")
-            try:
-                self.discovery.inject_element(
-                    context_id, context_type, parent_result["id"], full_body, element_key=element_slot_key
-                )
-            except Exception as e:
-                logger.warning(f"Injection warning: {e}")
-            created_path = list(parent_result.get("path") or []) + ["%el", element_slot_key]
-            for alias in {instance_name, str(full_body.get("%dn") or "").strip()}:
-                if not self._norm_lookup(alias):
-                    continue
-                self._cache_element_ref_alias(
-                    context_id,
-                    context_type,
-                    alias,
-                    str(full_body.get("id") or ""),
-                    element_key=element_slot_key,
-                    element_path=created_path,
-                )
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return bool(
+            self._visual_mutations.creations.finish(
+                pb,
+                context_id=context_id,
+                context_type=context_type,
+                parent_result=parent_result,
+                body=full_body,
+                element_key=element_slot_key,
+                aliases=[instance_name, str(full_body.get("%dn") or "").strip()],
+                result_value=True,
+                success_message=(
+                    f"Successfully created reusable instance: '{instance_name}' "
+                    f"in '{parent_name}'"
+                ),
+                dry_run=dry_run,
+                tolerate_injection_error=True,
+                cache_supplied_aliases_only=True,
+            )
+        )
 
     def update_repeating_group(
         self,
@@ -27094,29 +22387,11 @@ class BubbleCLI:
                 # Remove style-driven keys from the current element snapshot so
                 # AssignStyle(%p) does not preserve stale visual overrides.
                 if current_props:
-                    structural_keys = {
-                        "%ds",
-                        "%v",
-                        "%gt",
-                        "container_layout",
-                        "%rs",
-                        "%c5",
-                        "%w",
-                        "%h",
-                        "min_width_css",
-                        "max_width_css",
-                        "min_height_css",
-                        "max_height_css",
-                        "fixed_rows",
-                        "fixed_columns",
-                        "show_all_items",
-                        "scroll_direction",
-                        "row_gap",
-                        "row_cell_gap",
-                        "column_cell_gap",
-                        "cell_min_width_css",
-                        "cell_min_height_css",
-                    }
+                    structural_keys = (
+                        self._style_lifecycle.assignments.overrides.protected_keys(
+                            "RepeatingGroup"
+                        )
+                    )
                     has_structural_context = any(
                         str(existing_key) in structural_keys for existing_key in current_props.keys()
                     )
@@ -27217,6 +22492,9 @@ class BubbleCLI:
 
         from_style_id = self.find_style_id_by_name(from_style)
         to_style_id = self.find_style_id_by_name(to_style)
+        if to_style_id is None:
+            logger.error(f"Style '{to_style}' could not be resolved; no update was emitted.")
+            return False
 
         elements = self.discovery.list_elements(context_id, context_type=context_type)
         if not elements:
@@ -27291,68 +22569,18 @@ class BubbleCLI:
 
     def _get_current_default_colors(self) -> Dict[str, Any]:
         """Read current default colors from app.bubble settings."""
-        settings = self.discovery.data.get("settings", {})
-        client_safe = settings.get("client_safe", {})
-        raw_colors = client_safe.get("color_tokens", {})
-
-        # Resolve nested consolelog format: {"%3": {"%d1": "rgba(...)"}} -> {"%3": "rgba(...)"}
-        resolved = {}
-        for k, v in raw_colors.items():
-            if isinstance(v, dict):
-                # Console log fallback usually puts the value under "%d1" (or "default")
-                resolved[k] = v.get("%d1") or v.get("default") or v
-            else:
-                resolved[k] = v
-        return resolved
+        return dict(self._style_lifecycle.colors.snapshot().defaults)
 
     def _get_current_custom_colors(self) -> Dict[str, Any]:
         """
         Read current custom colors from app.bubble settings AND CLI cache.
         Supports both app.bubble format (key: "default") and console.log format (key: "%d1").
         """
-        settings = self.discovery.data.get("settings", {})
-        client_safe = settings.get("client_safe", {})
-        tokens_user = client_safe.get("color_tokens_user", {})
-
-        # Try both formats
-        file_colors = tokens_user.get("default", {}) or tokens_user.get("%d1", {})
-
-        # Convert file format to API format
-        converted = {}
-        for color_id, color_data in file_colors.items():
-            if isinstance(color_data, dict):
-                # If color_data is still nested like {"%d1": {...}}, resolve it
-                if "%d1" in color_data and isinstance(color_data["%d1"], dict):
-                    color_data = color_data["%d1"]
-                elif "default" in color_data and isinstance(color_data["default"], dict):
-                    color_data = color_data["default"]
-
-                converted[color_id] = {
-                    "%nm": color_data.get("%nm", "") or color_data.get("name", ""),
-                    "name": color_data.get("name", "") or color_data.get("%nm", ""),
-                    "rgba": color_data.get("rgba", ""),
-                    "order": color_data.get("order", 0),
-                    "%del": bool(color_data.get("%del", color_data.get("deleted", False))),
-                }
-            else:
-                converted[color_id] = {"%nm": "", "rgba": color_data}
-
-        # Merge with CLI cache
-        cache_colors = self._cli_cache.get("colors", {})
-        for color_id, color_data in cache_colors.items():
-            if color_id not in converted:
-                converted[color_id] = color_data
-
-        return converted
+        return dict(self._style_lifecycle.colors.snapshot().custom)
 
     def _get_active_custom_colors(self) -> Dict[str, Any]:
         """Return only custom colors that are not soft-deleted."""
-        custom_colors = self._get_current_custom_colors()
-        return {
-            color_id: color_data
-            for color_id, color_data in custom_colors.items()
-            if not (isinstance(color_data, dict) and color_data.get("%del", False))
-        }
+        return self._style_lifecycle.colors.active_custom()
 
     def resolve_color_variable(self, color_name: str) -> str:
         """
@@ -27361,44 +22589,7 @@ class BubbleCLI:
              "My Custom Color" -> "var(c123...)" (if custom)
              "Red" -> "#FF0000" (fallback to hex)
         """
-        if not color_name: return color_name
-
-        name_lower = color_name.lower()
-
-        # 1. Check Custom Colors (Priority)
-        # We check custom first because a user might name a custom color "Primary" to override default?
-        # Actually usually default is distinct, but let's check custom first as it's user-specific.
-        custom_colors = self._get_active_custom_colors()
-        for color_id, data in custom_colors.items():
-            c_name = data.get("%nm", "").lower()
-            if c_name == name_lower:
-                return f"var({color_id})"
-
-        # 2. Check Default Colors
-        # Default keys are like "destructive", "success", "surface"
-        # Map to Bubble's CSS variable syntax: var(--color_{key}_default)
-        default_colors = self._get_current_default_colors()
-        for key, val in default_colors.items():
-            # Check against key (e.g. "destructive")
-            if key.lower() == name_lower:
-                return f"var(--color_{key}_default)"
-            # Check against friendly name from map
-            friendly = DEFAULT_COLOR_NAMES.get(key, "").lower()
-            if friendly == name_lower:
-                return f"var(--color_{key}_default)"
-
-        # 3. Fallback: Standard Web Colors to Hex
-        # Limited list of common colors to ensure "White" -> "#FFFFFF"
-        WEB_COLORS = {
-            "white": "#FFFFFF", "black": "#000000", "red": "#FF0000", "green": "#008000",
-            "blue": "#0000FF", "yellow": "#FFFF00", "orange": "#FFA500", "purple": "#800080",
-            "gray": "#808080", "grey": "#808080", "transparent": "rgba(0,0,0,0)"
-        }
-        if name_lower in WEB_COLORS:
-            return WEB_COLORS[name_lower]
-
-        # 4. Return original if it looks like a hex or rgba, or unknown
-        return color_name
+        return self._style_lifecycle.colors.resolve(color_name)
 
     def _find_color_by_name(self, name: str) -> Optional[Tuple[str, str, Dict[str, Any]]]:
         """
@@ -27409,56 +22600,11 @@ class BubbleCLI:
             color_key: The key or ID of the color
             color_data: The color data dict
         """
-        def _norm_color_token(value: Any) -> str:
-            token = str(value or "").strip().lower()
-            token = token.replace("-", " ").replace("_", " ")
-            token = re.sub(r"\s+", " ", token)
-            token = re.sub(r"\bcolor\b", "", token)
-            token = re.sub(r"\s+", " ", token).strip()
-            return token
-
-        name_lower = str(name or "").lower().strip()
-        name_norm = _norm_color_token(name)
-        if not name_lower:
-            return None
-
-        # Check default colors first
-        for key, friendly_name in DEFAULT_COLOR_NAMES.items():
-            if (
-                friendly_name.lower() == name_lower
-                or key.lower() == name_lower
-                or _norm_color_token(friendly_name) == name_norm
-                or _norm_color_token(key) == name_norm
-            ):
-                default_colors = self._get_current_default_colors()
-                color_data = default_colors.get(key, {})
-                return ('default', key, color_data)
-
-        # Check custom colors
-        custom_colors = self._get_active_custom_colors()
-        for color_id, color_data in custom_colors.items():
-            if isinstance(color_data, dict):
-                color_name = color_data.get("%nm", "") or color_data.get("name", "")
-                if (
-                    color_name.lower() == name_lower
-                    or _norm_color_token(color_name) == name_norm
-                    or color_id.lower() == name_lower
-                ):
-                    return ('custom', color_id, color_data)
-
-        return None
+        return self._style_lifecycle.colors.find(name)
 
     def _get_next_order_value(self) -> int:
         """Get the next available order value for new custom colors."""
-        custom_colors = self._get_current_custom_colors()
-        if not custom_colors:
-            return 0
-        max_order = max(
-            c.get("order", 0)
-            for c in custom_colors.values()
-            if isinstance(c, dict)
-        )
-        return max_order + 1
+        return self._style_lifecycle.colors.next_order()
 
     def list_colors(self, show_default: bool = True, show_custom: bool = True) -> bool:
         """List all color variables (default and custom)."""
@@ -27505,48 +22651,15 @@ class BubbleCLI:
     ) -> bool:
         """Update a color (default or custom) by name."""
         logger.info(f"Looking for color: '{name}'")
-
-        result = self._find_color_by_name(name)
-        if not result:
-            logger.error(f"Color '{name}' not found")
-            return False
-
-        color_type, color_key, current_data = result
-        logger.success(f"Found {color_type} color: {color_key}")
-
-        pb = PayloadBuilder(appname=self.appname)
-
-        if color_type == 'default':
-            # Targeted update for specific default color key
-            # Path: settings.client_safe.color_tokens.<color_key>
-            # Body: {"%d1": rgba}
-            path = ColorBuilder.get_default_color_path() + [color_key]
-            body = {"%d1": rgba}
-        else:
-            # CRITICAL: Get ALL existing custom colors and update the specific one
-            # Custom colors are still updated as a block for now, as they live in a nested structure
-            all_colors = dict(self._get_current_custom_colors())
-            updated_entry = dict(current_data)
-            updated_entry["rgba"] = rgba
-            all_colors[color_key] = updated_entry
-            body = ColorBuilder.build_custom_colors_body(all_colors)
-            path = ColorBuilder.get_custom_color_path()
-
-        pb.add_change_app_setting(path, body)
-
-        if dry_run:
-            msg = f" (sending {len(all_colors)} colors)" if color_type == 'custom' else ""
-            logger.info(f"\n DRY RUN - Payload preview{msg}:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
+        result = self._style_lifecycle.colors.update(name, rgba, dry_run=dry_run)
+        if result.ok and dry_run and result.payload is not None:
+            logger.info("\n DRY RUN - Payload preview:")
+            logger.log(result.payload.to_json())
+        elif result.ok:
             logger.success(f"Updated '{name}' to {rgba}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        else:
+            logger.error(result.error or f"Color '{name}' not found")
+        return bool(result.ok)
 
     def create_color(
         self,
@@ -27557,177 +22670,62 @@ class BubbleCLI:
     ) -> bool:
         """Create a new custom color."""
         logger.info(f"Creating custom color: '{name}'")
-
-        # Check if name already exists
-        existing = self._find_color_by_name(name)
-        if existing:
-            logger.error(f"Color '{name}' already exists")
-            return False
-
-        # Generate ID and order
-        color_builder = ColorBuilder()
-        color_id = color_builder.generate_color_id()
-        order = self._get_next_order_value()
-
-        logger.log(f"   ID: {color_id}, Order: {order}")
-
-        # Build the color entry
-        color_entry = ColorBuilder.build_color_entry(
-            name=name,
-            rgba=rgba,
-            order=order,
-            description=description
+        result = self._style_lifecycle.colors.create(
+            name,
+            rgba,
+            description=description,
+            dry_run=dry_run,
         )
-
-        # CRITICAL: Get ALL existing custom colors and merge with new one
-        all_colors = dict(self._get_current_custom_colors())
-        all_colors[color_id] = color_entry
-
-        # Build payload with ALL colors
-        pb = PayloadBuilder(appname=self.appname)
-        body = ColorBuilder.build_custom_colors_body(all_colors)
-        path = ColorBuilder.get_custom_color_path()
-        pb.add_change_app_setting(path, body)
-
-        if dry_run:
-            logger.info(f"\n DRY RUN - Payload preview (sending {len(all_colors)} colors):")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            # Add to CLI cache so reorder/update can find it without sync
-            self._add_to_cache("colors", color_id, color_entry)
-            logger.success(f"Created color '{name}' ({color_id})")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        if result.ok and dry_run and result.payload is not None:
+            logger.info("\n DRY RUN - Payload preview:")
+            logger.log(result.payload.to_json())
+        elif result.ok:
+            logger.success(f"Created color '{name}' ({result.token_id})")
+        else:
+            logger.error(result.error or f"Color '{name}' already exists")
+        return bool(result.ok)
 
     def delete_color(self, name: str, dry_run: bool = False) -> bool:
         """Soft-delete a custom color by name."""
         logger.info(f"Deleting custom color: '{name}'")
-
-        result = self._find_color_by_name(name)
-        if not result:
-            logger.error(f"Color '{name}' not found")
-            return False
-
-        color_type, color_key, current_data = result
-
-        if color_type == 'default':
-            logger.error("Cannot delete default colors")
-            return False
-
-        # CRITICAL: Get ALL existing custom colors and mark the target as deleted
-        all_colors = dict(self._get_current_custom_colors())
-        delete_entry = dict(current_data)
-        delete_entry["%del"] = True
-        all_colors[color_key] = delete_entry
-
-        pb = PayloadBuilder(appname=self.appname)
-        body = ColorBuilder.build_custom_colors_body(all_colors)
-        path = ColorBuilder.get_custom_color_path()
-        pb.add_change_app_setting(path, body)
-
-        if dry_run:
-            logger.info(f"\n DRY RUN - Payload preview (sending {len(all_colors)} colors):")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_from_cache("colors", color_key)
+        result = self._style_lifecycle.colors.delete(name, dry_run=dry_run)
+        if result.ok and dry_run and result.payload is not None:
+            logger.info("\n DRY RUN - Payload preview:")
+            logger.log(result.payload.to_json())
+        elif result.ok:
             logger.success(f"Deleted color '{name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to delete color: {e}")
-            return False
+        else:
+            logger.error(result.error or f"Color '{name}' not found")
+        return bool(result.ok)
 
     def clear_custom_colors(self, dry_run: bool = False) -> bool:
         """Wipe ALL custom colors (Hard Delete)."""
         logger.info("Wiping ALL custom colors...")
-
-        # Send an empty dict to the custom colors path
-        all_colors = {}
-
-        pb = PayloadBuilder(appname=self.appname)
-        body = ColorBuilder.build_custom_colors_body(all_colors)
-        path = ColorBuilder.get_custom_color_path()
-        pb.add_change_app_setting(path, body)
-
-        if dry_run:
+        result = self._style_lifecycle.colors.clear(dry_run=dry_run)
+        if result.ok and dry_run and result.payload is not None:
             logger.info("\n DRY RUN - Payload preview (Hard Wipe ALL custom colors):")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            # CRITICAL: Clear CLI cache
-            if "colors" in self._cli_cache:
-                self._cli_cache["colors"] = {}
-                self._save_cli_cache()
-
+            logger.log(result.payload.to_json())
+        elif result.ok:
             logger.success("Successfully wiped all custom colors.")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to clear colors: {e}")
-            return False
+        else:
+            logger.error(result.error or "Failed to clear colors")
+        return bool(result.ok)
 
     def delete_colors(self, names: List[str] = None, pattern: str = None, dry_run: bool = False) -> bool:
         """Delete multiple colors by name list or regex pattern."""
-        custom_colors = self._get_current_custom_colors()
-        if not custom_colors:
-            logger.error("No custom colors found")
-            return False
-
-        targets = []
-        if names:
-            name_set = {n.lower().strip() for n in names}
-            for cid, data in custom_colors.items():
-                if data.get("%nm", "").lower().strip() in name_set:
-                    targets.append((cid, data))
-
-        if pattern:
-            regex = re.compile(pattern, re.IGNORECASE)
-            for cid, data in custom_colors.items():
-                if regex.search(data.get("%nm", "")):
-                    if (cid, data) not in targets:
-                        targets.append((cid, data))
-
-        if not targets:
-            logger.error("No matching colors found to delete")
-            return False
-
-        logger.info(f"Deleting {len(targets)} colors...")
-        all_colors = dict(custom_colors)
-        for cid, data in targets:
-            delete_entry = dict(data)
-            delete_entry["%del"] = True
-            all_colors[cid] = delete_entry
-
-        pb = PayloadBuilder(appname=self.appname)
-        body = ColorBuilder.build_custom_colors_body(all_colors)
-        path = ColorBuilder.get_custom_color_path()
-        pb.add_change_app_setting(path, body)
-
-        if dry_run:
-            logger.info(f"\n DRY RUN - Payload preview (deleting {len(targets)} colors):")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            for cid, _ in targets:
-                self._remove_from_cache("colors", cid)
-            logger.success(f"Successfully deleted {len(targets)} colors.")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to delete colors: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        result = self._style_lifecycle.colors.delete_many(
+            names=names,
+            pattern=pattern,
+            dry_run=dry_run,
+        )
+        if result.ok and dry_run and result.payload is not None:
+            logger.info("\n DRY RUN - Payload preview:")
+            logger.log(result.payload.to_json())
+        elif result.ok:
+            logger.success("Successfully deleted matching colors.")
+        else:
+            logger.error(result.error or "No matching colors found to delete")
+        return bool(result.ok)
 
     def reorder_colors(
         self,
@@ -27745,75 +22743,20 @@ class BubbleCLI:
             target: For 'move' (position) or 'swap' (other color name)
         """
         logger.info(f"Reordering colors (mode: {mode})")
-
-        custom_colors = self._get_current_custom_colors()
-        if not custom_colors:
-            logger.warning("No custom colors to reorder")
-            return True
-
-        # Filter out non-dict entries and deleted colors
-        active_colors = {
-            k: v for k, v in custom_colors.items()
-            if isinstance(v, dict) and not v.get("%del", False)
-        }
-
-        if mode == 'sort-az':
-            reordered = ColorBuilder.sort_colors_by_name(active_colors, reverse=False)
-        elif mode == 'sort-za':
-            reordered = ColorBuilder.sort_colors_by_name(active_colors, reverse=True)
-        elif mode == 'move':
-            if not color_name or target is None:
-                logger.error("'move' mode requires color_name and target position")
-                return False
-            result = self._find_color_by_name(color_name)
-            if not result or result[0] != 'custom':
-                logger.error(f"Custom color '{color_name}' not found")
-                return False
-            try:
-                position = int(target)
-                reordered = ColorBuilder.move_color_to_position(active_colors, result[1], position)
-            except ValueError as e:
-                logger.error(f"Error: {e}")
-                return False
-        elif mode == 'swap':
-            if not color_name or not target:
-                logger.error("'swap' mode requires color_name and target color name")
-                return False
-            result1 = self._find_color_by_name(color_name)
-            result2 = self._find_color_by_name(target)
-            if not result1 or result1[0] != 'custom':
-                logger.error(f"Custom color '{color_name}' not found")
-                return False
-            if not result2 or result2[0] != 'custom':
-                logger.error(f"Custom color '{target}' not found")
-                return False
-            try:
-                reordered = ColorBuilder.swap_colors(active_colors, result1[1], result2[1])
-            except ValueError as e:
-                logger.error(f"Error: {e}")
-                return False
-        else:
-            logger.error(f"Unknown mode: {mode}")
-            return False
-
-        # Build payload
-        pb = PayloadBuilder(appname=self.appname)
-        body = ColorBuilder.build_custom_colors_body(reordered)
-        path = ColorBuilder.get_custom_color_path()
-        pb.add_change_app_setting(path, body)
-
-        if dry_run:
+        result = self._style_lifecycle.colors.reorder(
+            mode,
+            color_name=color_name,
+            target=target,
+            dry_run=dry_run,
+        )
+        if result.ok and dry_run and result.payload is not None:
             logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Colors reordered successfully")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+            logger.log(result.payload.to_json())
+        elif result.ok:
+            logger.success("Colors reordered successfully")
+        else:
+            logger.error(result.error or f"Unknown mode: {mode}")
+        return bool(result.ok)
 
     # ==========================================
     # FONT VARIABLE METHODS
@@ -27823,43 +22766,14 @@ class BubbleCLI:
         """Read current App Font from app.bubble settings.
         Supports both app.bubble format (key: "default") and console.log format (key: "%d1").
         """
-        settings = self.discovery.data.get("settings", {})
-        client_safe = settings.get("client_safe", {})
-        font_tokens = client_safe.get("font_tokens", {})
-        # Try both formats
-        return font_tokens.get("default") or font_tokens.get("%d1", "not set")
+        return self._style_lifecycle.fonts.snapshot().app_font
 
     def _get_current_custom_fonts(self) -> Dict[str, Any]:
         """
         Read current custom fonts from app.bubble settings AND CLI cache.
         Supports both app.bubble format (key: "default") and console.log format (key: "%d1").
         """
-        settings = self.discovery.data.get("settings", {})
-        client_safe = settings.get("client_safe", {})
-        tokens_user = client_safe.get("font_tokens_user", {})
-
-        # Try both formats
-        file_fonts = tokens_user.get("default", {}) or tokens_user.get("%d1", {})
-
-        # Convert file format to API format if needed
-        converted = {}
-        for font_id, font_data in file_fonts.items():
-            if isinstance(font_data, dict):
-                converted[font_id] = {
-                    "%nm": font_data.get("name") or font_data.get("%nm", ""),
-                    "%d3": font_data.get("description") or font_data.get("%d3", ""),
-                    "%del": font_data.get("deleted") or font_data.get("%del", False),
-                    "font_family": font_data.get("font_family", ""),
-                    "order": font_data.get("order", 0)
-                }
-
-        # Merge with CLI cache
-        cache_fonts = self._cli_cache.get("fonts", {})
-        for font_id, font_data in cache_fonts.items():
-            if font_id not in converted:
-                converted[font_id] = font_data
-
-        return converted
+        return dict(self._style_lifecycle.fonts.snapshot().custom)
 
     def _find_font_by_name(self, name: str) -> Optional[Tuple[str, str, Dict[str, Any]]]:
         """
@@ -27870,23 +22784,7 @@ class BubbleCLI:
             font_key: 'app_font' or the font ID
             font_data: The font data dict (or string for app font)
         """
-        name_lower = name.lower().strip()
-
-        # Check if it's the App Font
-        if name_lower in ["app font", "app_font", "default font", "default"]:
-            app_font = self._get_current_app_font()
-            return ('app', 'app_font', {"font_family": app_font})
-
-        # Check custom fonts
-        custom_fonts = self._get_current_custom_fonts()
-        for font_id, font_data in custom_fonts.items():
-            if isinstance(font_data, dict):
-                font_name = font_data.get("%nm", "")
-                font_family = font_data.get("font_family", "")
-                if font_name.lower() == name_lower or font_family.lower() == name_lower:
-                    return ('custom', font_id, font_data)
-
-        return None
+        return self._style_lifecycle.fonts.find(name)
 
     def _resolve_bubble_font_reference(self, font_family: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
         """
@@ -27937,15 +22835,7 @@ class BubbleCLI:
 
     def _get_next_font_order_value(self) -> int:
         """Get the next available order value for new custom fonts."""
-        custom_fonts = self._get_current_custom_fonts()
-        if not custom_fonts:
-            return 0
-        max_order = max(
-            f.get("order", 0)
-            for f in custom_fonts.values()
-            if isinstance(f, dict)
-        )
-        return max_order + 1
+        return self._style_lifecycle.fonts.next_order()
 
     def list_fonts(self, show_app: bool = True, show_custom: bool = True) -> bool:
         """List all font variables (App Font and custom)."""
@@ -27975,7 +22865,9 @@ class BubbleCLI:
                     deleted = font_data.get("%del", False)
                     status = " [DELETED]" if deleted else ""
                     desc_part = f" - {description}" if description else ""
-        logger.log(f"   {order}. {name}: {font_family}{desc_part} ({font_id}){status}")
+                    logger.log(
+                        f"   {order}. {name}: {font_family}{desc_part} ({font_id}){status}"
+                    )
 
         return True
 
@@ -27996,382 +22888,65 @@ class BubbleCLI:
         """
         logger.info(f"Syncing Figma tokens from: {tokens_path}")
 
-        try:
-            import sys
-            import os
-            sys.path.append(os.getcwd())
+        resolved_config_path = str(config_path or "figma_bridge/token_config.json")
+        if not os.path.isabs(resolved_config_path) and not os.path.exists(resolved_config_path):
+            runtime_config_path = os.path.join(RUNTIME_ROOT, resolved_config_path)
+            if os.path.exists(runtime_config_path):
+                resolved_config_path = runtime_config_path
 
-            from figma_bridge.transform_tokens import TokenTransformer
-            transformer = TokenTransformer(config_path=config_path)
-
-            with open(tokens_path, 'r') as f:
-                data = json.load(f)
-
-            # If this is a bridge payload, the actual tokens are in "content"
-            tokens_data = data.get("content", {}) if data.get("action") == "sync_tokens" else data
-
-            all_raw_tokens = transformer.flatten_tokens(tokens_data)
-
-            if list_options:
-                groups = transformer.get_available_groups(all_raw_tokens)
-                logger.info("\nAvailable Token Options in Figma Export:")
-                print(f"\n🎨 COLOR BASES (groups):")
-                if groups["color"]:
-                    print("   • " + ", ".join(groups["color"]))
-                else:
-                    print("   • None found")
-
-                print(f"\n📝 STYLE GROUPS (typography):")
-                if groups["style"]:
-                    print("   • " + ", ".join(groups["style"]))
-                else:
-                    print("   • None found")
-
-                print(f"\n💡 Usage Hint:")
-                print(f"   bubble-cli sync-figma-tokens {tokens_path} --types color --color-bases {groups['color'][0] if groups['color'] else 'base'}")
-                return True
-
-            filtered = transformer.filter_tokens(all_raw_tokens)
-
-            # 1. Parse Filters
-            sync_types = [t.strip() for t in types.split(",")] if types else ["color", "font", "style"]
-            bases = [b.strip() for b in color_bases.split(",")] if color_bases else []
-
-            stats = {"created": 0, "updated": 0, "skipped": 0, "fonts": 0, "styles": 0}
-
-            # --- STEP 1: FONTS ---
-            if "font" in sync_types:
-                logger.info("Step 1: Syncing Fonts...")
-                existing_fonts_data = self._get_current_custom_fonts()
-                existing_fonts = {f.get("%nm") for f in existing_fonts_data.values()}
-                existing_fonts.add("App Font") # System default
-
-                families = set()
-                for i, token in enumerate(filtered["font"]):
-                    val = token["value"]
-                    family = None
-                    if isinstance(val, dict):
-                        family_obj = val.get("fontFamily")
-                        if isinstance(family_obj, dict):
-                            family = family_obj.get("value")
-                        else:
-                            family = family_obj
-                    else:
-                        family = val
-
-                    if family and isinstance(family, str):
-                        families.add(family)
-                    elif family and isinstance(family, dict):
-                        f_val = family.get("value")
-                        if isinstance(f_val, str):
-                            families.add(f_val)
-
-                for family in sorted(list(families)):
-                    if family in existing_fonts:
-                        stats["skipped"] += 1
-                    else:
-                        if not dry_run:
-                            logger.info(f"Creating font variable: {family}")
-                        self.create_font(family, family, dry_run=dry_run)
-                        stats["fonts"] += 1
-
-            # Refresh font cache after sync so styles can use them
-            self._get_current_custom_fonts()
-
-            # --- STEP 2: COLORS ---
-            # Pre-fetch existing colors for matching
-            existing_colors_data = self._get_active_custom_colors()
-            default_colors = self._get_current_default_colors()
-
-            # Map by Name -> Data (Encompasses both Default and Custom)
-            existing_colors_map = {}
-
-            # 1. Add Default Colors to map
-            for key, rgba in default_colors.items():
-                friendly = DEFAULT_COLOR_NAMES.get(key, key)
-                # Map by lowercase name for consistent matching during sync
-                existing_colors_map[friendly.lower()] = {"type": "default", "id": key, "rgba": rgba, "original_name": friendly}
-
-            # 2. Add Custom Colors to map (Custom overrides Default names if same)
-            for k, c in existing_colors_data.items():
-                name = c.get("%nm")
-                if name:
-                    # Sync uses case-insensitive matching for idempotency
-                    existing_colors_map[name.lower()] = {"type": "custom", "id": k, "rgba": c.get("rgba"), "original_name": name}
-
-            # Map by RGBA -> Key (for variable resolution)
-            rgba_to_key = {}
-            # Defaults first
-            for k, rgba in default_colors.items():
-                if rgba: rgba_to_key[rgba] = k
-            # Custom second (can override if same RGBA, usually custom is more specific)
-            for k, c in existing_colors_data.items():
-                rgba = c.get("rgba")
-                if rgba: rgba_to_key[rgba] = k
-
-            if "color" in sync_types:
-                logger.info("\nStep 2: Syncing Colors...")
-                default_mappings = transformer.get_default_color_mappings()
-
-                # Filter colors to process
-                colors_to_sync = []
-                for t in filtered["color"]:
-                    parts = t["parts"]
-                    # If --all or no bases filter, include everything.
-                    # If bases are specified, use case-insensitive substring match on the group name (parts[1]).
-                    if all_tokens or not bases:
-                        include = True
-                    else:
-                        include = False
-                        if len(parts) > 1:
-                            group = parts[1].lower()
-                            include = any(b.lower() in group or group in b.lower() for b in bases)
-
-                    if include:
-                        colors_to_sync.append(t)
-
-                filter_desc = f"bases={bases}" if bases else "all bases"
-                logger.info(f"Color filter ({filter_desc}): {len(colors_to_sync)}/{len(filtered['color'])} tokens matched.")
-
-                # Track variables updated in this run for style resolution
-                synced_colors = {}
-
-
-                for i, token in enumerate(colors_to_sync):
-                    raw_name = transformer.format_name(token["parts"])
-                    rgba = transformer.hex_to_rgba(token["value"])
-
-                    # Check if this Figma path maps to multiple Bubble Default Colors
-                    figma_path_clean = ".".join(token["parts"][1:]) # skip 'color.' prefix
-                    targets = default_mappings.get(figma_path_clean, [raw_name])
-
-                    for target_name in targets:
-                        target_lower = target_name.lower()
-                        if target_lower in existing_colors_map:
-                            info = existing_colors_map[target_lower]
-                            color_id = info.get("id")
-                            current_rgba = info.get("rgba")
-
-                            if current_rgba == rgba:
-                                stats["skipped"] += 1
-                                # Still track it for style resolution even if skipped (it's current)
-                                synced_colors[transformer.normalize_rgba(rgba)] = color_id
-                                continue
-
-                            if not dry_run:
-                                logger.info(f"[{i+1}/{len(colors_to_sync)}] Updating {target_name}: {rgba}")
-                                updated = self.update_color(target_name, rgba, dry_run=False)
-                                if updated:
-                                    stats["updated"] += 1
-                                    synced_colors[transformer.normalize_rgba(rgba)] = color_id
-                            else:
-                                logger.info(f"[{i+1}/{len(colors_to_sync)}] [DRY RUN] Would update {target_name}: {rgba}")
-                                stats["updated"] += 1
-                                synced_colors[transformer.normalize_rgba(rgba)] = color_id
-                        else:
-                            if not dry_run:
-                                logger.info(f"[{i+1}/{len(colors_to_sync)}] Creating {target_name}: {rgba}")
-                                color_id = self.create_color(target_name, rgba, dry_run=False)
-                                if color_id:
-                                    stats["created"] += 1
-                                    synced_colors[transformer.normalize_rgba(rgba)] = color_id
-                            else:
-                                logger.info(f"[{i+1}/{len(colors_to_sync)}] [DRY RUN] Would create {target_name}: {rgba}")
-                                stats["created"] += 1
-                                synced_colors[transformer.normalize_rgba(rgba)] = "mock_id"
-
-                # Final refresh of rgba_to_key for Step 3 (Styles)
-                rgba_to_key = {}
-                # 1. Base Default Colors from Discovery
-                for k, rgba in self._get_current_default_colors().items():
-                    if rgba: rgba_to_key[rgba] = k
-                # 2. Base Custom Colors from Discovery
-                for k, c in self._get_active_custom_colors().items():
-                    r = c.get("rgba")
-                    if r: rgba_to_key[r] = k
-                # 3. Override with stuff we JUST synced (more accurate)
-                rgba_to_key.update(synced_colors)
-
-            # --- STEP 3: STYLES ---
-            if "style" in sync_types:
-                logger.info("\nStep 3: Syncing Text Styles...")
-                styles_to_sync = filtered["style"]
-
-                if filter:
-                    filter_lower = filter.lower()
-                    original_count = len(styles_to_sync)
-                    styles_to_sync = [
-                        s for s in styles_to_sync
-                        if filter_lower in transformer.format_name(s["parts"], token_type="style").lower()
-                    ]
-                    logger.info(f"Filtering styles for '{filter}': {len(styles_to_sync)}/{original_count} matched.")
-
-                # Track variables updated in this run for style resolution
-                if 'synced_colors' not in locals():
-                    synced_colors = {}
-
-                # REBUILD Variable Maps to include newly synced colors/fonts
-                rgba_to_key = {}
-
-                # High-fidelity: Bubble uses reserved names for default colors in CSS variables
-                RESERVED_COLOR_NAMES = {
-                    "%3": "text",
-                    "primary": "primary",
-                    "alert": "alert",
-                    "success": "success",
-                    "destructive": "destructive",
-                    "background": "background",
-                    "surface": "surface",
-                    "primary_contrast": "primary_contrast"
+        if list_options:
+            try:
+                groups = self._style_lifecycle.figma_import.list_options(
+                    tokens_path,
+                    config_path=resolved_config_path,
+                )
+            except Exception as e:
+                self._last_figma_token_sync_result = {
+                    "ok": False,
+                    "list_options": True,
+                    "groups": {"color": [], "style": []},
+                    "counts": {"fonts": 0, "created": 0, "updated": 0, "skipped": 0, "styles": 0},
+                    "payloads": [],
+                    "errors": [str(e)],
                 }
-
-                # 1. Base Default Colors from Discovery
-                for k, rgba in self._get_current_default_colors().items():
-                    if rgba:
-                        # Use reserved name if available, otherwise fallback to key
-                        key = RESERVED_COLOR_NAMES.get(k, k)
-                        rgba_to_key[transformer.normalize_rgba(rgba)] = key
-                # 2. Base Custom Colors from Discovery
-                for k, c in self._get_active_custom_colors().items():
-                    r = c.get("rgba")
-                    if r: rgba_to_key[transformer.normalize_rgba(r)] = k
-                # 3. Override with stuff we JUST synced (more accurate)
-                if 'synced_colors' in locals():
-                    rgba_to_key.update(synced_colors)
-
-                # Special Case: Default black to Text variable ('text') if it exists
-                # We use 'text' now instead of '%3' for the variable name
-                if "%3" in self._get_current_default_colors():
-                    black_rgba = transformer.normalize_rgba("rgba(0, 0, 0, 1)")
-                    if black_rgba not in rgba_to_key:
-                        rgba_to_key[black_rgba] = "text"
-
-                # 3. Fonts
-                existing_fonts_data = self._get_current_custom_fonts()
-                font_to_var = {}
-                # Default Font (App Font)
-                default_font = self._get_current_app_font()
-                if default_font and default_font != "not set":
-                    font_to_var[default_font.lower()] = "var(--font_default)"
-
-                # Custom Fonts
-                for font_id, f in existing_fonts_data.items():
-                    fname = f.get("%nm")
-                    if fname:
-                        # Map both the font family and the name to the variable for robust lookup
-                        font_to_var[fname.lower()] = f"var(--font_{font_id}_default)"
-                        family = f.get("font_family")
-                        if family:
-                            font_to_var[family.lower()] = f"var(--font_{font_id}_default)"
-
-                for i, token in enumerate(styles_to_sync):
-                    name = transformer.format_name(token["parts"], token_type="style")
-                    val = token["value"]
-
-                    # 1. Resolve Font Family
-                    font_family_raw = val.get("fontFamily")
-                    # If it's a dict like {"value": "Inter"}, extract it
-                    if isinstance(font_family_raw, dict):
-                        font_family_raw = font_family_raw.get("value")
-
-                    # 2. Resolve Color to variable if possible
-                    color_raw = val.get("color")
-                    if isinstance(color_raw, dict):
-                        color_raw = color_raw.get("value")
-
-                    # Default to black if no color is specified in typography token
-                    if not color_raw:
-                        color_raw = "#000000"
-
-                    resolved_color = None
-                    if color_raw:
-                        rgba = transformer.hex_to_rgba(color_raw)
-                        normalized_rgba = transformer.normalize_rgba(rgba)
-                        color_key = rgba_to_key.get(normalized_rgba)
-                        if color_key:
-                            resolved_color = f"var(--color_{color_key}_default)"
-                        else:
-                            resolved_color = rgba
-
-                    # 3. Handle Font Weight/Size
-                    font_size = val.get("fontSize")
-                    if isinstance(font_size, dict): font_size = font_size.get("value")
-                    try:
-                        font_size_num = float(font_size) if font_size is not None else None
-                    except Exception:
-                        font_size_num = None
-
-                    font_weight = val.get("fontWeight")
-                    font_weight = transformer.normalize_font_weight(font_weight)
-
-                    raw_line_height = val.get("lineHeight")
-                    if isinstance(raw_line_height, dict):
-                        raw_line_height = raw_line_height.get("value")
-                    resolved_line_height = None
-                    if raw_line_height not in (None, ""):
-                        try:
-                            if isinstance(raw_line_height, str):
-                                lh_text = raw_line_height.strip()
-                                if lh_text.endswith("%"):
-                                    resolved_line_height = round(float(lh_text[:-1]) / 100, 2)
-                                else:
-                                    lh_text = lh_text.replace("px", "").strip()
-                                    lh_num = float(lh_text)
-                                    if font_size_num and font_size_num > 0:
-                                        resolved_line_height = round(lh_num / font_size_num, 2) if lh_num > 5 else round(lh_num, 2)
-                                    else:
-                                        resolved_line_height = round(lh_num, 2) if lh_num <= 5 else None
-                            elif isinstance(raw_line_height, (int, float)):
-                                lh_num = float(raw_line_height)
-                                if font_size_num and font_size_num > 0 and lh_num > 5:
-                                    resolved_line_height = round(lh_num / font_size_num, 2)
-                                else:
-                                    resolved_line_height = round(lh_num, 2)
-                        except Exception:
-                            resolved_line_height = None
-
-                    # Resolve font variable if name matches.
-                    resolved_font = font_family_raw
-                    if font_family_raw and font_family_raw.lower() in font_to_var:
-                        resolved_font = font_to_var[font_family_raw.lower()]
-
-                    # Bubble text styles expect font_face plus a numeric font_weight.
-                    resolved_font_face = None
-                    if resolved_font:
-                        resolved_font_face = f"{resolved_font}:::regular"
-
-                    # Map Figma props to create_style args
-                    style_args = {
-                        "font_size": font_size,
-                        "font_weight": font_weight,
-                        "bold": False,
-                    }
-                    if resolved_line_height is not None:
-                        style_args["line_height"] = resolved_line_height
-                    if resolved_font_face:
-                        style_args["font_face"] = resolved_font_face
-                    if resolved_color:
-                        style_args["font_color"] = resolved_color
-
-                    if not dry_run:
-                        logger.info(f"[{i+1}/{len(styles_to_sync)}] Syncing text style: {name}")
-                    self.create_style(name, "Text", dry_run=dry_run, **style_args)
-                    stats["styles"] += 1
-
-            logger.success("\nSync Complete!")
-            logger.log(f"   • Fonts synced:   {stats['fonts']}")
-            logger.log(f"   • Colors created: {stats['created']}")
-            logger.log(f"   • Colors updated: {stats['updated']}")
-            logger.log(f"   • Colors skipped: {stats['skipped']}")
-            logger.log(f"   • Styles synced:  {stats['styles']}")
-
+                logger.error(f"Figma token option discovery failed: {e}")
+                return False
+            self._last_figma_token_sync_result = {
+                "ok": True,
+                "list_options": True,
+                "groups": groups,
+                "counts": {"fonts": 0, "created": 0, "updated": 0, "skipped": 0, "styles": 0},
+                "payloads": [],
+                "errors": [],
+            }
+            logger.info("\nAvailable Token Options in Figma Export:")
+            print("\n🎨 COLOR BASES (groups):")
+            print("   • " + ", ".join(groups["color"]) if groups["color"] else "   • None found")
+            print("\n📝 STYLE GROUPS (typography):")
+            print("   • " + ", ".join(groups["style"]) if groups["style"] else "   • None found")
             return True
 
-        except Exception as e:
-            logger.error(f"Figma sync failed: {e}")
-            import traceback
-            logger.debug(traceback.format_exc())
+        result = self._style_lifecycle.figma_import.sync(
+            tokens_path,
+            config_path=resolved_config_path,
+            dry_run=dry_run,
+            types=types,
+            color_bases=color_bases,
+            all_tokens=all_tokens,
+            filter_text=filter,
+        )
+        self._last_figma_token_sync_result = result.as_dict()
+        if not result.ok:
+            logger.error("Figma sync failed: " + "; ".join(result.errors))
             return False
+        stats = result.counts.as_dict()
+        logger.success("\nSync Complete!")
+        logger.log(f"   • Fonts synced:   {stats['fonts']}")
+        logger.log(f"   • Colors created: {stats['created']}")
+        logger.log(f"   • Colors updated: {stats['updated']}")
+        logger.log(f"   • Colors skipped: {stats['skipped']}")
+        logger.log(f"   • Styles synced:  {stats['styles']}")
+        return True
 
     def update_font(
         self,
@@ -28381,44 +22956,15 @@ class BubbleCLI:
     ) -> bool:
         """Update a font (App Font or custom) by name."""
         logger.info(f"Looking for font: '{name}'")
-
-        result = self._find_font_by_name(name)
-        if not result:
-            logger.error(f"Font '{name}' not found")
-            return False
-
-        font_type, font_key, current_data = result
-        logger.success(f"Found {font_type} font: {font_key}")
-
-        pb = PayloadBuilder(appname=self.appname)
-
-        if font_type == 'app':
-            body = FontBuilder.build_app_font_body(font_family)
-            path = FontBuilder.get_app_font_path()
-        else:
-            # CRITICAL: Get ALL existing custom fonts and update the specific one
-            all_fonts = dict(self._get_current_custom_fonts())
-            updated_entry = dict(current_data)
-            updated_entry["font_family"] = font_family
-            all_fonts[font_key] = updated_entry
-            body = FontBuilder.build_custom_fonts_body(all_fonts)
-            path = FontBuilder.get_custom_font_path()
-
-        pb.add_change_app_setting(path, body)
-
-        if dry_run:
-            msg = f" (sending {len(all_fonts)} fonts)" if font_type == 'custom' else ""
-            logger.info(f"\n DRY RUN - Payload preview{msg}:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
+        result = self._style_lifecycle.fonts.update(name, font_family, dry_run=dry_run)
+        if result.ok and dry_run and result.payload is not None:
+            logger.info("\n DRY RUN - Payload preview:")
+            logger.log(result.payload.to_json())
+        elif result.ok:
             logger.success(f"Updated '{name}' to {font_family}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        else:
+            logger.error(result.error or f"Font '{name}' not found")
+        return bool(result.ok)
 
     def create_font(
         self,
@@ -28429,91 +22975,33 @@ class BubbleCLI:
     ) -> bool:
         """Create a new custom font variable."""
         logger.info(f"Creating custom font: '{name}'")
-
-        # Check if name already exists
-        existing = self._find_font_by_name(name)
-        if existing:
-            logger.error(f"Font '{name}' already exists")
-            return False
-
-        # Generate ID and order
-        font_builder = FontBuilder()
-        font_id = font_builder.generate_font_id()
-        order = self._get_next_font_order_value()
-
-        logger.log(f"   ID: {font_id}, Order: {order}")
-
-        # Build the font entry
-        font_entry = FontBuilder.build_font_entry(
-            name=name,
-            font_family=font_family,
-            order=order,
-            description=description
+        result = self._style_lifecycle.fonts.create(
+            name,
+            font_family,
+            description=description,
+            dry_run=dry_run,
         )
-
-        # CRITICAL: Get ALL existing custom fonts and merge with new one
-        all_fonts = dict(self._get_current_custom_fonts())
-        all_fonts[font_id] = font_entry
-
-        # Build payload with ALL fonts
-        pb = PayloadBuilder(appname=self.appname)
-        body = FontBuilder.build_custom_fonts_body(all_fonts)
-        path = FontBuilder.get_custom_font_path()
-        pb.add_change_app_setting(path, body)
-
-        if dry_run:
-            logger.info(f"\n DRY RUN - Payload preview (sending {len(all_fonts)} fonts):")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            # Add to CLI cache so reorder/update can find it without sync
-            self._add_to_cache("fonts", font_id, font_entry)
-            logger.success(f"Created font '{name}' ({font_id})")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        if result.ok and dry_run and result.payload is not None:
+            logger.info("\n DRY RUN - Payload preview:")
+            logger.log(result.payload.to_json())
+        elif result.ok:
+            logger.success(f"Created font '{name}' ({result.token_id})")
+        else:
+            logger.error(result.error or f"Font '{name}' already exists")
+        return bool(result.ok)
 
     def delete_font(self, name: str, dry_run: bool = False) -> bool:
         """Soft-delete a custom font by name."""
         logger.info(f"Deleting custom font: '{name}'")
-
-        result = self._find_font_by_name(name)
-        if not result:
-            logger.error(f"Font '{name}' not found")
-            return False
-
-        font_type, font_key, current_data = result
-
-        if font_type == 'app':
-            logger.error("Cannot delete the App Font")
-            return False
-
-        # CRITICAL: Get ALL existing custom fonts and mark the target as deleted
-        all_fonts = dict(self._get_current_custom_fonts())
-        delete_entry = dict(current_data)
-        delete_entry["%del"] = True
-        all_fonts[font_key] = delete_entry
-
-        pb = PayloadBuilder(appname=self.appname)
-        body = FontBuilder.build_custom_fonts_body(all_fonts)
-        path = FontBuilder.get_custom_font_path()
-        pb.add_change_app_setting(path, body)
-
-        if dry_run:
-            logger.info(f"\n DRY RUN - Payload preview (sending {len(all_fonts)} fonts):")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
+        result = self._style_lifecycle.fonts.delete(name, dry_run=dry_run)
+        if result.ok and dry_run and result.payload is not None:
+            logger.info("\n DRY RUN - Payload preview:")
+            logger.log(result.payload.to_json())
+        elif result.ok:
             logger.success(f"Deleted font '{name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        else:
+            logger.error(result.error or f"Font '{name}' not found")
+        return bool(result.ok)
 
     @staticmethod
     def _parse_color_literal_to_rgba(color_value: str) -> Optional[Tuple[int, int, int, float]]:
@@ -28657,18 +23145,26 @@ class BubbleCLI:
         if "var(" in str(base_color_name).lower():
              return str(base_color_name)
 
-        # 1. Direct name lookup through ColorMapper friendly names.
+        # 1. Named token resolution must use the live lifecycle snapshot before
+        # the long-lived ColorMapper, whose aliases can outlive delete/recreate.
+        is_literal = str(base_color_name).startswith("#") or "rgb" in str(base_color_name).lower()
+        if not is_literal:
+            resolved_name = self._style_lifecycle.colors.resolve(str(base_color_name))
+            if resolved_name != str(base_color_name):
+                return resolved_name
+
+        # 2. Direct name lookup through ColorMapper friendly names.
         if self.color_mapper:
             by_friendly_name = self.color_mapper.find_variable_by_name(str(base_color_name))
             if by_friendly_name:
                 return by_friendly_name
 
-        # 2. Resolve raw color literals to known variables when possible.
-        if str(base_color_name).startswith("#") or "rgb" in str(base_color_name).lower():
+        # 3. Resolve raw color literals to known variables when possible.
+        if is_literal:
             # Use the more robust _resolve_color_value which handles creation and logging
             return self._resolve_color_value(str(base_color_name), create_missing=create_missing, dry_run=dry_run)
 
-        # 3. Match by default/custom names (friendly names and %nm labels).
+        # 4. Match by default/custom names (friendly names and %nm labels).
         found = self._find_color_by_name(str(base_color_name))
         if not found:
              return str(base_color_name)
@@ -28780,45 +23276,9 @@ class BubbleCLI:
         context_type: str,
         parent_result: Dict[str, Any]
     ) -> List[str]:
-        """
-        Best-effort read of current child element IDs for a parent element/root.
-        Used to keep _index.issues_sub in sync when creating elements via CLI.
-        """
-        parent_node: Optional[Dict[str, Any]] = None
-        parent_id = parent_result.get("id") if isinstance(parent_result, dict) else None
-        if isinstance(parent_result, dict):
-            candidate = parent_result.get("element")
-            if isinstance(candidate, dict):
-                parent_node = candidate
-
-        if parent_node is None:
-            # Root-level insertion: fetch context root from discovery cache.
-            # If we only know a non-root parent ID (without element payload),
-            # assume no known children yet in this request.
-            if isinstance(parent_id, str) and parent_id and parent_id != context_id:
-                return []
-            try:
-                parent_node = self.discovery._get_context_root(context_id, context_type)
-            except Exception:
-                parent_node = None
-
-        if not isinstance(parent_node, dict):
-            return []
-
-        children = parent_node.get("elements")
-        if not isinstance(children, dict):
-            children = parent_node.get("%el")
-        if not isinstance(children, dict):
-            return []
-
-        child_ids: List[str] = []
-        for key, value in children.items():
-            if key == "length" or not isinstance(value, dict):
-                continue
-            child_id = value.get("id")
-            if isinstance(child_id, str) and child_id:
-                child_ids.append(child_id)
-        return child_ids
+        return self._visual_mutations.creations.existing_child_ids(
+            context_id, context_type, parent_result
+        )
 
     @staticmethod
     def _parent_object_id(parent_result: Any, parent_node: Any) -> str:
@@ -28905,176 +23365,18 @@ class BubbleCLI:
         text_content: Any = None,
         pending_child_ids_by_parent: Optional[Dict[str, List[str]]] = None,
     ) -> None:
-        """
-        Emit Bubble-like create sequence:
-        1) _index.id_to_path
-        2) CreateElement
-        3) _index.issues_list[new_id] = []
-        4) _index.issues_sub[parent_id] = [existing_child_ids + new_id]
-        5) optional %nm/%3 writes
-        """
-        object_id = create_body.get("id")
-        if not isinstance(object_id, str) or not object_id:
-            raise ValueError("Create element body must include a valid 'id'.")
-
-        # Every editor-created element carries %p.order; without it siblings tie and
-        # Bubble renders them in reverse creation order. Stamp max(sibling)+1 for all
-        # create tools that did not set an explicit order.
-        if isinstance(create_body, dict):
-            order_props = create_body.get("%p")
-            if isinstance(order_props, dict) and order_props.get("order") is None:
-                try:
-                    parent_key = ".".join(create_path[:-2]) if len(create_path) >= 2 else full_path_str
-                    order_props["order"] = self._advance_child_order(
-                        parent_key,
-                        self._next_child_order(context_id, context_type, parent_result),
-                    )
-                except Exception:
-                    pass
-
-        # Bubble frequently treats explicit nulls in CreateElement as overrides.
-        # Strip null-valued properties centrally for all create tools.
-        if isinstance(create_body, dict):
-            props = create_body.get("%p")
-            if isinstance(props, dict):
-                create_body["%p"] = {k: v for k, v in props.items() if v is not None}
-                props = create_body.get("%p")
-
-                # Global style rule for create tools:
-                # when style is set, remove style-driven props from %p so the
-                # element starts from the chosen style (no baked-in overrides).
-                #
-                # CRITICAL: some keys must NEVER be stripped even if they appear
-                # in a style's %p — these are instance-specific content, not style:
-                #   %3  = text content (TextExpression)
-                #   %nm = element name label
-                #   %bl = boolean/checkbox value
-                CONTENT_SAFE_KEYS = {"%3", "%nm", "%bl"}
-                INSTANCE_SAFE_KEYS_BY_TYPE: Dict[str, set[str]] = {
-                    "dateinput": {
-                        "%c1",
-                        "initial_content",
-                        "input_type",
-                        "binding_content_format",
-                        "content_format",
-                        "date_format",
-                        "custom_format",
-                        "start_monday",
-                        "show_month_year_picker",
-                        "time_format",
-                        "time_interval",
-                        "min_date",
-                        "max_date",
-                        "min_hour",
-                        "max_hour",
-                        "%1m",
-                        "disabled",
-                        "auto_binding",
-                        "bind_field",
-                    },
-                }
-                style_ref = (
-                    create_body.get("%s1")
-                    or create_body.get("style")
-                    or props.get("%s1")
-                    or props.get("style")
-                )
-                element_type = create_body.get("%x") or create_body.get("type")
-                if style_ref and element_type and isinstance(props, dict):
-                    keep_safe_keys = set(CONTENT_SAFE_KEYS)
-                    keep_safe_keys.update(
-                        INSTANCE_SAFE_KEYS_BY_TYPE.get(
-                            str(element_type or "").strip().lower(),
-                            set(),
-                        )
-                    )
-                    style_override_keys = self._style_override_keys_for_element_type(
-                        str(element_type),
-                        target_style_id=str(style_ref),
-                    )
-                    for key in style_override_keys:
-                        key_str = str(key)
-                        if key_str in keep_safe_keys:
-                            continue  # Never strip instance content keys
-                        if key_str in props:
-                            props.pop(key_str, None)
-
-        # Child CreateElement payloads must use the structural write token for the
-        # path segment after %el, which can differ from the persisted object id.
-        # Many legacy helpers still passed object_id as the slot key; normalize
-        # that here so every create_* call inherits the same contract.
-        normalized_create_path = self._normalize_payload_path(create_path)
-        normalized_create_path = self._canonicalize_context_prefix_on_path(
-            normalized_create_path,
+        self._visual_mutations.creations.queue_create(
+            pb,
             context_id,
             context_type,
+            parent_result,
+            create_path,
+            create_body,
+            full_path_str,
+            name_value=name_value,
+            text_content=text_content,
+            pending_child_ids_by_parent=pending_child_ids_by_parent,
         )
-        _, slot_key = self._find_last_element_token(normalized_create_path)
-        if not isinstance(slot_key, str) or not slot_key or slot_key == object_id:
-            slot_key = BubbleIDGenerator().element_id()
-            element_index = None
-            for idx in range(len(normalized_create_path) - 2, -1, -1):
-                if normalized_create_path[idx] == "%el":
-                    element_index = idx
-                    break
-            if element_index is None or element_index + 1 >= len(normalized_create_path):
-                raise ValueError("Create element path must include a valid slot key after %el.")
-            normalized_create_path[element_index + 1] = slot_key
-
-        if isinstance(create_path, list):
-            create_path[:] = normalized_create_path
-
-        # Ensure outbound payload uses raw Bubble path tokens (%el/%wf/...)
-        # even if discovery returned normalized/module-style keys (elements/workflows/...).
-        normalized_full_path_str = ".".join(normalized_create_path)
-
-        # Bubble editor emits id_to_path before CreateElement.
-        pb.add_update_index(["_index", "id_to_path", object_id], normalized_full_path_str)
-        pb.add_create_element(normalized_create_path, create_body)
-
-        # Register empty issues list for the new node.
-        pb.add_update_index(["_index", "issues_list", object_id], "[]")
-
-        # Keep parent's issues_sub list consistent with current known children.
-        parent_id = parent_result.get("id") if isinstance(parent_result, dict) else None
-        if isinstance(parent_id, str) and parent_id:
-            if (
-                isinstance(pending_child_ids_by_parent, dict)
-                and parent_id in pending_child_ids_by_parent
-                and isinstance(pending_child_ids_by_parent.get(parent_id), list)
-            ):
-                child_ids = list(pending_child_ids_by_parent.get(parent_id) or [])
-            else:
-                child_ids = self._existing_child_ids_for_parent(context_id, context_type, parent_result)
-            if object_id not in child_ids:
-                child_ids.append(object_id)
-            if isinstance(pending_child_ids_by_parent, dict):
-                pending_child_ids_by_parent[parent_id] = list(child_ids)
-            pb.add_update_index(["_index", "issues_sub", parent_id], json.dumps(child_ids))
-
-        if text_content is not None:
-            pb.add_set_data(normalized_create_path + ["%p", "%3"], text_content)
-
-        # Element-level name label. The editor writes %nm for every element it creates;
-        # without it the element does not show up in the Elements Tree / editor search.
-        if isinstance(name_value, str) and name_value.strip():
-            pb.add_set_data(normalized_create_path + ["%nm"], name_value.strip())
-
-        # Bubble ignores nonant_alignment when set in the CreateElement body.
-        # It must be emitted as a separate SetData on %p.nonant_alignment.
-        props = create_body.get("%p") or {}
-        nonant_val = props.get("nonant_alignment")
-        align_to_parent_pos_val = props.get("align_to_parent_pos") or nonant_val
-        if nonant_val:
-            pb.add_set_data(normalized_create_path + ["%p", "nonant_alignment"], nonant_val)
-        if align_to_parent_pos_val:
-            pb.add_set_data(normalized_create_path + ["%p", "align_to_parent_pos"], align_to_parent_pos_val)
-
-        # Similarly, margin values for align_to_parent children must be set separately.
-        for margin_key in ("margin_top", "margin_right", "margin_bottom", "margin_left"):
-            margin_val = props.get(margin_key)
-            if margin_val is not None and margin_val != 0:
-                pb.add_set_data(normalized_create_path + ["%p", margin_key], margin_val)
 
     def _queue_style_assignment_changes(
         self,
@@ -29085,45 +23387,13 @@ class BubbleCLI:
         include_set_data: bool = True,
     ) -> None:
         """Queue robust style assignment intents for created elements."""
-        if not isinstance(pb, PayloadBuilder):
-            return
-        resolved_style = str(style_id or "").strip()
-        if not resolved_style:
-            return
-
-        # Optional wire-level assignment.
-        if include_set_data:
-            pb.add_set_data(element_path + ["%s1"], resolved_style)
-
-        # Keep AssignStyle for parity with editor-originated payloads.
-        intent_id = random.randint(1, 999999)
-        normalized_props: Optional[Dict[str, Any]] = None
-        if isinstance(style_props, dict):
-            normalized_props = {k: v for k, v in style_props.items() if v is not None}
-
-        pb.changes.append(
-            {
-                "intent": {"name": "AssignStyle", "id": intent_id, "source_appname": ""},
-                "path_array": element_path + ["%s1"],
-                "body": resolved_style,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.id_gen.session_id(),
-            }
+        self._style_lifecycle.assignments.assign(
+            pb,
+            element_path,
+            style_id,
+            style_props=style_props,
+            include_set_data=include_set_data,
         )
-
-        # Bubble often expects a follow-up AssignStyle at %p carrying current overrides.
-        if normalized_props is not None:
-            pb.changes.append(
-                {
-                    "intent": {"name": "AssignStyle", "id": intent_id, "source_appname": ""},
-                    "path_array": element_path + ["%p"],
-                    "body": normalized_props,
-                    "version_control_api_version": 4,
-                    "changelog_data": [],
-                    "session_id": pb.id_gen.session_id(),
-                }
-            )
 
     def _resolved_created_slot_key(
         self,
@@ -29163,20 +23433,10 @@ class BubbleCLI:
         include_set_data: bool = True,
     ) -> None:
         """Clear a style reference so the element ends truly custom in Bubble."""
-        if not isinstance(pb, PayloadBuilder):
-            return
-        if include_set_data:
-            pb.add_set_data(element_path + ["%s1"], None)
-        intent_id = random.randint(1, 999999)
-        pb.changes.append(
-            {
-                "intent": {"name": "AssignStyle", "id": intent_id, "source_appname": ""},
-                "path_array": element_path + ["%s1"],
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.id_gen.session_id(),
-            }
+        self._style_lifecycle.assignments.clear(
+            pb,
+            element_path,
+            include_set_data=include_set_data,
         )
 
     def _build_alert_explicit_style_props(self, raw_kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -29277,300 +23537,19 @@ class BubbleCLI:
 
         return overrides if overrides else None
 
-    @staticmethod
-    def _alert_style_override_keys() -> List[str]:
+    def _alert_style_override_keys(self) -> List[str]:
         """Alert properties that commonly flag style as overridden when retained on the element."""
-        return [
-            # Typography + text shadow
-            "opacity", "font_family", "font_weight", "%fs", "font_size", "%fa", "font_alignment",
-            "%b", "bold", "%i", "italic", "%u", "underline",
-            "%fc", "font_color", "%ws", "%lh", "%ls",
-            "%vc", "%tes", "%tsh", "%tsv", "%tsb", "%tsc",
-            # Background / gradients
-            "%bas", "%bgc", "%bgi", "background_color_if_empty_image", "%bgf", "%bgt", "background_gradient_mid",
-            "%bgd", "background_gradient_style", "%b4", "%bga",
-            "%bgp", "background_repeat",
-            "%cb", "%rbv", "%rbh",
-            "center_background", "repeat_background_vertical", "repeat_background_horizontal",
-            "crop_responsive", "background_size_cover",
-            "background_radial_gradient_shape", "background_radial_gradient_size",
-            "background_radial_gradient_xpos", "background_radial_gradient_ypos",
-            # Border (shared + independent)
-            "four_border_style", "%bos", "%bw", "%bc", "%br", "border_roundness",
-            "border_roundness_top", "border_roundness_right", "border_roundness_bottom", "border_roundness_left",
-            "border_style_top", "border_style_bottom", "border_style_left", "border_style_right",
-            "border_width_top", "border_width_bottom", "border_width_left", "border_width_right",
-            "border_color_top", "border_color_bottom", "border_color_left", "border_color_right",
-            # Shadow
-            "%bs", "%bh", "%bv", "%bsb", "%bsp", "%bsc", "boxshadow_enable",
-            # Style-driven padding
-            "padding_top", "padding_bottom", "padding_left", "padding_right",
-            # Group/Popup spacing style key
-            "button_gap",
-            # Other style-driven visual fields used by some element types.
-            "icon_size", "tag_type",
-            # Popup-specific style fields
-            "greyout_color", "grayout_color", "greyout_blur", "grayout_blur",
-            "prevent_user_from_closing_through_esc",
-        ]
+        return self._style_lifecycle.assignments.overrides.base_override_keys()
 
     def set_default_style(self, element_type: str, style_id: str, dry_run: bool = False) -> bool:
-        """Sets a style as the default for its element type."""
-        settings_key = self._default_style_settings_key(element_type)
-        logger.info(f"Setting '{style_id}' as default for {settings_key}...")
-
-        pb = PayloadBuilder(self.appname)
-        pb.add_change(
-            intent_name="ChangeAppSetting",
-            path_array=["settings", "client_safe", "default_styles"],
-            body={settings_key: style_id}
+        return self._style_lifecycle.definitions.set_default_style(
+            element_type,
+            style_id,
+            dry_run=dry_run,
         )
-
-        if dry_run:
-            logger.info("\n DRY RUN - Set Default Style Payload:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Set '{style_id}' as default for {settings_key}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to set default style: {e}")
-            return False
 
     def _normalize_style_kwargs(self, kwargs: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Normalize shared style kwargs before create/update operations.
-        Centralized so all style-capability tools behave consistently.
-        """
-        normalized: Dict[str, Any] = dict(kwargs or {})
-        def _is_blank(value: Any) -> bool:
-            return value is None or (isinstance(value, str) and value.strip() == "")
-
-        # Normalize background style labels to Bubble wire values.
-        if normalized.get("background_style") is None and normalized.get("bg_style") is not None:
-            normalized["background_style"] = normalized.pop("bg_style")
-        bg_style = normalized.get("background_style")
-        if bg_style is not None:
-            raw_style = str(bg_style).strip().lower().replace("_", " ").replace("-", " ")
-            style_map = {
-                "none": "none",
-                "flat color": "bgcolor",
-                "flat": "bgcolor",
-                "flatcolor": "bgcolor",
-                "bgcolor": "bgcolor",
-                "color": "bgcolor",
-                "gradient": "gradient",
-                "image": "image",
-            }
-            normalized["background_style"] = style_map.get(raw_style, str(bg_style).strip().lower())
-
-        # For image backgrounds, Bubble uses "background color if empty image"
-        # as the color fallback instead of %bgc.
-        if normalized.get("background_style") == "image":
-            explicit_if_empty = normalized.get("background_color_if_empty_image")
-            has_explicit_if_empty = (
-                explicit_if_empty is not None
-                and (not isinstance(explicit_if_empty, str) or str(explicit_if_empty).strip() != "")
-            )
-            fallback_color = None
-            for color_key in ("background_color", "bg_color"):
-                raw_color = normalized.get(color_key)
-                if raw_color is None:
-                    continue
-                if isinstance(raw_color, str) and raw_color.strip() == "":
-                    normalized.pop(color_key, None)
-                    continue
-                if fallback_color is None:
-                    fallback_color = raw_color
-                normalized.pop(color_key, None)
-            if fallback_color is not None and not has_explicit_if_empty:
-                normalized["background_color_if_empty_image"] = fallback_color
-
-        # Support common gradient aliases.
-        if normalized.get("gradient_start_color") is None and normalized.get("gradient_color1") is not None:
-            normalized["gradient_start_color"] = normalized.pop("gradient_color1")
-        if normalized.get("gradient_end_color") is None and normalized.get("gradient_color2") is not None:
-            normalized["gradient_end_color"] = normalized.pop("gradient_color2")
-        if normalized.get("gradient_mid_color") is None and normalized.get("gradient_mid") is not None:
-            normalized["gradient_mid_color"] = normalized.pop("gradient_mid")
-        if normalized.get("gradient_style") is None and normalized.get("gradient_type") is not None:
-            normalized["gradient_style"] = normalized.pop("gradient_type")
-
-        # Independent-border guard for style create/update:
-        # if caller styles only some sides, neutralize omitted ones to avoid
-        # Bubble inheriting default side border props.
-        raw_border_mode = normalized.get("border_type")
-        normalized_border_mode = (
-            str(raw_border_mode).strip().lower().replace("-", "_").replace(" ", "_")
-            if raw_border_mode is not None
-            else ""
-        )
-        independent_border_mode = bool(normalized.get("four_border_style") is True) or (
-            normalized_border_mode in {"independent", "all_4_borders"}
-        )
-        if independent_border_mode:
-            sides = ("top", "right", "bottom", "left")
-            explicit_side_keys = {
-                side: any(
-                    not _is_blank(normalized.get(f"{prefix}_{side}"))
-                    for prefix in ("border_style", "border_width", "border_color")
-                )
-                for side in sides
-            }
-            if any(explicit_side_keys.values()):
-                for side in sides:
-                    if explicit_side_keys.get(side):
-                        continue
-                    style_key = f"border_style_{side}"
-                    width_key = f"border_width_{side}"
-                    roundness_key = f"border_roundness_{side}"
-                    if _is_blank(normalized.get(style_key)):
-                        normalized[style_key] = "none"
-                    if _is_blank(normalized.get(width_key)):
-                        normalized[width_key] = 0
-                    if _is_blank(normalized.get(roundness_key)):
-                        normalized[roundness_key] = 0
-
-        # Map style JSON alias
-        if normalized.get("custom_style") is None and normalized.get("style_json") is not None:
-            normalized["custom_style"] = normalized.pop("style_json")
-        elif "style_json" in normalized:
-            normalized.pop("style_json", None)
-
-        # Normalize map style fields used by GoogleMap styles.
-        if normalized.get("map_type") is not None:
-            raw_map_type = str(normalized["map_type"]).strip()
-            if raw_map_type:
-                lowered = raw_map_type.lower().replace("-", "_").replace(" ", "_")
-                map_type_aliases = {
-                    "road": "ROADMAP",
-                    "roadmap": "ROADMAP",
-                    "satellite": "SATELLITE",
-                    "hybrid": "HYBRID",
-                    "terrain": "TERRAIN",
-                }
-                normalized["map_type"] = map_type_aliases.get(lowered, raw_map_type.upper())
-            else:
-                normalized.pop("map_type", None)
-
-        if normalized.get("map_style") is not None:
-            raw_map_style = str(normalized["map_style"]).strip()
-            if raw_map_style:
-                lowered = raw_map_style.lower().replace("-", "_").replace(" ", "_")
-                map_style_aliases = {
-                    "mapbox": "mapbox",
-                    "normal": "normal",
-                    "apple": "apple",
-                    "pale_down": "pale_down",
-                    "blue_water": "blue_water",
-                    "flat_green": "flat_green",
-                    "blue_gray": "blue_gray",
-                    "neutral_blue": "neutral_blue",
-                    "grey_shades": "grey_shades",
-                    "greyscale": "greyscale",
-                    "subtle_greyscale": "subtle_greyscale",
-                    "bright_bubbly": "bright_bubbly",
-                    "retro": "retro",
-                    "old_timey": "old_timey",
-                    "just_places": "just_places",
-                    "_custom": "_custom",
-                    "custom": "_custom",
-                    "custom_style": "_custom",
-                }
-                normalized["map_style"] = map_style_aliases.get(lowered, lowered)
-            else:
-                normalized.pop("map_style", None)
-
-        if normalized.get("range_type") is not None:
-            raw_range_type = str(normalized.get("range_type")).strip().lower().replace("-", "_").replace(" ", "_")
-            if raw_range_type in {"simple", "range"}:
-                normalized["range_type"] = raw_range_type
-            elif raw_range_type:
-                normalized["range_type"] = raw_range_type
-            else:
-                normalized.pop("range_type", None)
-
-        # Expand padding shorthand into Bubble wire keys.
-        padding = normalized.pop("padding", None)
-        if padding is not None:
-            if normalized.get("padding_top") is None:
-                normalized["padding_top"] = padding
-            if normalized.get("padding_bottom") is None:
-                normalized["padding_bottom"] = padding
-            if normalized.get("padding_left") is None:
-                normalized["padding_left"] = padding
-            if normalized.get("padding_right") is None:
-                normalized["padding_right"] = padding
-
-        # Popup overlay aliases (MCP may send either spelling).
-        if normalized.get("greyout_color") is None and normalized.get("grayout_color") is not None:
-            normalized["greyout_color"] = normalized.pop("grayout_color")
-        else:
-            normalized.pop("grayout_color", None)
-        if normalized.get("greyout_blur") is None and normalized.get("grayout_blur") is not None:
-            normalized["greyout_blur"] = normalized.pop("grayout_blur")
-        else:
-            normalized.pop("grayout_blur", None)
-        if normalized.get("greyout_blur") is not None:
-            try:
-                normalized["greyout_blur"] = int(normalized["greyout_blur"])
-            except Exception:
-                pass
-
-        # RepeatingGroup separators.
-        if normalized.get("separator_style") is not None:
-            raw_sep_style = str(normalized.get("separator_style")).strip().lower()
-            valid_separator_styles = {"none", "solid", "dotted", "dashed", "double", "groove", "ridge", "inset", "outset"}
-            if raw_sep_style in valid_separator_styles:
-                normalized["separator_style"] = raw_sep_style
-            else:
-                # Keep raw value so downstream builder can still try; validation happens at Bubble side.
-                normalized["separator_style"] = str(normalized.get("separator_style")).strip()
-        if normalized.get("separator_width") is not None:
-            try:
-                normalized["separator_width"] = int(normalized.get("separator_width"))
-            except Exception:
-                pass
-
-        # Style-system independent border semantics:
-        # when caller sets independent sides, make unspecified sides explicit "none"
-        # so Bubble does not silently render default Solid borders on untouched sides.
-        raw_border_type = normalized.get("border_type")
-        if raw_border_type is not None:
-            border_type_key = str(raw_border_type).strip().lower().replace("-", "_").replace(" ", "_")
-            if border_type_key in {"all_4_borders", "independent"}:
-                normalized["border_type"] = "independent"
-            elif border_type_key == "shared":
-                normalized["border_type"] = "shared"
-
-        if normalized.get("border_type") == "independent":
-            side_style_keys = (
-                "border_style_top",
-                "border_style_bottom",
-                "border_style_left",
-                "border_style_right",
-            )
-            # Only enforce for style keys when at least one side style is provided.
-            if any(not _is_blank(normalized.get(k)) for k in side_style_keys):
-                for key in side_style_keys:
-                    if _is_blank(normalized.get(key)):
-                        normalized[key] = "none"
-
-            # Corner radii should follow explicit caller intent as well.
-            corner_radius_keys = (
-                "radius_top_left",
-                "radius_top_right",
-                "radius_bottom_right",
-                "radius_bottom_left",
-            )
-            if any(not _is_blank(normalized.get(k)) for k in corner_radius_keys):
-                for key in corner_radius_keys:
-                    if _is_blank(normalized.get(key)):
-                        normalized[key] = 0
-
-        return normalized
+        return self._style_lifecycle.definitions.normalize_kwargs(kwargs)
 
     def _resolve_style_color_kwargs(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Resolve all color-capable style kwargs to Bubble CSS vars/rgba strings."""
@@ -29612,111 +23591,10 @@ class BubbleCLI:
         self,
         raw_states: Any,
     ) -> List[Tuple[str, Dict[str, Any]]]:
-        """
-        Normalize style state definitions into [(condition, props_dict)].
-        Accepted formats:
-        - JSON string / dict: {"hover": {...}, "disabled": {...}}
-        - JSON string / list: [{"condition":"hover","properties":{...}}, ...]
-        """
-        if raw_states is None:
-            return []
+        return self._style_lifecycle.definitions.normalize_state_definitions(raw_states)
 
-        parsed = raw_states
-        if isinstance(raw_states, str):
-            text = raw_states.strip()
-            if not text:
-                return []
-            try:
-                parsed = json.loads(text)
-            except Exception as exc:
-                raise ValueError(f"Invalid states_json payload: {exc}") from exc
-
-        normalized: List[Tuple[str, Dict[str, Any]]] = []
-        if isinstance(parsed, dict):
-            for cond, props in parsed.items():
-                cond_name = str(cond or "").strip()
-                if not cond_name:
-                    continue
-                if not isinstance(props, dict):
-                    raise ValueError(f"State '{cond_name}' must map to an object of properties.")
-                normalized.append((cond_name, dict(props)))
-            return normalized
-
-        if isinstance(parsed, list):
-            for idx, entry in enumerate(parsed):
-                if not isinstance(entry, dict):
-                    raise ValueError(f"State entry #{idx + 1} must be an object.")
-                cond_name = str(entry.get("condition") or entry.get("state") or "").strip()
-                if not cond_name:
-                    raise ValueError(f"State entry #{idx + 1} is missing 'condition'.")
-                props = entry.get("properties")
-                if props is None:
-                    props = entry.get("props")
-                if not isinstance(props, dict):
-                    raise ValueError(f"State '{cond_name}' must include 'properties' object.")
-                normalized.append((cond_name, dict(props)))
-            return normalized
-
-        raise ValueError("states_json must be a JSON object or array.")
-
-    @staticmethod
-    def _style_state_prop_wire_map() -> Dict[str, str]:
-        return {
-            "border_radius": "%br",
-            "border_width": "%bw",
-            "border_color": "%bc",
-            "border_style": "%bos",
-            "font_size": "%fs",
-            "font_color": "%fc",
-            "alignment": "%fa",
-            "bg_color": "%bgc",
-            "background_color": "%bgc",
-            "background_color_if_empty_image": "background_color_if_empty_image",
-            "background_style": "%bas",
-            "shadow_style": "%bs",
-            "shadow_color": "%bsc",
-            "shadow_h": "%bh",
-            "shadow_v": "%bv",
-            "shadow_blur": "%bsb",
-            "shadow_spread": "%bsp",
-            "separator_style": "%ss",
-            "separator_width": "%sw",
-            "separator_color": "%sc",
-            "icon_color": "%ic",
-            "word_spacing": "%ws",
-            "line_height": "%lh",
-            "letter_spacing": "%ls",
-            "text_shadow": "%tes",
-            "text_shadow_h": "%tsh",
-            "text_shadow_v": "%tsv",
-            "text_shadow_blur": "%tsb",
-            "text_shadow_color": "%tsc",
-            "greyout_color": "greyout_color",
-            "grayout_color": "greyout_color",
-            "greyout_blur": "greyout_blur",
-            "grayout_blur": "greyout_blur",
-            "padding_top": "padding_top",
-            "padding_bottom": "padding_bottom",
-            "padding_left": "padding_left",
-            "padding_right": "padding_right",
-            "center_text_vertically": "%vc",
-            "container_layout": "container_layout",
-            "fit_width": "fit_width",
-            "fit_height": "fit_height",
-            "min_width_css": "min_width_css",
-            "max_width_css": "max_width_css",
-            "min_height_css": "min_height_css",
-            "max_height_css": "max_height_css",
-            "single_width": "single_width",
-            "single_height": "single_height",
-            "use_gap": "use_gap",
-            "row_gap": "row_gap",
-            "column_gap": "column_gap",
-            "nonant_alignment": "nonant_alignment",
-            "gap": "button_gap",
-            "button_gap": "button_gap",
-            "icon_size": "icon_size",
-        }
+    def _style_state_prop_wire_map(self) -> Dict[str, str]:
+        return self._style_lifecycle.definitions.state_property_wire_map()
 
     def _build_style_transition_intents(
         self,
@@ -29725,32 +23603,11 @@ class BubbleCLI:
         *,
         comparison_map: Optional[Dict[str, str]] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Auto-generate AddTransition intents for style condition props.
-        Mirrors sync-figma-style transition rules.
-        """
-        if not props:
-            return []
-        cmap = comparison_map or self._style_state_prop_wire_map()
-        transitionable_keys = {"%bas", "%fc", "%ic", "%bc", "%br", "%bs", "opacity"}
-        bg_related = {"%bgc", "%bgf", "%bgt", "background_gradient_mid"}
-        seen: set[str] = set()
-        intents: List[Dict[str, Any]] = []
-
-        for prop_key in props.keys():
-            wire_key = cmap.get(prop_key, prop_key)
-            transition_key = "%bas" if wire_key in bg_related else wire_key
-            if transition_key not in transitionable_keys or transition_key in seen:
-                continue
-            seen.add(transition_key)
-            intents.append(
-                {
-                    "intent": "AddTransition",
-                    "path": ["styles", style_id, "transitions", transition_key],
-                    "body": {"duration": 200, "fn": "ease"},
-                }
-            )
-        return intents
+        return self._style_lifecycle.definitions.build_transition_intents(
+            style_id,
+            props,
+            comparison_map=comparison_map,
+        )
 
     def _apply_style_state_definitions(
         self,
@@ -29759,13 +23616,11 @@ class BubbleCLI:
         *,
         dry_run: bool = False,
     ) -> bool:
-        if not state_defs:
-            return True
-        logger.info(f"Applying {len(state_defs)} style state(s) to '{style_name}'...")
-        for cond, props in state_defs:
-            if not self.add_style_condition(style_name, cond, dry_run=dry_run, **(props or {})):
-                return False
-        return True
+        return self._style_lifecycle.definitions.apply_state_definitions(
+            style_name,
+            state_defs,
+            dry_run=dry_run,
+        )
 
     def create_style(
         self,
@@ -29775,460 +23630,27 @@ class BubbleCLI:
         allow_property_match: bool = True,
         **kwargs,
     ) -> bool:
-        """
-        Creates a new style.
-
-        Args:
-            name: Style name
-            element_type: "Button" (more to come)
-            dry_run: Preview payload without sending
-            kwargs: Style properties
-        """
-        if not element_type:
-            logger.error("Element type is required for create_style")
-            return False
-        element_type = self._normalize_style_element_type(element_type)
-
-        kwargs = self._normalize_style_kwargs(kwargs)
-
-        states_raw = kwargs.pop("states", None)
-        if states_raw is None:
-            states_raw = kwargs.pop("states_json", None)
-        else:
-            kwargs.pop("states_json", None)
-        try:
-            state_defs = self._normalize_style_state_definitions(states_raw)
-        except ValueError as e:
-            logger.error(str(e))
-            return False
-
-        kwargs = self._resolve_style_color_kwargs(kwargs)
-
-        # Popup styles should not silently inherit an outset drop shadow.
-        # If caller didn't specify any shadow fields, force shadow_style=none.
-        if element_type == "Popup":
-            shadow_args = ("shadow_style", "shadow_h", "shadow_v", "shadow_blur", "shadow_spread", "shadow_color")
-            shadow_provided = any(
-                kwargs.get(k) is not None and (not isinstance(kwargs.get(k), str) or str(kwargs.get(k)).strip() != "")
-                for k in shadow_args
-            )
-            if not shadow_provided:
-                kwargs["shadow_style"] = "none"
-
-        default_style = kwargs.pop("default_style", False)
-
-        normalized_expected_name = name.lower().replace(" ", "_")
-        normalized_expected_name = "".join(c for c in normalized_expected_name if c.isalnum() or c == "_")
-        expected_style_id = f"{element_type}_{normalized_expected_name}_"
-
-        # Idempotency check: Does this style already exist?
-        # 1. Check discovery data. Prefer canonical IDs for the requested type.
-        existing_styles = self.discovery.list_styles()
-        canonical_style_prefix = f"{element_type}_"
-        canonical_target = None
-        legacy_target = None
-        for s in existing_styles:
-            if str(s.get("name", "")).lower() != str(name).lower():
-                continue
-            discovered_type = self._normalize_style_element_type(str(s.get("type", "")))
-            if discovered_type != element_type:
-                continue
-            discovered_id = str(s.get("id") or "")
-            if discovered_id == expected_style_id:
-                canonical_target = s
-                break
-            if discovered_id.startswith(canonical_style_prefix):
-                logger.warning(
-                    f"Found non-canonical style '{name}' (ID: {discovered_id}); expected '{expected_style_id}'. "
-                    f"Creating canonical style ID."
-                )
-                if not legacy_target:
-                    legacy_target = s
-                continue
-            if not legacy_target:
-                legacy_target = s
-        target = canonical_target
-        if not target and legacy_target:
-            logger.warning(
-                f"Found legacy style '{name}' (ID: {legacy_target.get('id')}) with non-canonical prefix. "
-                f"Creating canonical '{canonical_style_prefix}...'."
-            )
-
-        # 2. Check local CLI cache (for recently created styles in this session)
-        raw_styles = self.discovery.data.get("styles", {}) if isinstance(self.discovery.data.get("styles", {}), dict) else {}
-        cache_target = None
-        if "styles" in self._cli_cache and name in self._cli_cache["styles"]:
-            cache_target = self._cli_cache["styles"][name]
-            cache_style_id = str(cache_target.get("id") or "")
-            if cache_style_id and cache_style_id != expected_style_id:
-                logger.warning(
-                    f"Ignoring cached style '{name}' ({cache_style_id}) because canonical ID should be '{expected_style_id}'."
-                )
-                self._remove_from_cache("styles", name)
-                cache_target = None
-            elif cache_style_id and not cache_style_id.startswith(canonical_style_prefix):
-                logger.warning(
-                    f"Ignoring cached style '{name}' ({cache_style_id}) due to legacy/non-canonical ID."
-                )
-                cache_target = None
-            elif cache_style_id and cache_style_id not in raw_styles:
-                logger.warning(
-                    f"Ignoring stale cached style '{name}' ({cache_style_id}) because it is not present in the current app snapshot."
-                )
-                self._remove_from_cache("styles", name)
-                cache_target = None
-            elif cache_target and element_type == "Image":
-                request_name_lower = str(name or "").strip().lower()
-                request_is_semantic = "/" in str(name or "")
-                generic_image_names = {"content", "image", "wrapper"}
-                conflicting_alias = next(
-                    (
-                        alias_name for alias_name, alias_data in self._cli_cache.get("styles", {}).items()
-                        if alias_name != name
-                        and str(alias_data.get("id") or "") == cache_style_id
-                        and (
-                            (request_is_semantic and str(alias_name).strip().lower() in generic_image_names)
-                            or (request_name_lower in generic_image_names and "/" in str(alias_name))
-                        )
-                    ),
-                    None,
-                )
-                if conflicting_alias:
-                    logger.warning(
-                        f"Ignoring cached image style alias '{name}' ({cache_style_id}) because it conflicts with '{conflicting_alias}'."
-                    )
-                    self._remove_from_cache("styles", name)
-                    cache_target = None
-
-        # 3. Property-based matching fallback (if not found by name)
-        #    Uses RAW discovery data (self.discovery.data['styles']) which has %p,
-        #    NOT list_styles() which strips %p out.
-        if not target and not cache_target and allow_property_match and kwargs:
-            builder = StyleBuilder(self.id_gen)
-            simulated_changes = builder.update_style("dummy", **kwargs)
-            expected_p = {}
-            for change in simulated_changes:
-                path = change.get("path", [])
-                if len(path) >= 4 and path[2] == "%p":
-                    expected_p[path[3]] = change.get("body")
-
-            if expected_p:
-                logger.debug(f"  → Property matching: looking for {list(expected_p.keys())} in {element_type} styles")
-
-                # Build candidate list from RAW discovery data (has %p)
-                candidate_items = []
-                seen_candidate_ids = set()
-                for sid, sdata in raw_styles.items():
-                    if isinstance(sdata, dict):
-                        seen_candidate_ids.add(str(sid))
-                        candidate_items.append({"id": sid, **sdata})
-
-                # Also add CLI cache entries (which also have %p), but only when
-                # the style is present in the current snapshot/injected discovery
-                # state. Cache-only stale styles must not win property matching.
-                if "styles" in self._cli_cache:
-                    for cname, cdata in self._cli_cache["styles"].items():
-                        cached_style_id = str(cdata.get("id") or "")
-                        if (
-                            isinstance(cdata, dict)
-                            and cached_style_id
-                            and cached_style_id in raw_styles
-                            and cached_style_id not in seen_candidate_ids
-                        ):
-                            candidate_items.append({"id": cached_style_id, **cdata})
-                            seen_candidate_ids.add(cached_style_id)
-
-                for s in candidate_items:
-                    # Type check: raw data uses %x, cache uses type
-                    ctype = str(s.get("type", s.get("%x", "")))
-                    sid = str(s.get("id", ""))
-                    if not ctype and sid.startswith(f"{element_type}_"):
-                        ctype = element_type
-                    if self._normalize_style_element_type(ctype) != element_type:
-                        continue
-
-                    candidate_style_name = str(s.get("name") or s.get("display") or s.get("%d") or sid).strip()
-                    request_name_lower = str(name or "").strip().lower()
-                    candidate_name_lower = candidate_style_name.lower()
-                    request_is_generic = BubbleCLI._is_generic_style_context_name(name)
-                    candidate_is_generic = BubbleCLI._is_generic_style_context_name(candidate_style_name)
-                    if not request_is_generic and candidate_is_generic:
-                        continue
-                    if element_type == "Image":
-                        generic_image_names = {"content", "image", "wrapper"}
-                        request_is_semantic = "/" in str(name or "")
-                        candidate_is_semantic = "/" in candidate_style_name
-                        if request_is_semantic and candidate_name_lower in generic_image_names:
-                            continue
-                        if request_name_lower in generic_image_names and candidate_is_semantic:
-                            continue
-
-                    style_p = s.get("%p") or {}
-                    if not style_p:
-                        continue
-
-                    # Check: every expected key must match the existing style
-                    is_match = True
-                    for k, v in expected_p.items():
-                        existing_v = style_p.get(k)
-                        if existing_v != v:
-                            # Tolerate None/missing for certain keys or falsy values
-                            if existing_v in (None, "", "none", 0, "0", False) and v in (None, "", "none", 0, "0", False):
-                                continue
-
-                            # Special case: boxshadow_enable can be None in existing styles even if True is expected
-                            if k == "boxshadow_enable" and v is True and existing_v is None:
-                                continue
-
-                            is_match = False
-                            break
-
-                    if is_match:
-                        style_name_match = candidate_style_name
-                        logger.info(f"  → Style property match found! Reusing '{style_name_match}' (ID: {sid}) instead of creating '{name}'.")
-                        target = {"id": sid, "name": style_name_match, "type": element_type}
-                        break
-
-        if target or cache_target:
-            style_id = target.get("id") if target else cache_target.get("id")
-            if default_style:
-                self.set_default_style(element_type, style_id, dry_run=dry_run)
-
-            if kwargs:
-                logger.info(f"Style '{name}' already exists (ID: {style_id}). Updating properties...")
-                ok = self.update_style_definition(
-                    name, element_type, dry_run=dry_run, style_id_override=style_id, **kwargs
-                )
-                if not ok:
-                    return False
-                return self._apply_style_state_definitions(name, state_defs, dry_run=dry_run)
-            else:
-                logger.info(f"Style '{name}' already exists (ID: {style_id}). Skipping creation (no update props provided).")
-                if not cache_target:
-                    self._add_to_cache("styles", name, {"id": style_id, "type": element_type})
-
-                # Update discovery data internally so pruning sees current values in same process
-                if "styles" not in self.discovery.data: self.discovery.data["styles"] = {}
-                if style_id not in self.discovery.data["styles"]:
-                    self.discovery.data["styles"][style_id] = {"id": style_id, "type": element_type, "%p": {}}
-
-                return self._apply_style_state_definitions(name, state_defs, dry_run=dry_run)
-
-        logger.info(f"Creating style '{name}' for {element_type}...")
-
-        # 1. Generate ID using Bubble's convention: Type_snake_case_name_
-        # This seems important for the Editor to recognize the style correctly?
-        normalized_name = name.lower().replace(" ", "_")
-        # Ensure it only contains valid chars
-        normalized_name = "".join(c for c in normalized_name if c.isalnum() or c == "_")
-        style_id = f"{element_type}_{normalized_name}_"
-
-        pb = PayloadBuilder(appname=self.appname)
-
-        # 2. Create Style (Minimal Payload)
-        builder = StyleBuilder(self.id_gen)
-        # Only pass name and type to create pure style object without properties
-        style_payload = builder.create_style(name, element_type=element_type)
-        # Force the ID to match our generated one
-        style_payload["id"] = style_id
-
-        # Remove %p and %s from payload to be safe
-        if "%p" in style_payload: del style_payload["%p"]
-        if "%s" in style_payload: del style_payload["%s"]
-
-        # A. Update Index
-        pb.add_update_index(["_index", "id_to_path", style_id], f"styles.{style_id}")
-
-        # B. CreateStyle
-        pb.add_create_style(style_id, style_payload)
-
-        # C. IdToPathFixer - Explicitly requested by user finding from HAR
-        # Only needed if we are 'fixing' a path? HAR shows it coming right after creation.
-        # It seems to map the ID to null? Or maybe it triggers an internal fixup.
-        # content: body=null, path_array=["_index", "id_to_path", ID]
-        pb.changes.append({
-            "intent": {"name": "IdToPathFixer"},
-            "path_array": ["_index", "id_to_path", style_id],
-            "body": None,
-            "version_control_api_version": 4,
-            "changelog_data": [],
-            "session_id": pb.id_gen.session_id()
-        })
-
-        # Handle default style (must be done in separate request usually, but let's try batching if safe)
-        # Actually ChangeAppSetting is a separate intent. We could batch it.
-        # But for safety and consistency with my new helper, let's call it separately OR reimplement purely here.
-        # Re-implementing purely inside the payload to keep creation atomic:
-        if default_style:
-             default_key = self._default_style_settings_key(element_type)
-             pb.add_change(
-                intent_name="ChangeAppSetting",
-                path_array=["settings", "client_safe", "default_styles"],
-                body={default_key: style_id}
-            )
-
-        # Bubble requires an id_counter for creation operations
-        pb.add_change_raw({
-            "type": "id_counter",
-            "value": random.randint(10000000, 20000000)
-        })
-
-        if dry_run:
-            logger.info(f"\n DRY RUN - Style Creation Payload ({style_id}):")
-            logger.log(pb.to_json())
-        else:
-            try:
-                # Send Creation first
-                self._dispatch_payload(pb)
-                logger.success(f"Created style '{name}' ({style_id})")
-            except Exception as e:
-                logger.error(f"Failed to send creation payload: {e}")
-                return False
-
-        # Cache the new style ID (live run only to avoid poisoning cache)
-        if not dry_run:
-            self._add_to_cache("styles", name, {
-                "id": style_id,
-                "type": element_type,
-                "%p": {} # Empty initially
-            })
-
-        # CRITICAL: Also inject into discovery data so list_styles()
-        # finds it on subsequent calls within the same session.
-        # Without this, the stale-guard invalidates the CLI cache entry
-        # because the style isn't in the static console.log snapshot.
-        if 'styles' not in self.discovery.data:
-            self.discovery.data['styles'] = {}
-        self.discovery.data['styles'][style_id] = {
-            "name": name,
-            "display": name,
-            "%d": name,
-            "type": element_type,
-            "%x": element_type,
-            "%p": {},
-        }
-
-        # 3. Update Properties (SetStyleData)
-        if kwargs:
-            if element_type in {"FileInput", "PictureInput", "Alert"} and kwargs.get("bold") is None:
-                if any(
-                    kwargs.get(k) is not None
-                    for k in (
-                        "font_weight",
-                        "font_size",
-                        "font_family",
-                        "font_color",
-                        "alignment",
-                        "line_height",
-                        "letter_spacing",
-                        "word_spacing",
-                    )
-                ):
-                    # Bubble can otherwise keep the default uploader/alert bold flag
-                    # even when a non-bold font_weight is supplied.
-                    kwargs["bold"] = False
-            logger.info(f"Applying initial properties to '{name}'...")
-            ok = self.update_style_definition(
-                name, element_type, dry_run=dry_run, style_id_override=style_id, **kwargs
-            )
-            if not ok:
-                return False
-
-        return self._apply_style_state_definitions(name, state_defs, dry_run=dry_run)
-
-    def rename_style(self, style_id: str, new_name: str, dry_run: bool = False) -> bool:
-        """
-        Renames a style by updating its %d property.
-        Useful for recovering styles created without a name.
-        """
-        logger.info(f"Renaming style '{style_id}' to '{new_name}'...")
-
-        # Build payloadWrapper
-        pb = PayloadBuilder(self.appname)
-        pb.add_change(
-            intent_name="SetStyleData",
-            path_array=["styles", style_id, "%d"],
-            body=new_name
+        return self._style_lifecycle.definitions.create_style(
+            name,
+            element_type,
+            dry_run=dry_run,
+            allow_property_match=allow_property_match,
+            **kwargs,
         )
 
-        if dry_run:
-            logger.info(f"\n DRY RUN - Rename Payload ({style_id}):")
-            logger.log(json.dumps(pb.changes, indent=2))
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Renamed style '{style_id}' to '{new_name}'")
-            # Update cache if it exists
-            # We can't easily update discovery data without a full refresh, but we can update the CLI cache if needed
-            return True
-        except Exception as e:
-            logger.error(f"Failed to rename: {e}")
-            return False
+    def rename_style(self, style_id: str, new_name: str, dry_run: bool = False) -> bool:
+        return self._style_lifecycle.definitions.rename_style(
+            style_id,
+            new_name,
+            dry_run=dry_run,
+        )
 
     def create_button_style(self, name: str, theme_json: str, dry_run: bool = False) -> bool:
-        """
-        Creates a button style with base and conditional states (hover, pressed, etc.)
-        Example: create-button-style 'Primary' '{"base": {"bg_color": "#000"}, "hover": {"bg_color": "#333"}}'
-        """
-        try:
-            theme = json.loads(theme_json)
-        except json.JSONDecodeError:
-            logger.error(f"Invalid theme_json: {theme_json}")
-            return False
-
-        # Resolve colors in the theme object
-        for state in theme:
-            if not isinstance(theme[state], dict): continue
-            for prop in list(theme[state].keys()):
-                val = theme[state][prop]
-                if isinstance(val, str) and (val.startswith('#') or val.startswith('rgba') or val.startswith('var(')):
-                    theme[state][prop] = self._resolve_color_arg(val)
-
-        # Idempotency check: Does this style already exist?
-        existing_styles = self.discovery.list_styles()
-        target = next((s for s in existing_styles if s.get("name") == name and s.get("type") == "Button"), None)
-
-        style_id = None
-        if target:
-            style_id = target.get("id")
-            logger.info(f"Style '{name}' already exists (ID: {style_id}). Updating with composite theme...")
-        else:
-            # Check local CLI cache (for recently created styles in this session)
-            if "styles" in self._cli_cache and name in self._cli_cache["styles"]:
-                cache_target = self._cli_cache["styles"][name]
-                if cache_target.get("type") == "Button":
-                    style_id = cache_target.get("id")
-
-        builder = StyleBuilder(self.id_gen)
-        pb = PayloadBuilder(self.appname)
-
-        if not style_id:
-            logger.info(f"Creating composite button style '{name}'...")
-            style_payload = builder.create_style(name, element_type="Button")
-            style_id = style_payload["id"]
-            pb.add_update_index(["_index", "id_to_path", style_id], f"styles.{style_id}")
-            pb.add_create_style(style_id, style_payload)
-
-        # Apply theme intents
-        intents = builder.apply_theme(style_id=style_id, theme=theme, element_type="Button")
-        for intent in intents:
-             pb.add_intent(intent)
-
-        if dry_run or self.dry_run:
-            logger.info(f"\n DRY RUN - Composite Style Payload ({style_id}):")
-            logger.log(json.dumps(pb.changes, indent=2))
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Configured composite button style '{name}' ({style_id})")
-            # Cache the new style ID
-            self._add_to_cache("styles", name, {"id": style_id, "type": "Button"})
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._style_lifecycle.definitions.create_button_style(
+            name,
+            theme_json,
+            dry_run=dry_run,
+        )
 
     def update_style_definition(
         self,
@@ -30238,346 +23660,30 @@ class BubbleCLI:
         style_id_override: Optional[str] = None,
         **kwargs,
     ) -> bool:
-        """
-        Updates an existing style definition (color, font, etc.).
-        """
-        logger.info(f"Updating style definition '{name}'...")
-        element_type = self._normalize_style_element_type(element_type)
-
-        # Normalize background aliases
-        if "bg_color" in kwargs:
-             kwargs["background_color"] = kwargs.pop("bg_color")
-        if "bg_style" in kwargs:
-             kwargs["background_style"] = kwargs.pop("bg_style")
-
-        states_raw = kwargs.pop("states", None)
-        if states_raw is None:
-            states_raw = kwargs.pop("states_json", None)
-        else:
-            kwargs.pop("states_json", None)
-        try:
-            state_defs = self._normalize_style_state_definitions(states_raw)
-        except ValueError as e:
-            logger.error(str(e))
-            return False
-
-        kwargs = self._normalize_style_kwargs(kwargs)
-
-        kwargs = self._resolve_style_color_kwargs(kwargs)
-
-        default_style = kwargs.pop("default_style", False)
-
-        style_id = str(style_id_override or "").strip()
-        if not style_id:
-            # Find style ID
-            # 1. Check discovery data
-            styles = self.discovery.list_styles()
-            canonical_style_prefix = f"{element_type}_" if element_type else ""
-            target_style = None
-            legacy_target_style = None
-            for s in styles:
-                if str(s.get("name", "")).lower() != str(name).lower():
-                    continue
-                discovered_type = self._normalize_style_element_type(str(s.get("type", "")))
-                if element_type and discovered_type != element_type:
-                    continue
-                discovered_id = str(s.get("id") or "")
-                if not element_type or discovered_id.startswith(canonical_style_prefix):
-                    target_style = s
-                    break
-                if not legacy_target_style:
-                    legacy_target_style = s
-            if not target_style and legacy_target_style:
-                logger.warning(
-                    f"Using legacy style '{name}' (ID: {legacy_target_style.get('id')}); "
-                    f"consider recreating it to canonical '{canonical_style_prefix}...'."
-                )
-                target_style = legacy_target_style
-
-            # 2. Check local CLI cache
-            raw_styles = self.discovery.data.get("styles", {}) if isinstance(self.discovery.data.get("styles", {}), dict) else {}
-            cache_target = None
-            if not target_style and "styles" in self._cli_cache:
-                # Case-insensitive cache check
-                for c_name, c_data in self._cli_cache["styles"].items():
-                    if c_name.lower() == name.lower():
-                        cache_target = c_data
-                        break
-                if cache_target:
-                    cache_style_id = str(cache_target.get("id") or "")
-                    if cache_style_id and cache_style_id not in raw_styles:
-                        logger.warning(
-                            f"Ignoring stale cached style '{name}' ({cache_style_id}) because it is not present in the current app snapshot."
-                        )
-                        self._remove_from_cache("styles", c_name)
-                        cache_target = None
-
-            if not target_style and not cache_target:
-                # Fallback: check if 'name' is actually an ID
-                if "_" in name and any(
-                    name.startswith(t)
-                    for t in [
-                        "Button", "Text", "Group", "Alert", "Input", "Popup",
-                        "RepeatingGroup", "FloatingGroup", "GroupFocus", "Shape",
-                        "Image", "Video", "HTML", "Icon", "Link", "Dropdown",
-                        "DateInput", "Checkbox", "RadioButtons", "SliderInput",
-                        "FileInput", "MultiLineInput", "AutocompleteDropdown",
-                    ]
-                ):
-                    logger.warning(f"Style '{name}' not found locally. Using as ID directly.")
-                    style_id = name
-                else:
-                    logger.error(f"Style '{name}' not found.")
-                    return False
-            else:
-                style_id = target_style.get("id") if target_style else cache_target.get("id")
-
-        if not style_id:
-             logger.error(f"Style ID not found for '{name}'")
-             return False
-
-        logger.log(f"   Found ID: {style_id}")
-
-        builder = StyleBuilder(self.id_gen)
-        # Use update_style to get list of changes
-        changes = builder.update_style(style_id, **kwargs)
-
-        if not changes:
-            logger.warning("No changes to apply.")
-            return self._apply_style_state_definitions(name, state_defs, dry_run=dry_run)
-
-        # Build payloadWrapper
-        pb = PayloadBuilder(self.appname)
-        should_clear_font_family = kwargs.get("font_face") is not None and kwargs.get("font_family") in (None, "")
-
-        for change in changes:
-            pb.add_set_style_data(change["path"], change["body"])
-        if should_clear_font_family:
-            pb.add_set_style_data(["styles", style_id, "%p", "font_family"], None)
-
-        if default_style:
-            default_key = self._default_style_settings_key(element_type)
-            pb.add_change(
-                intent_name="ChangeAppSetting",
-                path_array=["settings", "client_safe", "default_styles"],
-                body={default_key: style_id}
-            )
-
-        if dry_run:
-            logger.info(" DRY RUN - Style Update Payload (%s):" % style_id)
-            # Use safe access to changes
-            changes_list = pb.changes if hasattr(pb, "changes") else []
-            print(json.dumps(changes_list, indent=2))
-
-            # Update discovery data internally so pruning sees current values in same process
-            if "styles" not in self.discovery.data: self.discovery.data["styles"] = {}
-            if style_id not in self.discovery.data["styles"]:
-                 self.discovery.data["styles"][style_id] = {"id": style_id, "type": element_type, "%p": {}}
-            elif not isinstance(self.discovery.data["styles"][style_id].get("%p"), dict):
-                 self.discovery.data["styles"][style_id]["%p"] = {}
-
-            for change in changes:
-                 path = change.get("path", [])
-                 if len(path) >= 4 and path[2] == "%p":
-                      self.discovery.data["styles"][style_id]["%p"][path[3]] = change.get("body")
-            if should_clear_font_family:
-                 self.discovery.data["styles"][style_id]["%p"].pop("font_family", None)
-            if not self._apply_style_state_definitions(name, state_defs, dry_run=dry_run):
-                return False
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Updated style definition '{name}' ({style_id})")
-
-            # Fetch base props to merge
-            base_props = self._get_base_style_props(style_id)
-
-            # Update local cache with merged properties for consistent diffing in the same session
-            merged_p = dict(base_props)
-            comparison_map_inv = {
-                "border_radius": "%br", "border_width": "%bw", "border_color": "%bc", "border_style": "%bos",
-                "font_size": "%fs", "font_color": "%fc", "alignment": "%fa",
-                "background_color": "%bgc", "background_color_if_empty_image": "background_color_if_empty_image", "background_style": "%bas", "bg_style": "%bas",
-                "shadow_style": "%bs", "shadow_color": "%bsc", "shadow_h": "%bh", "shadow_v": "%bv",
-                "shadow_blur": "%bsb", "shadow_spread": "%bsp", "icon_color": "%ic",
-                "separator_style": "%ss", "separator_width": "%sw", "separator_color": "%sc",
-                "word_spacing": "%ws", "letter_spacing": "%ls",
-                "text_shadow": "%tes", "text_shadow_h": "%tsh", "text_shadow_v": "%tsv",
-                "text_shadow_blur": "%tsb", "text_shadow_color": "%tsc",
-                "greyout_color": "greyout_color", "grayout_color": "greyout_color",
-                "greyout_blur": "greyout_blur", "grayout_blur": "greyout_blur",
-                "padding_top": "padding_top", "padding_bottom": "padding_bottom",
-                "padding_left": "padding_left", "padding_right": "padding_right",
-                "gap": "button_gap", "button_gap": "button_gap", "line_height": "%lh",
-                "center_text_vertically": "%vc",
-                "four_border_style": "four_border_style",
-                "border_style_top": "border_style_top", "border_style_bottom": "border_style_bottom",
-                "border_style_left": "border_style_left", "border_style_right": "border_style_right",
-                "border_color_top": "border_color_top", "border_color_bottom": "border_color_bottom",
-                "border_color_left": "border_color_left", "border_color_right": "border_color_right",
-                "border_width_top": "border_width_top", "border_width_bottom": "border_width_bottom",
-                "border_width_left": "border_width_left", "border_width_right": "border_width_right",
-                "border_roundness_top": "border_roundness_top", "border_roundness_bottom": "border_roundness_bottom",
-                "border_roundness_left": "border_roundness_left", "border_roundness_right": "border_roundness_right",
-                "container_layout": "container_layout",
-                "range_type": "range_type",
-                "slider_background_color": "background_color",
-                "handle_color": "handle_color",
-                "range_area_color": "range_area_color",
-                "fit_width": "fit_width", "fit_height": "fit_height",
-                "min_width_css": "min_width_css", "max_width_css": "max_width_css",
-                "min_height_css": "min_height_css", "max_height_css": "max_height_css",
-                "single_width": "single_width", "single_height": "single_height",
-                "use_gap": "use_gap", "row_gap": "row_gap", "column_gap": "column_gap",
-                "nonant_alignment": "nonant_alignment", "order": "order"
-            }
-            for k, v in kwargs.items():
-                wire_k = comparison_map_inv.get(k, k)
-                merged_p[wire_k] = v
-            if should_clear_font_family:
-                merged_p.pop("font_family", None)
-
-            self._add_to_cache("styles", name, {"id": style_id, "type": element_type, "%p": merged_p})
-            logger.debug(f"  ✓ [CacheUpdate] Style {name} ({style_id}) cached with {len(merged_p)} properties. Keys: {list(merged_p.keys())}")
-            if not self._apply_style_state_definitions(name, state_defs, dry_run=dry_run):
-                return False
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send/cache: {e}")
-            return False
+        return self._style_lifecycle.definitions.update_style_definition(
+            name,
+            element_type,
+            dry_run=dry_run,
+            style_id_override=style_id_override,
+            **kwargs,
+        )
 
     def delete_style(self, name: str, element_type: str = None, dry_run: bool = False) -> bool:
-        """
-        Deletes a style by name or ID.
-        """
-        logger.info(f"Deleting style '{name}'...")
-
-        normalized_type = None
-        if element_type:
-            normalized_type = self._normalize_style_element_type(element_type)
-
-        # Robust lookup: cache + discovery + normalized/approximate matches.
-        style_id = self.find_style_id(name, element_type=normalized_type)
-        if not style_id:
-            # Fallback: check if 'name' itself is a style ID.
-            if "_" in name and any(name.startswith(t) for t in ["Button", "Text", "Group", "Popup", "Input"]):
-                style_id = name
-            else:
-                logger.error(f"Style '{name}' not found.")
-                return False
-
-        if not style_id:
-             logger.error(f"Style ID not found for '{name}'")
-             return False
-
-        pb = PayloadBuilder(self.appname)
-        pb.add_delete_style(style_id)
-
-        if dry_run:
-            logger.info(f"\n DRY RUN - Delete Style ({style_id})")
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Deleted style '{name}' ({style_id})")
-            # Clear from cache (by key and by id).
-            self._remove_from_cache("styles", name)
-            style_cache = self._cli_cache.get("styles", {}) if isinstance(self._cli_cache, dict) else {}
-            if isinstance(style_cache, dict):
-                stale_keys = [
-                    cache_key
-                    for cache_key, cache_data in style_cache.items()
-                    if isinstance(cache_data, dict) and str(cache_data.get("id") or "").strip() == str(style_id).strip()
-                ]
-                for cache_key in stale_keys:
-                    self._remove_from_cache("styles", cache_key)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to delete style: {e}")
-            return False
+        return self._style_lifecycle.definitions.delete_style(
+            name,
+            element_type,
+            dry_run=dry_run,
+        )
 
     def delete_styles(self, names: List[str] = None, pattern: str = None, dry_run: bool = False) -> bool:
-        """Delete multiple styles by name list or regex pattern."""
-        # Get styles from discovery
-        styles = self.discovery.list_styles()
-
-        # Merge with styles from cache (un-persisted session styles)
-        cached_styles = []
-        if "styles" in self._cli_cache:
-            for name, data in self._cli_cache["styles"].items():
-                if not any(s.get("name") == name for s in styles):
-                    cached_styles.append({"name": name, "id": data["id"], "type": data["type"], "is_default": False})
-
-        all_candidates = styles + cached_styles
-
-        if not all_candidates:
-            logger.error("No styles found")
-            return False
-
-        targets = []
-        if names:
-            name_set = {n.lower().strip() for n in names}
-            for s in all_candidates:
-                if s.get("name", "").lower().strip() in name_set:
-                    targets.append(s)
-
-        if pattern:
-            regex = re.compile(pattern, re.IGNORECASE)
-            for s in all_candidates:
-                if regex.search(s.get("name", "")):
-                    if s not in targets:
-                        targets.append(s)
-
-        if not targets:
-            logger.error("No matching styles found to delete")
-            return False
-
-        # Filter out default styles
-        targets = [s for s in targets if not s.get("is_default")]
-        if not targets:
-            logger.error("No custom styles found in targets (default styles cannot be deleted)")
-            return False
-
-        logger.info(f"Deleting {len(targets)} styles...")
-        pb = PayloadBuilder(self.appname)
-        for s in targets:
-            pb.add_delete_style(s["id"])
-
-        if dry_run:
-            logger.info(f"\n DRY RUN - Delete {len(targets)} Styles")
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully deleted {len(targets)} styles.")
-            # Clear from cache
-            for s in targets:
-                self._remove_from_cache("styles", s["name"])
-            return True
-        except Exception as e:
-            logger.error(f"Failed to delete styles: {e}")
-            return False
+        return self._style_lifecycle.definitions.delete_styles(
+            names=names,
+            pattern=pattern,
+            dry_run=dry_run,
+        )
 
     def clear_custom_styles(self, dry_run: bool = False) -> bool:
-        """Delete ALL custom styles."""
-        logger.info("Clearing ALL custom styles...")
-
-        # Get styles from discovery
-        styles = self.discovery.list_styles()
-        custom_styles = [s for s in styles if not s.get("is_default")]
-
-        # Add styles from cache
-        if "styles" in self._cli_cache:
-            for name, data in self._cli_cache["styles"].items():
-                if not any(s.get("name") == name for s in custom_styles):
-                    custom_styles.append({"name": name, "id": data["id"], "type": data["type"], "is_default": False})
-
-        if not custom_styles:
-            logger.info("No custom styles to clear.")
-            return True
-
-        return self.delete_styles(names=[s["name"] for s in custom_styles], dry_run=dry_run)
+        return self._style_lifecycle.definitions.clear_custom_styles(dry_run=dry_run)
 
     def replace_action(
         self,
@@ -31278,33 +24384,18 @@ class BubbleCLI:
             if b_val is not None:
                 pb.add_set_data(normalized_cp + ["%p", b_key], b_val)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result.get('id'), create_body, element_key=element_slot_key)
-            return element_object_id
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created text: '{content[:20]}...'")
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result.get('id'), create_body, element_key=element_slot_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(element_name or "").strip(),
-                    str(create_body.get("%dn") or "").strip(),
-                ],
-                element_id=str(create_body.get("id") or ""),
-                element_key=element_slot_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return element_object_id
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=create_body,
+            element_key=element_slot_key,
+            aliases=[element_name, create_body.get("%dn")],
+            result_value=element_object_id,
+            success_message=f"Successfully created text: '{content[:20]}...'",
+            dry_run=dry_run,
+        )
 
     def create_button(
         self, context_name: str, parent_name: str, name: str, label: str = "Button",
@@ -31531,36 +24622,19 @@ class BubbleCLI:
             )
         _replay_button_props()
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache for subsequent batch operations
-            full_body["id"] = element_object_id
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=element_slot_key)
-            return element_object_id
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created button: '{name}'")
-            # Inject into discovery cache for subsequent batch operations
-            full_body["id"] = element_object_id
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=element_slot_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                    str(label or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=element_slot_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return element_object_id
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        full_body["id"] = element_object_id
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=element_slot_key,
+            aliases=[name, full_body.get("%dn"), label],
+            result_value=element_object_id,
+            success_message=f"Successfully created button: '{name}'",
+            dry_run=dry_run,
+        )
 
     def create_page(
         self,
@@ -33730,33 +26804,20 @@ class BubbleCLI:
             if b_val is not None:
                 pb.add_set_data(normalized_cp + ["%p", b_key], b_val)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            full_body["id"] = popup_key
-            self.discovery.inject_element(context_id, context_type, None, full_body, element_key=popup_key)
-            return popup_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created popup: '{name}'")
-            self.discovery.inject_element(context_id, context_type, None, full_body, element_key=popup_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=popup_key,
-                parent_path=[],
-            )
-            return popup_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        full_body["id"] = popup_key
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result={"id": context_id, "path": []},
+            body=full_body,
+            element_key=popup_key,
+            aliases=[name, full_body.get("%dn")],
+            result_value=popup_key,
+            success_message=f"Successfully created popup: '{name}'",
+            dry_run=dry_run,
+            use_parent_result_id=False,
+        )
 
     def update_popup(
         self,
@@ -34324,9 +27385,15 @@ class BubbleCLI:
 
                 popup_has_style_overrides = False
                 carry_props: Dict[str, Any] = {}
+                protected_non_style_keys = (
+                    self._style_lifecycle.assignments.overrides.protected_keys("Popup")
+                )
                 for existing_key, existing_value in current_popup_props.items():
                     key_str = str(existing_key or "").strip()
                     if not key_str:
+                        continue
+                    if key_str in protected_non_style_keys:
+                        carry_props[key_str] = existing_value
                         continue
                     looks_style_key = (
                         key_str in style_override_key_set
@@ -34392,103 +27459,15 @@ class BubbleCLI:
         dry_run: bool = False,
         prefer_last: bool = False,
     ) -> bool:
-        """Delete a popup element by name or id."""
-        resolved = self._resolve_element_for_updates(
-            context_name=context_name,
-            element_name=element_name,
+        return self._visual_mutations.deletions.delete(
+            context_name,
+            element_name,
+            allowed_types=frozenset(),
+            expected_label='popup',
+            success_label='popup',
+            dry_run=dry_run,
             prefer_last=prefer_last,
         )
-        if not resolved:
-            return False
-        context_id, context_type, result = resolved
-
-        element_obj = result.get("element", {}) if isinstance(result, dict) else {}
-        element_type = str(element_obj.get("%x") or element_obj.get("type") or "").strip().lower()
-        if element_type and element_type != "popup":
-            logger.warning(f"Element '{element_name}' is type '{element_type}', expected 'popup'. Proceeding anyway.")
-
-        target_id = str(result.get("id") or element_obj.get("id") or "").strip()
-        path_array = self._resolve_canonical_existing_element_path(
-            context_id,
-            context_type,
-            result,
-            target_id,
-        )
-        if not target_id:
-            _, token = self._find_last_element_token(path_array)
-            target_id = str(token or "").strip()
-        if not target_id:
-            logger.error(f"Could not resolve element id for '{element_name}'.")
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        pb.add_update_index(["_index", "id_to_path", target_id], None)
-        pb.changes.append(
-            {
-                "intent": {
-                    "name": "RemoveElement",
-                    "id": random.randint(1, 999999),
-                    "intent_details": {
-                        "user_action": "Keyboard Press Delete",
-                        "selected_element": target_id,
-                    },
-                    "source_appname": "",
-                },
-                "path_array": path_array,
-                "body": None,
-                "version_control_api_version": 4,
-                "changelog_data": [],
-                "session_id": pb.session_id,
-            }
-        )
-
-        parent_updates = self._find_issues_sub_parents_for_child(target_id)
-        if not parent_updates:
-            fallback_parent = None
-            fallback_children: List[str] = []
-            if len(path_array) >= 2:
-                parent_path = path_array[:-2]
-                parent_node = self._get_value_at_path(parent_path)
-                fallback_parent = str(parent_node.get("id") or "").strip() if isinstance(parent_node, dict) else None
-                if fallback_parent:
-                    fallback_children = self._child_ids_from_node(parent_node)
-            if not fallback_parent:
-                fallback_parent = (
-                    self._resolve_context_object_id_from_index(context_id, context_type)
-                    or self._lookup_cached_context_object_id(context_type, context_id)
-                )
-                if fallback_parent:
-                    try:
-                        root_node = self.discovery._get_context_root(context_id, context_type)
-                    except Exception:
-                        root_node = None
-                    fallback_children = self._child_ids_from_node(root_node)
-                    if not fallback_children:
-                        fallback_children = self._root_child_ids_from_index(context_id, context_type)
-            if fallback_parent:
-                parent_updates = [(fallback_parent, fallback_children)]
-        for parent_id, children in parent_updates:
-            updated = [cid for cid in children if str(cid) != target_id]
-            pb.add_update_index(["_index", "issues_sub", str(parent_id)], json.dumps(updated))
-
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            return True
-
-        try:
-            self._dispatch_payload(pb)
-            self._remove_cached_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                element_id=target_id,
-                element_path=result.get("path") if isinstance(result.get("path"), list) else None,
-            )
-            logger.success(f"Successfully deleted popup: '{element_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
 
     def _write_create_from_html_debug_event(self, event: str, payload: Optional[Dict[str, Any]] = None) -> None:
         try:
@@ -36908,6 +29887,66 @@ class BubbleCLI:
                         full_body["%p"] = full_props
                     element_type = "Image"
 
+                elif action == "create_dropdown":
+                    extra_props: Dict[str, Any] = {}
+                    visual_kwargs: Dict[str, Any] = {}
+                    _pipeline_nonant(extra_props, params)
+                    _forward_extra_props(
+                        extra_props,
+                        params,
+                        [
+                            "vert_alignment",
+                            "horiz_alignment",
+                        ],
+                    )
+                    _forward_extra_props(
+                        visual_kwargs,
+                        params,
+                        [
+                            "margin_left",
+                            "margin_right",
+                            "margin_top",
+                            "margin_bottom",
+                            "padding_left",
+                            "padding_right",
+                            "padding_top",
+                            "padding_bottom",
+                            "border_radius",
+                            "border_width",
+                            "border_color",
+                            "border_style",
+                            "bg_color",
+                            "font_color",
+                            "text_color",
+                            "font_size",
+                        ],
+                    )
+                    dropdown_width = _to_int(params.get("width"), None)
+                    dropdown_height = _to_int(params.get("height"), None)
+                    full_body = eb.dropdown(
+                        _pipeline_name("dd", _clean_text(str(params.get("name", ""))), "dropdown"),
+                        placeholder=_clean_text(str(params.get("placeholder", "Choose an option..."))),
+                        choice_style="static",
+                        choices=str(params.get("choices") or ""),
+                        choice_type="text",
+                        required=bool(params.get("required", False)),
+                        disabled=bool(params.get("disabled", False)),
+                        width=dropdown_width,
+                        height=dropdown_height or 48,
+                        width_unset=dropdown_width is None,
+                        min_width=params.get("min_width_css"),
+                        max_width=params.get("max_width_css"),
+                        fixed_width=bool(params.get("single_width", False)),
+                        min_height=params.get("min_height_css"),
+                        max_height=params.get("max_height_css"),
+                        fixed_height=bool(params.get("single_height", False)),
+                        **visual_kwargs,
+                        extra_props=extra_props,
+                    )
+                    if isinstance(full_body, dict):
+                        full_body.pop("%s1", None)
+                    element_type = "Dropdown"
+
                 elif action == "create_input":
                     extra_props: Dict[str, Any] = {}
                     visual_kwargs: Dict[str, Any] = {}
@@ -37676,218 +30715,12 @@ class BubbleCLI:
         Removes properties from a dictionary if they exactly match the default values in the assigned style.
         This prevents unnecessary 'style overrides' in Bubble.
         """
-        if not style_id or not isinstance(self.discovery.data, dict):
-            return
-
-        style_obj = self.discovery.data.get("styles", {}).get(style_id)
-        if not style_obj or not isinstance(style_obj, dict):
-            return
-
-        style_p = style_obj.get("%p", {})
-        if not isinstance(style_p, dict):
-            return
-
-        # Mapping between SDK property names (keys often used in ElementBuilder/kwargs)
-        # and Bubble's internal compressed keys used in styles.
-        _KEY_MAP = {
-            # Background
-            "bg_color": "%bgc",
-            "background_color": "%bgc",
-            "background_style": "%bas",
-            "bg_style": "%bas",
-
-            # Border
-            "border_radius": "%br",
-            "border_roundness": "%br",
-            "border_width": "%bw",
-            "border_color": "%bc",
-            "border_style": "%bos",
-
-            # Independent Borders
-            "border_style_top": "border_style_top",
-            "border_style_bottom": "border_style_bottom",
-            "border_style_left": "border_style_left",
-            "border_style_right": "border_style_right",
-            "border_width_top": "border_width_top",
-            "border_width_bottom": "border_width_bottom",
-            "border_width_left": "border_width_left",
-            "border_width_right": "border_width_right",
-            "border_color_top": "border_color_top",
-            "border_color_bottom": "border_color_bottom",
-            "border_color_left": "border_color_left",
-            "border_color_right": "border_color_right",
-            "border_roundness_top_left": "border_roundness_top",
-            "border_roundness_top_right": "border_roundness_right",
-            "border_roundness_bottom_right": "border_roundness_bottom",
-            "border_roundness_bottom_left": "border_roundness_left",
-            "four_border_style": "four_border_style",
-
-            # Padding & Gap
-            "padding_top": "padding_top",
-            "padding_bottom": "padding_bottom",
-            "padding_left": "padding_left",
-            "padding_right": "padding_right",
-            "row_gap": "row_gap",
-            "column_gap": "column_gap",
-            "gap": "button_gap",
-
-            # Shadow
-            "shadow_style": "%bs",
-            "shadow_h": "%bh",
-            "shadow_v": "%bv",
-            "shadow_blur": "%bsb",
-            "shadow_spread": "%bsp",
-            "shadow_color": "%bsc",
-
-            # Typography
-            "font_size": "%fs",
-            "line_height": "%lh",
-            "font_color": "%fc",
-            "text_color": "%fc",
-            "font_family": "font_family",
-            "font_weight": "font_weight",
-
-            # Dimensions & Layout
-            "min_width": "min_width_css",
-            "min_width_css": "min_width_css",
-            "max_width": "max_width_css",
-            "max_width_css": "max_width_css",
-            "min_height": "min_height_css",
-            "min_height_css": "min_height_css",
-            "max_height": "max_height_css",
-            "max_height_css": "max_height_css",
-            "fit_width": "fit_width",
-            "fit_height": "fit_height",
-            "single_width": "single_width",
-            "single_height": "single_height",
-            "container_layout": "container_layout",
-            "use_gap": "use_gap",
-            "row_gap": "row_gap",
-            "column_gap": "column_gap",
-            "order": "order",
-            "nonant_alignment": "nonant_alignment",
-            "vertical_alignment": "vert_alignment",
-            "horizontal_alignment": "horiz_alignment",
-            "container_horiz_alignment": "container_horiz_alignment",
-            "container_vert_alignment": "container_vert_alignment",
-            "fit_width": "fit_width",
-            "fit_height": "fit_height",
-            "single_width": "single_width",
-            "single_height": "single_height",
-
-            # Layout
-            "container_layout": "container_layout",
-            "use_gap": "use_gap",
-            "row_gap": "row_gap",
-            "column_gap": "column_gap",
-            "nonant_alignment": "nonant_alignment",
-            "order": "order",
-            "four_border_style": "four_border_style",
-        }
-
-        # Extended map for recursive cleanup (e.g. border corners)
-        _EXT_CLEANUP = {
-            "%br": [
-                "border_roundness", "border_roundness_top_left", "border_roundness_top_right",
-                "border_roundness_bottom_right", "border_roundness_left"
-            ],
-            "%bw": [
-                "border_width", "border_width_top", "border_width_bottom",
-                "border_width_left", "border_width_right"
-            ],
-            "%bc": [
-                "border_color", "border_color_top", "border_color_bottom",
-                "border_color_left", "border_color_right"
-            ],
-            "%bos": [
-                "border_style", "border_style_top", "border_style_bottom",
-                "border_style_left", "border_style_right"
-            ],
-            "font_weight": ["bold"], # If weight matches, we can prune bold toggle if 700+
-        }
-
-
-        # We keep track of keys removed to log them later if needed
-        removed_keys = []
-
-        # Iterating over a copy to allow removal
-        for key in list(properties.keys()):
-            # Special case for layout redundancy
-            if key == "max_width_css" and properties.get("fit_width") is True:
-                del properties[key]
-                removed_keys.append(f"{key} (redundant with fit_width)")
-                continue
-            if key == "max_height_css" and properties.get("fit_height") is True:
-                del properties[key]
-                removed_keys.append(f"{key} (redundant with fit_height)")
-                continue
-
-            # Special case for independent borders:
-            # If element has four_border_style=True but style has False (shared),
-            # we should NOT prune individual border properties against the shared style keys,
-            # because absence of these keys in the element would default them to 0.
-            if properties.get("four_border_style") is True and not style_p.get("four_border_style"):
-                if key.startswith("border_style_") or key.startswith("border_width_") or \
-                   key.startswith("border_color_") or key.startswith("border_roundness_"):
-                    continue
-
-            style_key = _KEY_MAP.get(key)
-            if not style_key:
-                continue
-
-            # Special case for text color: authorization rule
-            if style_key == "%fc":
-                # We only authorized color overrides if COLOR is the ONLY thing changing.
-                # But here we are pruning. If they match, we ALWAYS prune.
-                pass
-
-            style_val = style_p.get(style_key)
-            if style_val is None:
-                continue
-
-            p_val = properties[key]
-            # Normalize values for comparison (e.g. 14px vs 14)
-            p_val_norm = _normalize_val(p_val)
-            s_val_norm = _normalize_val(style_val)
-
-
-            if p_val_norm == s_val_norm:
-                # One last check for background parity:
-                # If we are pruning bg_color because it matches the style,
-                # but the element explicitly has background_style="bgcolor" and style is "none",
-                # we MUST keep the color to ensure the style transition works.
-                # Actually, if we keep background_style="bgcolor", Bubble should pick up the color from the style.
-                # So pruning is safe IF the style already has that color.
-                del properties[key]
-                removed_keys.append(f"{key}")
-                # logger.info(f"      [Pruned] {key}")
-
-                # Cleanup linked/expanded properties
-                ext_keys = _EXT_CLEANUP.get(style_key, [])
-                for ext_k in ext_keys:
-                    if ext_k in properties:
-                        del properties[ext_k]
-                        removed_keys.append(f"{ext_k} (linked to {key})")
-
-        # Post-pruning check: Explicitly remove max size overrides if fitting is enabled.
-        # Bubble treats these as redundant when fitting is AUTO.
-        if properties.get("fit_width") is True and "max_width_css" in properties:
-            del properties["max_width_css"]
-            removed_keys.append("max_width_css")
-
-        if properties.get("fit_height") is True and "max_height_css" in properties:
-            del properties["max_height_css"]
-            removed_keys.append("max_height_css")
-
-        # Post-pruning check: If we have bg_color override but NO background_style override,
-        # but the style is "none" (meaning it has no color background), we MUST add background_style="bgcolor".
-        # This ensures the override is actually visible in Bubble.
-        if "bg_color" in properties and "background_style" not in properties and \
-           "bg_style" not in properties and style_p.get("%bas") == "none":
-            properties["background_style"] = "bgcolor"
-
-        if removed_keys:
-            logger.info(f"Pruned redundant formatting from {element_type} (matching '{style_id}'): {', '.join(removed_keys)}")
+        self._style_lifecycle.assignments.overrides.prune(
+            properties,
+            element_type=element_type,
+            style_id=style_id,
+            sdk_properties=True,
+        )
 
     def create_group(
         self, context_name: str, parent_name: str, name: str,
@@ -38605,49 +31438,19 @@ class BubbleCLI:
             if b_val is not None:
                 pb.add_set_data(_normalized_create_path + ["%p", b_key], b_val)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            try:
-                self.discovery.inject_element(
-                    context_id, context_type, parent_result["id"], full_body, element_key=element_slot_key
-                )
-            except Exception as e:
-                logger.warning(f"Injection warning (dry-run): {e}")
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created group: '{name}' in '{parent_name}'")
-            try:
-                self.discovery.inject_element(
-                    context_id, context_type, parent_result["id"], full_body, element_key=element_slot_key
-                )
-            except Exception as e:
-                logger.warning(f"Injection warning: {e}")
-            created_aliases = [
-                str(name or "").strip(),
-                str(full_body.get("%dn") or "").strip(),
-            ]
-            created_path = list(parent_result.get("path") or []) + ["%el", element_slot_key]
-            seen_aliases: set[str] = set()
-            for alias in created_aliases:
-                norm = self._norm_lookup(alias)
-                if not norm or norm in seen_aliases:
-                    continue
-                seen_aliases.add(norm)
-                self._cache_element_ref_alias(
-                    context_id,
-                    context_type,
-                    alias,
-                    str(full_body.get("id") or ""),
-                    element_key=element_slot_key,
-                    element_path=created_path,
-                )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=element_slot_key,
+            aliases=[name, full_body.get("%dn")],
+            result_value=new_key,
+            success_message=f"Successfully created group: '{name}' in '{parent_name}'",
+            dry_run=dry_run,
+            tolerate_injection_error=True,
+        )
 
     def create_floating_group(
         self,
@@ -39125,43 +31928,18 @@ class BubbleCLI:
             if key in fg_props and fg_props.get(key) is not None:
                 pb.add_set_data(_normalized_create_path + ["%p", key], fg_props.get(key))
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(
-                context_id,
-                context_type,
-                parent_result["id"],
-                full_body,
-                element_key=element_slot_key,
-            )
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created floating group: '{name}' in '{parent_name}'")
-            self.discovery.inject_element(
-                context_id,
-                context_type,
-                parent_result["id"],
-                full_body,
-                element_key=element_slot_key,
-            )
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=element_slot_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=element_slot_key,
+            aliases=[name, full_body.get("%dn")],
+            result_value=new_key,
+            success_message=f"Successfully created floating group: '{name}' in '{parent_name}'",
+            dry_run=dry_run,
+        )
 
     def create_table(
         self,
@@ -39876,43 +32654,18 @@ class BubbleCLI:
             for _padding_key, _padding_value in explicit_table_padding.items():
                 pb.add_set_data(normalized_create_path + ["%p", _padding_key], _padding_value)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(
-                context_id,
-                context_type,
-                parent_result["id"],
-                full_body,
-                element_key=element_slot_key,
-            )
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created table: '{name}' in '{parent_name}'")
-            self.discovery.inject_element(
-                context_id,
-                context_type,
-                parent_result["id"],
-                full_body,
-                element_key=element_slot_key,
-            )
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=element_slot_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=element_slot_key,
+            aliases=[name, full_body.get("%dn")],
+            result_value=new_key,
+            success_message=f"Successfully created table: '{name}' in '{parent_name}'",
+            dry_run=dry_run,
+        )
 
     def create_group_focus(
         self,
@@ -40373,43 +33126,18 @@ class BubbleCLI:
                 if key in gf_props and gf_props.get(key) is not None:
                     pb.add_set_data(_normalized_create_path + ["%p", key], gf_props.get(key))
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(
-                context_id,
-                context_type,
-                parent_result["id"],
-                full_body,
-                element_key=element_slot_key,
-            )
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created group focus: '{name}' in '{parent_name}'")
-            self.discovery.inject_element(
-                context_id,
-                context_type,
-                parent_result["id"],
-                full_body,
-                element_key=element_slot_key,
-            )
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=element_slot_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=element_slot_key,
+            aliases=[name, full_body.get("%dn")],
+            result_value=new_key,
+            success_message=f"Successfully created group focus: '{name}' in '{parent_name}'",
+            dry_run=dry_run,
+        )
 
     def create_repeating_group(self, context_name: str, parent_name: str, name: str, data_type: Optional[str] = None,
                                layout: str = "column", rows: int = 0,
@@ -40755,33 +33483,18 @@ class BubbleCLI:
             if b_val is not None:
                 pb.add_set_data(normalized_cp + ["%p", b_key], b_val)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=element_slot_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created RG: '{name}' in '{parent_name}'")
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=element_slot_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=element_slot_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=element_slot_key,
+            aliases=[name, full_body.get("%dn")],
+            result_value=new_key,
+            success_message=f"Successfully created RG: '{name}' in '{parent_name}'",
+            dry_run=dry_run,
+        )
 
     def create_input(self, context_name: str, parent_name: str, name: str,
                      placeholder: str = "", initial_content: Any = "", content_format: str = "text",
@@ -41014,36 +33727,19 @@ class BubbleCLI:
             if _prop_val is not None:
                 pb.add_set_data(_normalized_create_path + ["%p", _prop_key], _prop_val)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            full_body["id"] = new_key
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created Input: '{name}' in '{parent_name}'")
-            # Inject into discovery cache
-            full_body["id"] = new_key
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                    str(placeholder or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        full_body["id"] = new_key
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn"), placeholder],
+            result_value=new_key,
+            success_message=f"Successfully created Input: '{name}' in '{parent_name}'",
+            dry_run=dry_run,
+        )
 
     def create_multiline_input(
         self,
@@ -41301,32 +33997,18 @@ class BubbleCLI:
             if _prop_val is not None:
                 pb.add_set_data(_normalized_create_path + ["%p", _prop_key], _prop_val)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created MultiLineInput: '{name}' in '{parent_name}'")
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                    str(placeholder or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn"), placeholder],
+            result_value=new_key,
+            success_message=f"Successfully created MultiLineInput: '{name}' in '{parent_name}'",
+            dry_run=dry_run,
+        )
 
     def create_checkbox(
         self,
@@ -41597,32 +34279,18 @@ class BubbleCLI:
                 if _prop_val is not None:
                     pb.add_set_data(_normalized_create_path + ["%p", _prop_key], _prop_val)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created checkbox: '{label}'")
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                    str(label or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn"), label],
+            result_value=new_key,
+            success_message=f"Successfully created checkbox: '{label}'",
+            dry_run=dry_run,
+        )
 
     def create_datepicker(
         self, context_name: str, parent_name: str, name: str,
@@ -41828,22 +34496,19 @@ class BubbleCLI:
             name_value=full_body.get("%dn"),
         )
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created datepicker: '{name}'")
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[],
+            result_value=new_key,
+            success_message=f"Successfully created datepicker: '{name}'",
+            dry_run=dry_run,
+            cache_aliases=False,
+        )
 
     def create_radio(
         self, context_name: str, parent_name: str, name: str, label: str = "Radio", group_name: str = None, choices_str: str = None,
@@ -42098,24 +34763,20 @@ class BubbleCLI:
                 if _prop_val is not None:
                     pb.add_set_data(_normalized_create_path + ["%p", _prop_key], _prop_val)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            full_body["id"] = new_key
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created radio: '{label}'")
-            # Inject into discovery cache
-            full_body["id"] = new_key
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        full_body["id"] = new_key
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[],
+            result_value=new_key,
+            success_message=f"Successfully created radio: '{label}'",
+            dry_run=dry_run,
+            cache_aliases=False,
+        )
 
     def create_slider(
         self, context_name: str, parent_name: str, name: str,
@@ -42357,31 +35018,18 @@ class BubbleCLI:
         # Style id is already embedded in CreateElement (%s1) when provided.
         # Avoid additional AssignStyle mutations here to keep payload native/minimal.
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created slider: '{name}'")
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn")],
+            result_value=new_key,
+            success_message=f"Successfully created slider: '{name}'",
+            dry_run=dry_run,
+        )
 
     def create_file_uploader(
         self, context_name: str, parent_name: str, name: str, label: str = "Upload",
@@ -42544,22 +35192,19 @@ class BubbleCLI:
             name_value=full_body.get("%dn"),
         )
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created file uploader: '{name}'")
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[],
+            result_value=new_key,
+            success_message=f"Successfully created file uploader: '{name}'",
+            dry_run=dry_run,
+            cache_aliases=False,
+        )
 
     def create_picture_uploader(
         self, context_name: str, parent_name: str, name: str, label: str = "Upload picture",
@@ -42715,31 +35360,18 @@ class BubbleCLI:
             name_value=full_body.get("%dn"),
         )
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created picture uploader: '{name}'")
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn")],
+            result_value=new_key,
+            success_message=f"Successfully created picture uploader: '{name}'",
+            dry_run=dry_run,
+        )
 
     def create_shape(
         self,
@@ -42953,36 +35585,19 @@ class BubbleCLI:
             name_value=full_body.get("%dn"),
         )
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            full_body["id"] = new_key
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created shape: '{name}'")
-            # Inject into discovery cache
-            full_body["id"] = new_key
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                    str(full_body.get("%nm") or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        full_body["id"] = new_key
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn"), full_body.get("%nm")],
+            result_value=new_key,
+            success_message=f"Successfully created shape: '{name}'",
+            dry_run=dry_run,
+        )
     def create_video(
         self,
         context_name: str,
@@ -43116,33 +35731,18 @@ class BubbleCLI:
             name_value=full_body.get("%dn"),
         )
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created video: '{name}'")
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn")],
+            result_value=new_key,
+            success_message=f"Successfully created video: '{name}'",
+            dry_run=dry_run,
+        )
 
     def create_image(
         self, context_name: str, parent_name: str, name: str, source: str,
@@ -43351,22 +35951,19 @@ class BubbleCLI:
             if layout_key in _img_props_snapshot and _img_props_snapshot.get(layout_key) is not None:
                 pb.add_set_data(normalized_cp + ["%p", layout_key], _img_props_snapshot.get(layout_key))
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created image: '{name}'")
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[],
+            result_value=new_key,
+            success_message=f"Successfully created image: '{name}'",
+            dry_run=dry_run,
+            cache_aliases=False,
+        )
 
     def create_icon(
         self, context_name: str, parent_name: str, name: str, icon_name: str,
@@ -43459,6 +36056,7 @@ class BubbleCLI:
             full_path_str=full_path_str,
             name_value=full_body.get("%dn"),
         )
+        element_slot_key = self._resolved_created_slot_key(create_path, full_body)
         if style:
             # Include layout properties in style overrides so they aren't wiped by AssignStyle %p
             style_props = {
@@ -43522,22 +36120,30 @@ class BubbleCLI:
         if dry_run:
             logger.info(f"Creating icon: {name} ({icon_name})")
             logger.info(f"ICON PAYLOAD: {json.dumps(full_body, indent=2)}")
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # print(f" DRY RUN - Icon payload prepared for '{name}'")
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
+
+        finish_result = self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=element_slot_key,
+            aliases=[],
+            result_value=new_key,
+            success_message=f"Successfully created icon: '{name}'",
+            dry_run=dry_run,
+            cache_aliases=False,
+        )
+        if not finish_result or dry_run:
+            return finish_result
 
         try:
-            self._dispatch_payload(pb)
-            logger.info(f"✅ Successfully created icon: '{name}'")
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
             resolved_target = (
                 context_id,
                 context_type,
                 {
                     "id": new_key,
-                    "path": parent_result["path"] + ["%el", new_key],
+                    "path": parent_result["path"] + ["%el", element_slot_key],
                     "element": full_body,
                     "type": "element",
                 },
@@ -43549,7 +36155,8 @@ class BubbleCLI:
                 except Exception:
                     icon_size_value = None
             logger.info(
-                f"ℹ️ ICON POST-CREATE UPDATE PLAN: id={new_key}, width={width}, height={height}, icon_size={icon_size_value}"
+                f"ℹ️ ICON POST-CREATE UPDATE PLAN: id={new_key}, width={width}, "
+                f"height={height}, icon_size={icon_size_value}"
             )
             update_ok = self.update_icon_element(
                 context_name,
@@ -43559,11 +36166,19 @@ class BubbleCLI:
                 icon_color=color,
                 width=width,
                 height=height,
-                min_width=min_width if min_width is not None else (f"{int(width)}px" if fixed_width and width is not None else None),
-                max_width=max_width if max_width is not None else (f"{int(width)}px" if fixed_width and width is not None else None),
+                min_width=min_width if min_width is not None else (
+                    f"{int(width)}px" if fixed_width and width is not None else None
+                ),
+                max_width=max_width if max_width is not None else (
+                    f"{int(width)}px" if fixed_width and width is not None else None
+                ),
                 fixed_width=fixed_width,
-                min_height=min_height if min_height is not None else (f"{int(height)}px" if fixed_height and height is not None else None),
-                max_height=max_height if max_height is not None else (f"{int(height)}px" if fixed_height and height is not None else None),
+                min_height=min_height if min_height is not None else (
+                    f"{int(height)}px" if fixed_height and height is not None else None
+                ),
+                max_height=max_height if max_height is not None else (
+                    f"{int(height)}px" if fixed_height and height is not None else None
+                ),
                 fixed_height=fixed_height,
                 horiz_alignment=_icon_props_snapshot.get("horiz_alignment"),
                 vert_alignment=_icon_props_snapshot.get("vert_alignment"),
@@ -43579,8 +36194,8 @@ class BubbleCLI:
             else:
                 logger.warning(f"⚠️ Post-create icon sizing update failed for '{new_key}'")
             return new_key
-        except Exception as e:
-            logger.error(f"❌ Failed to send: {e}")
+        except Exception as exc:
+            logger.error(f"❌ Failed to send: {exc}")
             return False
 
     def create_dropdown(
@@ -43904,34 +36519,19 @@ class BubbleCLI:
                 if _prop_val is not None:
                     pb.add_set_data(_normalized_create_path + ["%p", _prop_key], _prop_val)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created Dropdown: '{name}' in '{parent_name}'")
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                    str(placeholder or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            print(f"❌ Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn"), placeholder],
+            result_value=new_key,
+            success_message=f"Successfully created Dropdown: '{name}' in '{parent_name}'",
+            dry_run=dry_run,
+            error_via_print=True,
+        )
 
     def create_searchbox(
         self,
@@ -44234,32 +36834,19 @@ class BubbleCLI:
                 if _prop_val is not None:
                     pb.add_set_data(_normalized_create_path + ["%p", _prop_key], _prop_val)
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created SearchBox: '{name}' in '{parent_name}'")
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                    str(placeholder or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            print(f"❌ Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn"), placeholder],
+            result_value=new_key,
+            success_message=f"Successfully created SearchBox: '{name}' in '{parent_name}'",
+            dry_run=dry_run,
+            error_via_print=True,
+        )
 
     def create_html(
         self, context_name: str, parent_name: str, name: str, content: str,
@@ -44356,22 +36943,19 @@ class BubbleCLI:
                 style_props=self._build_alert_explicit_style_props(kwargs),
             )
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created HTML: '{name}'")
-            # Inject into discovery cache
-            self.discovery.inject_element(context_id, context_type, parent_result['id'], full_body, element_key=new_key)
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[],
+            result_value=new_key,
+            success_message=f"Successfully created HTML: '{name}'",
+            dry_run=dry_run,
+            cache_aliases=False,
+        )
 
     def create_link(
         self,
@@ -44616,32 +37200,18 @@ class BubbleCLI:
                 style_props=self._build_alert_explicit_style_props(kwargs),
             )
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(context_id, context_type, parent_result["id"], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created link: '{name}'")
-            self.discovery.inject_element(context_id, context_type, parent_result["id"], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                    str(label or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn"), label],
+            result_value=new_key,
+            success_message=f"Successfully created link: '{name}'",
+            dry_run=dry_run,
+        )
 
     def create_alert(
         self,
@@ -44827,32 +37397,18 @@ class BubbleCLI:
             if kwargs.get("vert_alignment") is not None and props.get("vert_alignment") is not None:
                 pb.add_set_data(normalized_cp + ["%p", "vert_alignment"], props.get("vert_alignment"))
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(context_id, context_type, parent_result["id"], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created alert: '{name}'")
-            self.discovery.inject_element(context_id, context_type, parent_result["id"], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                    str(content or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn"), content],
+            result_value=new_key,
+            success_message=f"Successfully created alert: '{name}'",
+            dry_run=dry_run,
+        )
 
     def create_map(
         self,
@@ -45270,31 +37826,18 @@ class BubbleCLI:
                 }
             )
 
-        if dry_run:
-            logger.info("\n DRY RUN - Payload preview:")
-            logger.log(pb.to_json())
-            self.discovery.inject_element(context_id, context_type, parent_result["id"], full_body, element_key=new_key)
-            return new_key
-
-        try:
-            self._dispatch_payload(pb)
-            logger.success(f"Successfully created map: '{name}'")
-            self.discovery.inject_element(context_id, context_type, parent_result["id"], full_body, element_key=new_key)
-            self._cache_created_element_aliases(
-                context_id=context_id,
-                context_type=context_type,
-                aliases=[
-                    str(name or "").strip(),
-                    str(full_body.get("%dn") or "").strip(),
-                ],
-                element_id=str(full_body.get("id") or ""),
-                element_key=new_key,
-                parent_path=list(parent_result.get("path") or []),
-            )
-            return new_key
-        except Exception as e:
-            logger.error(f"Failed to send: {e}")
-            return False
+        return self._visual_mutations.creations.finish(
+            pb,
+            context_id=context_id,
+            context_type=context_type,
+            parent_result=parent_result,
+            body=full_body,
+            element_key=new_key,
+            aliases=[name, full_body.get("%dn")],
+            result_value=new_key,
+            success_message=f"Successfully created map: '{name}'",
+            dry_run=dry_run,
+        )
 
     def build_source_query_json(
         self,
@@ -46913,7 +39456,11 @@ class BubbleCLI:
         return props
 
     def _get_base_style_props(self, style_id: str) -> Dict[str, Any]:
-        """Fetch base properties for an existing style from discovery data or local cache."""
+        """Fetch base style properties through the lifecycle boundary."""
+        return self._style_lifecycle.references.base_properties(style_id)
+
+    def _legacy_get_base_style_props(self, style_id: str) -> Dict[str, Any]:
+        """Legacy base-property lookup retained during staged extraction."""
         # 1. Check discovery data
         data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
         styles = data.get("styles", {})
@@ -56864,31 +49411,13 @@ class BubbleCLI:
         workflow_key: str,
         workflow_id: Optional[str] = None
     ) -> None:
-        alias = str(alias_name or "").strip()
-        wf_key = str(workflow_key or "").strip()
-        if not alias or not wf_key:
-            return
-        normalized = self._norm_lookup(alias)
-        if not normalized:
-            return
-        cache = self._schema_workflow_refs_cache()
-        ctx_key = self._cache_element_ref_context_key(context_id, context_type)
-        ctx_cache = cache.setdefault(ctx_key, {})
-        if not isinstance(ctx_cache, dict):
-            ctx_cache = {}
-            cache[ctx_key] = ctx_cache
-        payload: Dict[str, Any] = {
-            "name": alias,
-            "key": wf_key,
-            "context_id": context_id,
-            "context_type": context_type,
-            "updated_at": int(time.time() * 1000),
-        }
-        wf_id = str(workflow_id or "").strip()
-        if wf_id:
-            payload["id"] = wf_id
-        ctx_cache[normalized] = payload
-        self._save_cli_cache()
+        self._alias_registry.cache_workflow(
+            context_id,
+            context_type,
+            alias_name,
+            workflow_key,
+            workflow_id,
+        )
 
     def _lookup_cached_workflow_ref_alias(
         self,
@@ -56896,23 +49425,7 @@ class BubbleCLI:
         context_type: str,
         alias_name: str
     ) -> Optional[Dict[str, Any]]:
-        alias = str(alias_name or "").strip()
-        if not alias:
-            return None
-        normalized = self._norm_lookup(alias)
-        if not normalized:
-            return None
-        cache = self._schema_workflow_refs_cache()
-        ctx_key = self._cache_element_ref_context_key(context_id, context_type)
-        ctx_cache = cache.get(ctx_key, {})
-        if not isinstance(ctx_cache, dict):
-            return None
-        payload = ctx_cache.get(normalized)
-        if isinstance(payload, dict):
-            wf_key = str(payload.get("key") or "").strip()
-            if wf_key:
-                return payload
-        return None
+        return self._alias_registry.lookup_workflow(context_id, context_type, alias_name)
 
     def _cache_workflow_event(
         self,
@@ -62418,133 +54931,112 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Create a Bubble Data Type (user_types)."""
-        data_type_key = key or self._slugify_identifier(name)
-        pb = PayloadBuilder(appname=self.appname)
-
-        privacy_role = None
-        if private:
-            everyone_role = {
-                "%d": "everyone",
-                "permissions": {
-                    "view_all": False,
-                    "view_attachments": False,
-                    "search_for": False,
-                    "auto_binding": False
-                }
-            }
-            creator_rule = {
-                "%x": "InjectedValue",
-                "%n": {
-                    "%x": "Message",
-                    "%nm": "Created By",
-                    "%n": {
-                        "%x": "Message",
-                        "%nm": "equals",
-                        "%a": {
-                            "%x": "CurrentUser"
-                        }
-                    }
-                }
-            }
-            creator_role = {
-                "%d": "Visible to creator",
-                "permissions": {
-                    "view_all": True,
-                    "view_attachments": True,
-                    "search_for": True,
-                    "auto_binding": False
-                },
-                "%c": creator_rule
-            }
-            privacy_role = {
-                "everyone": everyone_role,
-                "visible_to_creator_": creator_role
-            }
-
-            self._add_schema_change(
-                pb,
-                "WriteCustom",
-                ["user_types", data_type_key],
-                {
-                    "%d": name,
-                    "privacy_role": privacy_role
-                }
-            )
-            self._add_schema_change(
-                pb,
-                "ChangeAppSetting",
-                ["user_types", data_type_key, "privacy_role", "everyone"],
-                everyone_role,
-                intent_id=random.randint(1, 999999),
-                source_appname=""
-            )
-            self._add_schema_change(
-                pb,
-                "ChangeAppSetting",
-                ["user_types", data_type_key, "privacy_role", "visible_to_creator_"],
-                creator_role,
-                intent_id=random.randint(1, 999999),
-                source_appname=""
-            )
-            self._add_schema_change(
-                pb,
-                "ChangeAppSetting",
-                ["user_types", data_type_key, "privacy_role", "visible_to_creator_", "%c"],
-                creator_rule,
-                intent_id=random.randint(1, 999999),
-                source_appname=""
-            )
-        else:
-            self._add_schema_change(
-                pb,
-                "WriteCustom",
-                ["user_types", data_type_key],
-                {"%d": name}
-            )
-
-        ok = self._send_schema_payload(pb, dry_run, f"Data type '{name}' created ({data_type_key}).")
-        if ok and not dry_run:
-            user_types = self._schema_user_types_cache()
-            entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-            entry["%d"] = name
-            if privacy_role is not None:
-                entry["privacy_role"] = privacy_role
-            user_types[data_type_key] = entry
-            self._save_cli_cache()
-        return ok
+        return self._schema_lifecycle.data_types.create_data_type(name, key, private, dry_run)
 
     def rename_data_type(self, data_type_key: str, new_name: str, dry_run: bool = False) -> bool:
         """Rename a Bubble Data Type."""
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteCustom",
-            [ "user_types", data_type_key, "%d" ],
-            new_name
-        )
-        ok = self._send_schema_payload(pb, dry_run, f"Data type '{data_type_key}' renamed to '{new_name}'.")
-        if ok and not dry_run:
-            user_types = self._schema_user_types_cache()
-            entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-            entry["%d"] = new_name
-            user_types[data_type_key] = entry
-            self._save_cli_cache()
-        return ok
+        return self._schema_lifecycle.data_types.rename_data_type(data_type_key, new_name, dry_run)
 
     def delete_data_type(self, data_type_key: str, dry_run: bool = False) -> bool:
         """Delete a Bubble Data Type."""
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteCustom",
-            ["user_types", data_type_key, "%del"],
-            True
+        return self._schema_lifecycle.data_types.delete_data_type(data_type_key, dry_run)
+
+    def _data_type_is_soft_deleted(self, data_type_key: str, require_fresh_schema: bool = False) -> bool:
+        overlay_path = getattr(self.discovery, "mutation_overlay_path", None)
+        if not overlay_path or not os.path.exists(overlay_path):
+            return False
+        try:
+            with open(overlay_path, "r", encoding="utf-8") as overlay_file:
+                overlay = json.load(overlay_file)
+        except Exception:
+            return False
+
+        entries = overlay.get("entries") if isinstance(overlay, dict) else None
+        if not isinstance(entries, list):
+            return False
+        type_path = ["user_types", data_type_key]
+        marker_path = [*type_path, "%del"]
+        relevant_states: List[Tuple[float, int, int, bool, str, str]] = []
+        for entry_index, overlay_entry in enumerate(entries):
+            if not isinstance(overlay_entry, dict):
+                continue
+            if str(overlay_entry.get("profile") or "") != str(self.profile_name or ""):
+                continue
+            if str(overlay_entry.get("app_id") or "") != self.appname:
+                continue
+            if str(overlay_entry.get("app_version") or "") != self.app_version:
+                continue
+            changes = overlay_entry.get("changes")
+            if not isinstance(changes, list):
+                continue
+            captured_at = str(overlay_entry.get("captured_at") or "").strip()
+            try:
+                captured_timestamp = datetime.fromisoformat(captured_at.replace("Z", "+00:00")).timestamp()
+            except (ValueError, OSError):
+                captured_timestamp = 0.0
+            for change_index, change in enumerate(changes):
+                if not isinstance(change, dict):
+                    continue
+                path_array = change.get("path_array")
+                intent = change.get("intent") if isinstance(change.get("intent"), dict) else {}
+                intent_name = str(intent.get("name") or "")
+                state: Optional[bool] = None
+                if path_array == marker_path:
+                    state = change.get("body") is True
+                elif path_array == type_path:
+                    body = change.get("body")
+                    if intent_name == "CleanApp" and body is None:
+                        state = False
+                    elif isinstance(body, dict):
+                        state = body.get("%del") is True
+                if state is None:
+                    continue
+                if captured_timestamp <= 0:
+                    return False
+                relevant_states.append(
+                    (
+                        captured_timestamp,
+                        entry_index,
+                        change_index,
+                        state,
+                        str(overlay_entry.get("source") or ""),
+                        intent_name,
+                    )
+                )
+
+        if not relevant_states:
+            return False
+        latest_state = max(relevant_states, key=lambda item: (item[0], item[1], item[2]))
+        latest_capture, _, _, soft_deleted, source, intent_name = latest_state
+        if not soft_deleted or source != "delete_data_type" or intent_name != "WriteCustom":
+            return False
+
+        if require_fresh_schema:
+            source_path = self.discovery.app_json_path
+            if (
+                not source_path
+                or not os.path.exists(source_path)
+                or os.path.getmtime(source_path) <= latest_capture
+            ):
+                return False
+            current_discovery = PathDiscovery(source_path, None, None, None)
+            current_data = current_discovery.data if isinstance(current_discovery.data, dict) else {}
+            current_types = current_data.get("user_types")
+            current_entry = current_types.get(data_type_key) if isinstance(current_types, dict) else None
+            return isinstance(current_entry, dict) and current_entry.get("%del") is True
+        return True
+
+    def delete_data_type_permanently(
+        self,
+        data_type_key: str,
+        data_type_ref_kind: str = "auto",
+        confirm: bool = False,
+        dry_run: bool = False
+    ) -> bool:
+        """Permanently remove a Bubble Data Type through the CleanApp contract."""
+        return self._schema_lifecycle.data_types.delete_data_type_permanently(
+            data_type_key, data_type_ref_kind, confirm, dry_run
         )
-        ok = self._send_schema_payload(pb, dry_run, f"Data type '{data_type_key}' deleted.")
-        if ok and not dry_run:
-            self._schema_user_types_cache().pop(data_type_key, None)
-            self._save_cli_cache()
-        return ok
 
     def create_data_field(
         self,
@@ -62555,33 +55047,9 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Create a field on a Bubble Data Type."""
-        type_slug = self._slugify_identifier(field_type.replace(".", "_"))
-        resolved_field_key = field_key or f"{self._slugify_identifier(field_name)}_{type_slug}"
-
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteCustomField",
-            ["user_types", data_type_key, "%f3", resolved_field_key],
-            {
-                "%d": field_name,
-                "%v": field_type
-            }
+        return self._schema_lifecycle.data_types.create_data_field(
+            data_type_key, field_name, field_type, field_key, dry_run
         )
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Field '{field_name}' created on '{data_type_key}' ({resolved_field_key})."
-        )
-        if ok and not dry_run:
-            user_types = self._schema_user_types_cache()
-            entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-            fields = entry.get("%f3", {}) if isinstance(entry.get("%f3"), dict) else {}
-            fields[resolved_field_key] = {"%d": field_name, "%v": field_type}
-            entry["%f3"] = fields
-            user_types[data_type_key] = entry
-            self._save_cli_cache()
-        return ok
 
     def rename_data_field(
         self,
@@ -62591,29 +55059,7 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Rename a field in a Bubble Data Type."""
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteCustomField",
-            ["user_types", data_type_key, "%f3", field_key, "%d"],
-            new_name
-        )
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Field '{field_key}' on '{data_type_key}' renamed to '{new_name}'."
-        )
-        if ok and not dry_run:
-            user_types = self._schema_user_types_cache()
-            entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-            fields = entry.get("%f3", {}) if isinstance(entry.get("%f3"), dict) else {}
-            field_entry = fields.get(field_key, {}) if isinstance(fields.get(field_key), dict) else {}
-            field_entry["%d"] = new_name
-            fields[field_key] = field_entry
-            entry["%f3"] = fields
-            user_types[data_type_key] = entry
-            self._save_cli_cache()
-        return ok
+        return self._schema_lifecycle.data_types.rename_data_field(data_type_key, field_key, new_name, dry_run)
 
     def delete_data_field(
         self,
@@ -62622,38 +55068,7 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Delete a field in a Bubble Data Type."""
-        resolved_field_key = self._resolve_type_field_key(data_type_key, field_key)
-        deleted_label = f"{self._data_field_display_name(data_type_key, resolved_field_key)} - deleted"
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteCustomField",
-            ["user_types", data_type_key, "%f3", resolved_field_key, "%del"],
-            True
-        )
-        self._add_schema_change(
-            pb,
-            "WriteCustomField",
-            ["user_types", data_type_key, "%f3", resolved_field_key, "%d"],
-            deleted_label
-        )
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Field '{resolved_field_key}' on '{data_type_key}' deleted."
-        )
-        if ok and not dry_run:
-            user_types = self._schema_user_types_cache()
-            entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-            fields = entry.get("%f3", {}) if isinstance(entry.get("%f3"), dict) else {}
-            field_entry = fields.get(resolved_field_key, {}) if isinstance(fields.get(resolved_field_key), dict) else {}
-            field_entry["%del"] = True
-            field_entry["%d"] = deleted_label
-            fields[resolved_field_key] = field_entry
-            entry["%f3"] = fields
-            user_types[data_type_key] = entry
-            self._save_cli_cache()
-        return ok
+        return self._schema_lifecycle.data_types.delete_data_field(data_type_key, field_key, dry_run)
 
     def _data_field_display_name(self, data_type_key: str, field_key: str) -> str:
         user_types = self._get_user_types(include_cache=True)
@@ -62665,25 +55080,7 @@ class BubbleCLI:
 
     def list_privacy_rules(self, data_type_key: str, dry_run: bool = False) -> List[Dict[str, Any]]:
         """List privacy rules for a Bubble Data Type from the loaded context/cache."""
-        user_types = self._get_user_types(include_cache=True)
-        entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-        privacy_role = entry.get("privacy_role", {}) if isinstance(entry.get("privacy_role"), dict) else {}
-        rows: List[Dict[str, Any]] = []
-        for rule_key, rule_payload in sorted(privacy_role.items()):
-            payload = rule_payload if isinstance(rule_payload, dict) else {}
-            permissions = payload.get("permissions", {}) if isinstance(payload.get("permissions"), dict) else {}
-            rows.append(
-                {
-                    "data_type_key": data_type_key,
-                    "rule_key": rule_key,
-                    "name": payload.get("%d") or rule_key,
-                    "has_condition": "%c" in payload,
-                    "permissions": permissions,
-                }
-            )
-        if dry_run:
-            print(json.dumps({"ok": True, "data_type_key": data_type_key, "privacy_rules": rows}, indent=2))
-        return rows
+        return self._schema_lifecycle.privacy.list_privacy_rules(data_type_key, dry_run)
 
     def create_privacy_rule(
         self,
@@ -62702,69 +55099,14 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Create a privacy rule under a Bubble Data Type."""
-        resolved_rule_key = rule_key or self._next_privacy_rule_key(data_type_key)
-        permissions: Dict[str, Any] = {
-            "view_all": self._parse_privacy_bool(view_all, "view_all"),
-            "view_attachments": self._parse_privacy_bool(view_attachments, "view_attachments"),
-            "search_for": self._parse_privacy_bool(search_for, "search_for"),
-            "auto_binding": self._parse_privacy_bool(auto_binding, "auto_binding"),
-        }
-        if view_fields is not None:
-            permissions["view_fields"] = self._privacy_field_list_payload(view_fields)
-        if auto_binding:
-            permissions["binding_fields"] = self._privacy_field_list_payload(binding_fields or [])
-        elif binding_fields is not None:
-            permissions["binding_fields"] = self._privacy_field_list_payload(binding_fields)
-
-        rule_payload: Dict[str, Any] = {"%d": rule_name, "permissions": permissions}
-        if condition_json is not None:
-            rule_payload["%c"] = self._parse_privacy_json_value(condition_json, "condition_json")
-
-        pb = PayloadBuilder(appname=self.appname)
-        if self._parse_privacy_bool(include_everyone_default, "include_everyone_default") and not self._privacy_rules_for_type(data_type_key):
-            self._add_schema_change(
-                pb,
-                "ChangeAppSetting",
-                ["user_types", data_type_key, "privacy_role", "everyone"],
-                self._default_everyone_privacy_rule(data_type_key),
-            )
-        self._add_schema_change(
-            pb,
-            "ChangeAppSetting",
-            ["user_types", data_type_key, "privacy_role", resolved_rule_key],
-            rule_payload,
+        return self._schema_lifecycle.privacy.create_privacy_rule(
+            data_type_key, rule_name, rule_key, view_all, view_attachments, search_for, auto_binding,
+            view_fields, binding_fields, condition_json, include_everyone_default, id_counter, dry_run,
         )
-        if id_counter is not None:
-            pb.add_change_raw({"type": "id_counter", "value": int(id_counter)})
-
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Privacy rule '{resolved_rule_key}' created on '{data_type_key}'."
-        )
-        if ok and not dry_run:
-            self._update_privacy_rule_cache(data_type_key, resolved_rule_key, rule_payload)
-            self._save_cli_cache()
-        return ok
 
     def delete_privacy_rule(self, data_type_key: str, rule_key: str, dry_run: bool = False) -> bool:
         """Delete a privacy rule from a Bubble Data Type."""
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "ChangeAppSetting",
-            ["user_types", data_type_key, "privacy_role", rule_key],
-            None,
-        )
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Privacy rule '{rule_key}' deleted from '{data_type_key}'."
-        )
-        if ok and not dry_run:
-            self._delete_privacy_rule_cache(data_type_key, rule_key)
-            self._save_cli_cache()
-        return ok
+        return self._schema_lifecycle.privacy.delete_privacy_rule(data_type_key, rule_key, dry_run)
 
     def set_privacy_rule_name(
         self,
@@ -62774,14 +55116,7 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Rename a privacy rule."""
-        return self._set_privacy_rule_path(
-            data_type_key,
-            rule_key,
-            ["%d"],
-            new_name,
-            dry_run=dry_run,
-            success_message=f"Privacy rule '{rule_key}' renamed to '{new_name}'.",
-        )
+        return self._schema_lifecycle.privacy.set_privacy_rule_name(data_type_key, rule_key, new_name, dry_run)
 
     def set_privacy_rule_condition(
         self,
@@ -62791,15 +55126,7 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Set a privacy rule condition expression."""
-        condition_payload = self._parse_privacy_json_value(condition_json, "condition_json")
-        return self._set_privacy_rule_path(
-            data_type_key,
-            rule_key,
-            ["%c"],
-            condition_payload,
-            dry_run=dry_run,
-            success_message=f"Privacy rule '{rule_key}' condition updated.",
-        )
+        return self._schema_lifecycle.privacy.set_privacy_rule_condition(data_type_key, rule_key, condition_json, dry_run)
 
     def set_privacy_rule_permission(
         self,
@@ -62810,18 +55137,7 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Set a boolean privacy rule permission such as search_for or view_attachments."""
-        allowed = {"view_all", "view_attachments", "search_for", "auto_binding"}
-        if permission not in allowed:
-            print(f"❌ Unsupported privacy permission '{permission}'. Expected one of: {', '.join(sorted(allowed))}")
-            return False
-        return self._set_privacy_rule_path(
-            data_type_key,
-            rule_key,
-            ["permissions", permission],
-            self._parse_privacy_bool(value, "value"),
-            dry_run=dry_run,
-            success_message=f"Privacy rule '{rule_key}' permission '{permission}' set to {self._parse_privacy_bool(value, 'value')}.",
-        )
+        return self._schema_lifecycle.privacy.set_privacy_rule_permission(data_type_key, rule_key, permission, value, dry_run)
 
     def set_privacy_rule_field_visibility(
         self,
@@ -62832,36 +55148,9 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Set visible fields for a privacy rule and optionally update view_all."""
-        pb = PayloadBuilder(appname=self.appname)
-        if view_all is not None:
-            self._add_schema_change(
-                pb,
-                "ChangeAppSetting",
-                ["user_types", data_type_key, "privacy_role", rule_key, "permissions", "view_all"],
-                self._parse_privacy_bool(view_all, "view_all"),
-            )
-        if view_fields is not None:
-            self._add_schema_change(
-                pb,
-                "ChangeAppSetting",
-                ["user_types", data_type_key, "privacy_role", rule_key, "permissions", "view_fields"],
-                self._privacy_field_list_payload(view_fields),
-            )
-        if view_all is None and view_fields is None:
-            print("❌ Missing privacy field visibility change: pass view_all and/or view_fields.")
-            return False
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Privacy rule '{rule_key}' field visibility updated."
+        return self._schema_lifecycle.privacy.set_privacy_rule_field_visibility(
+            data_type_key, rule_key, view_all, view_fields, dry_run
         )
-        if ok and not dry_run:
-            if view_all is not None:
-                self._update_privacy_rule_cache_path(data_type_key, rule_key, ["permissions", "view_all"], self._parse_privacy_bool(view_all, "view_all"))
-            if view_fields is not None:
-                self._update_privacy_rule_cache_path(data_type_key, rule_key, ["permissions", "view_fields"], self._privacy_field_list_payload(view_fields))
-            self._save_cli_cache()
-        return ok
 
     def set_privacy_rule_auto_binding(
         self,
@@ -62872,612 +55161,59 @@ class BubbleCLI:
         dry_run: bool = False
     ) -> bool:
         """Set auto-binding for a privacy rule and its binding fields."""
-        parsed_auto_binding = self._parse_privacy_bool(auto_binding, "auto_binding")
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "ChangeAppSetting",
-            ["user_types", data_type_key, "privacy_role", rule_key, "permissions", "auto_binding"],
-            parsed_auto_binding,
+        return self._schema_lifecycle.privacy.set_privacy_rule_auto_binding(
+            data_type_key, rule_key, auto_binding, binding_fields, dry_run
         )
-        binding_body = self._privacy_field_list_payload(binding_fields or []) if parsed_auto_binding else None
-        self._add_schema_change(
-            pb,
-            "ChangeAppSetting",
-            ["user_types", data_type_key, "privacy_role", rule_key, "permissions", "binding_fields"],
-            binding_body,
-        )
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Privacy rule '{rule_key}' auto-binding updated."
-        )
-        if ok and not dry_run:
-            self._update_privacy_rule_cache_path(data_type_key, rule_key, ["permissions", "auto_binding"], parsed_auto_binding)
-            self._update_privacy_rule_cache_path(data_type_key, rule_key, ["permissions", "binding_fields"], binding_body)
-            self._save_cli_cache()
-        return ok
-
-    def _set_privacy_rule_path(
-        self,
-        data_type_key: str,
-        rule_key: str,
-        path_suffix: List[str],
-        body: Any,
-        *,
-        dry_run: bool,
-        success_message: str,
-    ) -> bool:
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "ChangeAppSetting",
-            ["user_types", data_type_key, "privacy_role", rule_key, *path_suffix],
-            body,
-        )
-        ok = self._send_schema_payload(pb, dry_run, success_message)
-        if ok and not dry_run:
-            self._update_privacy_rule_cache_path(data_type_key, rule_key, path_suffix, body)
-            self._save_cli_cache()
-        return ok
-
-    def _privacy_rules_for_type(self, data_type_key: str) -> Dict[str, Any]:
-        user_types = self._get_user_types(include_cache=True)
-        entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-        rules = entry.get("privacy_role", {}) if isinstance(entry.get("privacy_role"), dict) else {}
-        return rules
-
-    def _next_privacy_rule_key(self, data_type_key: str) -> str:
-        rules = self._privacy_rules_for_type(data_type_key)
-        if "new_rule_" not in rules:
-            return "new_rule_"
-        index = 1
-        while f"new_rule_{index}" in rules:
-            index += 1
-        return f"new_rule_{index}"
-
-    def _default_everyone_privacy_rule(self, data_type_key: str) -> Dict[str, Any]:
-        fields = self._data_type_field_keys(data_type_key, include_system_fields=True)
-        return {
-            "%d": "everyone",
-            "permissions": {
-                "view_all": False,
-                "view_attachments": False,
-                "search_for": False,
-                "auto_binding": False,
-                "non_filterable_fields": {field: True for field in fields},
-            },
-        }
-
-    def _data_type_field_keys(self, data_type_key: str, *, include_system_fields: bool = False) -> List[str]:
-        user_types = self._get_user_types(include_cache=True)
-        entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-        fields = entry.get("%f3", {}) if isinstance(entry.get("%f3"), dict) else {}
-        result = [str(key) for key in fields.keys()]
-        if include_system_fields:
-            for system_field in ("Created Date", "Modified Date", "Slug", "Created By"):
-                if system_field not in result:
-                    result.append(system_field)
-        return result
-
-    def _privacy_field_list_payload(self, fields: Any) -> Optional[Dict[str, str]]:
-        if fields is None:
-            return None
-        values: List[str]
-        if isinstance(fields, str):
-            stripped = fields.strip()
-            if not stripped:
-                values = []
-            elif stripped.startswith("["):
-                parsed = self._parse_json_arg(stripped, "fields")
-                if not isinstance(parsed, list):
-                    raise ValueError("fields JSON must be an array.")
-                values = [str(item) for item in parsed]
-            else:
-                values = [part.strip() for part in stripped.split(",") if part.strip()]
-        elif isinstance(fields, dict):
-            values = [
-                str(fields[key])
-                for key in sorted(
-                    fields,
-                    key=lambda item: (0, int(str(item))) if str(item).isdigit() else (1, str(item)),
-                )
-            ]
-        elif isinstance(fields, list):
-            values = [str(item) for item in fields]
-        else:
-            raise ValueError("fields must be a comma-separated string, JSON array, or object.")
-        return {str(index): field for index, field in enumerate(values)}
 
     def _parse_privacy_bool(self, value: Any, label: str) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)) and value in {0, 1}:
-            return bool(value)
-        normalized = str(value).strip().lower()
-        if normalized in {"1", "true", "yes", "on", "enable", "enabled"}:
-            return True
-        if normalized in {"0", "false", "no", "off", "disable", "disabled"}:
-            return False
-        raise ValueError(f"Invalid boolean value for {label}: {value!r}")
+        return self._schema_lifecycle.privacy.parse_bool(value, label)
 
-    def _parse_privacy_json_value(self, value: Any, label: str) -> Any:
-        if isinstance(value, str):
-            parsed = self._parse_json_arg(value, label)
-            if parsed is None:
-                raise ValueError(f"Invalid {label}.")
-            return parsed
-        return value
-
-    def _update_privacy_rule_cache(self, data_type_key: str, rule_key: str, rule_payload: Dict[str, Any]) -> None:
-        user_types = self._schema_user_types_cache()
-        entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-        rules = entry.get("privacy_role", {}) if isinstance(entry.get("privacy_role"), dict) else {}
-        rules[rule_key] = copy.deepcopy(rule_payload)
-        entry["privacy_role"] = rules
-        user_types[data_type_key] = entry
-
-    def _delete_privacy_rule_cache(self, data_type_key: str, rule_key: str) -> None:
-        user_types = self._schema_user_types_cache()
-        entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-        rules = entry.get("privacy_role", {}) if isinstance(entry.get("privacy_role"), dict) else {}
-        rules.pop(rule_key, None)
-        entry["privacy_role"] = rules
-        user_types[data_type_key] = entry
-
-    def _update_privacy_rule_cache_path(self, data_type_key: str, rule_key: str, path_suffix: List[str], body: Any) -> None:
-        user_types = self._schema_user_types_cache()
-        entry = user_types.get(data_type_key, {}) if isinstance(user_types.get(data_type_key), dict) else {}
-        rules = entry.get("privacy_role", {}) if isinstance(entry.get("privacy_role"), dict) else {}
-        rule_payload = rules.get(rule_key, {}) if isinstance(rules.get(rule_key), dict) else {}
-        cursor = rule_payload
-        for token in path_suffix[:-1]:
-            current = cursor.get(token)
-            if not isinstance(current, dict):
-                current = {}
-                cursor[token] = current
-            cursor = current
-        cursor[path_suffix[-1]] = copy.deepcopy(body)
-        rules[rule_key] = rule_payload
-        entry["privacy_role"] = rules
-        user_types[data_type_key] = entry
-
-    def create_option_set(
-        self,
-        name: str,
-        key: Optional[str] = None,
-        dry_run: bool = False
-    ) -> bool:
-        """Create a Bubble Option Set."""
-        normalized_name = name[3:] if str(name).startswith("OS:") else name
-        option_set_key = key or f"os_{self._slugify_identifier(normalized_name)}"
-        display_name = f"OS:{self._slugify_identifier(normalized_name)}"
-
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteOptionSet",
-            ["option_sets", option_set_key],
-            {
-                "%d": display_name,
-                "creation_source": "editor"
-            }
-        )
-        ok = self._send_schema_payload(pb, dry_run, f"Option set '{display_name}' created ({option_set_key}).")
-        if ok and not dry_run:
-            option_sets = self._schema_option_sets_cache()
-            entry = option_sets.get(option_set_key, {}) if isinstance(option_sets.get(option_set_key), dict) else {}
-            entry["%d"] = display_name
-            entry.setdefault("attributes", {})
-            entry.setdefault("values", {})
-            entry["creation_source"] = "editor"
-            option_sets[option_set_key] = entry
-            self._save_cli_cache()
-        return ok
+    # Option lifecycle facades deliberately remain explicit public CLI entry points.
+    def create_option_set(self, name: str, key: Optional[str] = None, dry_run: bool = False) -> bool:
+        return self._schema_lifecycle.options.create_option_set(name, key, dry_run)
 
     def rename_option_set(self, option_set_key: str, new_name: str, dry_run: bool = False) -> bool:
-        """Rename a Bubble Option Set."""
-        normalized_name = new_name[3:] if str(new_name).startswith("OS:") else new_name
-        display_name = f"OS:{self._slugify_identifier(normalized_name)}"
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteOptionSet",
-            ["option_sets", option_set_key, "%d"],
-            display_name
-        )
-        ok = self._send_schema_payload(pb, dry_run, f"Option set '{option_set_key}' renamed to '{display_name}'.")
-        if ok and not dry_run:
-            option_sets = self._schema_option_sets_cache()
-            entry = option_sets.get(option_set_key, {}) if isinstance(option_sets.get(option_set_key), dict) else {}
-            entry["%d"] = display_name
-            option_sets[option_set_key] = entry
-            self._save_cli_cache()
-        return ok
+        return self._schema_lifecycle.options.rename_option_set(option_set_key, new_name, dry_run)
 
     def delete_option_set(self, option_set_key: str, dry_run: bool = False) -> bool:
-        """Delete a Bubble Option Set."""
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteOptionSet",
-            ["option_sets", option_set_key, "%del"],
-            True
-        )
-        ok = self._send_schema_payload(pb, dry_run, f"Option set '{option_set_key}' deleted.")
-        if ok and not dry_run:
-            self._schema_option_sets_cache().pop(option_set_key, None)
-            self._save_cli_cache()
-        return ok
+        return self._schema_lifecycle.options.delete_option_set(option_set_key, dry_run)
 
     def create_option_attribute(
-        self,
-        option_set_key: str,
-        name: str,
-        value_type: str,
-        attribute_key: Optional[str] = None,
-        dry_run: bool = False
+        self, option_set_key: str, name: str, value_type: str, attribute_key: Optional[str] = None, dry_run: bool = False
     ) -> bool:
-        """Create an attribute on a Bubble Option Set."""
-        resolved_attribute_key = attribute_key or self._slugify_identifier(name)
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteOptionAttribute",
-            ["option_sets", option_set_key, "attributes", resolved_attribute_key],
-            {
-                "%d": name,
-                "%v": value_type,
-                "creation_source": "editor"
-            }
-        )
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Attribute '{name}' created on option set '{option_set_key}' ({resolved_attribute_key})."
-        )
-        if ok and not dry_run:
-            option_sets = self._schema_option_sets_cache()
-            os_entry = option_sets.get(option_set_key, {}) if isinstance(option_sets.get(option_set_key), dict) else {}
-            attrs = os_entry.get("attributes", {}) if isinstance(os_entry.get("attributes"), dict) else {}
-            attrs[resolved_attribute_key] = {"%d": name, "%v": value_type, "creation_source": "editor"}
-            os_entry["attributes"] = attrs
-            os_entry.setdefault("values", {})
-            option_sets[option_set_key] = os_entry
-            self._save_cli_cache()
-        return ok
+        return self._schema_lifecycle.options.create_option_attribute(option_set_key, name, value_type, attribute_key, dry_run)
 
     def create_option_value(
-        self,
-        option_set_key: str,
-        label: str,
-        value_key: Optional[str] = None,
-        db_value: Optional[str] = None,
-        sort_factor: Optional[int] = None,
-        id_counter: Optional[int] = None,
-        dry_run: bool = False
+        self, option_set_key: str, label: str, value_key: Optional[str] = None, db_value: Optional[str] = None,
+        sort_factor: Optional[int] = None, id_counter: Optional[int] = None, dry_run: bool = False,
     ) -> bool:
-        """Create an option value inside an option set."""
-        resolved_value_key = value_key or self.id_gen.element_id()
-
-        existing_values = self._get_option_set_values(option_set_key) or {}
-        existing_entry = existing_values.get(resolved_value_key)
-        existing_db_value = existing_entry.get("db_value") if isinstance(existing_entry, dict) else None
-        existing_sort_factor = existing_entry.get("sort_factor") if isinstance(existing_entry, dict) else None
-
-        resolved_db_value = (
-            db_value
-            if db_value is not None
-            else (existing_db_value if existing_db_value is not None else self._slugify_identifier(label))
-        )
-        resolved_sort_factor = (
-            sort_factor
-            if sort_factor is not None
-            else (existing_sort_factor if isinstance(existing_sort_factor, int) else 1)
+        return self._schema_lifecycle.options.create_option_value(
+            option_set_key, label, value_key, db_value, sort_factor, id_counter, dry_run
         )
 
-        merged_body = dict(existing_entry) if isinstance(existing_entry, dict) else {}
-        merged_body.update({
-            "sort_factor": resolved_sort_factor,
-            "%d": label,
-            "db_value": resolved_db_value
-        })
-
-        pb = PayloadBuilder(appname=self.appname)
-        # Safety path: explicit key but unknown entry -> patch fields only (avoid wiping unknown attributes)
-        safe_patch_existing = value_key is not None and not isinstance(existing_entry, dict)
-        if safe_patch_existing:
-            self._add_schema_change(
-                pb,
-                "WriteOptionValue",
-                ["option_sets", option_set_key, "values", resolved_value_key, "%d"],
-                label
-            )
-            if db_value is not None:
-                self._add_schema_change(
-                    pb,
-                    "WriteOptionValue",
-                    ["option_sets", option_set_key, "values", resolved_value_key, "db_value"],
-                    resolved_db_value
-                )
-            if sort_factor is not None:
-                self._add_schema_change(
-                    pb,
-                    "WriteOptionValue",
-                    ["option_sets", option_set_key, "values", resolved_value_key, "sort_factor"],
-                    resolved_sort_factor
-                )
-        else:
-            self._add_schema_change(
-                pb,
-                "WriteOptionValue",
-                ["option_sets", option_set_key, "values", resolved_value_key],
-                merged_body
-            )
-        if id_counter is not None:
-            pb.add_change_raw({
-                "type": "id_counter",
-                "value": int(id_counter)
-            })
-
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Option '{label}' created in '{option_set_key}' ({resolved_value_key})."
-        )
-        if ok and not dry_run:
-            cached_value = dict(existing_entry) if isinstance(existing_entry, dict) else {}
-            cached_value["%d"] = label
-            if not safe_patch_existing or db_value is not None:
-                cached_value["db_value"] = resolved_db_value
-            if not safe_patch_existing or sort_factor is not None:
-                cached_value["sort_factor"] = resolved_sort_factor
-
-            option_sets = self._schema_option_sets_cache()
-            os_entry = option_sets.get(option_set_key, {}) if isinstance(option_sets.get(option_set_key), dict) else {}
-            values = os_entry.get("values", {}) if isinstance(os_entry.get("values"), dict) else {}
-            values[resolved_value_key] = cached_value
-            os_entry["values"] = values
-            os_entry.setdefault("attributes", {})
-            option_sets[option_set_key] = os_entry
-            self._save_cli_cache()
-        if ok:
-            logger.info(f"Option key: {resolved_value_key}")
-        return ok
-
-    def delete_option_value(
-        self,
-        option_set_key: str,
-        value_ref: str,
-        ref_kind: str = "key",
-        dry_run: bool = False
-    ) -> bool:
-        """Delete a single option value from an option set."""
-        value_key = self._resolve_option_value_key(option_set_key, value_ref, ref_kind=ref_kind)
-        if not value_key:
-            logger.error(
-                f"Could not resolve option value '{value_ref}' in '{option_set_key}' by {ref_kind}. "
-                "Try --ref-kind db_value or --ref-kind label."
-            )
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteOptionValue",
-            ["option_sets", option_set_key, "values", value_key, "%del"],
-            True
-        )
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Option '{value_key}' deleted from '{option_set_key}'."
-        )
-        if ok and not dry_run:
-            option_sets = self._schema_option_sets_cache()
-            os_entry = option_sets.get(option_set_key, {}) if isinstance(option_sets.get(option_set_key), dict) else {}
-            values = os_entry.get("values", {}) if isinstance(os_entry.get("values"), dict) else {}
-            values.pop(value_key, None)
-            os_entry["values"] = values
-            option_sets[option_set_key] = os_entry
-            self._save_cli_cache()
-        return ok
+    def delete_option_value(self, option_set_key: str, value_ref: str, ref_kind: str = "key", dry_run: bool = False) -> bool:
+        return self._schema_lifecycle.options.delete_option_value(option_set_key, value_ref, ref_kind, dry_run)
 
     def rename_option_value(
-        self,
-        option_set_key: str,
-        value_ref: str,
-        new_label: str,
-        ref_kind: str = "key",
-        dry_run: bool = False
+        self, option_set_key: str, value_ref: str, new_label: str, ref_kind: str = "key", dry_run: bool = False
     ) -> bool:
-        """Rename a single option value."""
-        value_key = self._resolve_option_value_key(option_set_key, value_ref, ref_kind=ref_kind)
-        if not value_key:
-            logger.error(
-                f"Could not resolve option value '{value_ref}' in '{option_set_key}' by {ref_kind}. "
-                "Try --ref-kind db_value or --ref-kind label."
-            )
-            return False
-
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteOptionValue",
-            ["option_sets", option_set_key, "values", value_key, "%d"],
-            new_label
-        )
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Option '{value_key}' in '{option_set_key}' renamed to '{new_label}'."
-        )
-        if ok and not dry_run:
-            option_sets = self._schema_option_sets_cache()
-            os_entry = option_sets.get(option_set_key, {}) if isinstance(option_sets.get(option_set_key), dict) else {}
-            values = os_entry.get("values", {}) if isinstance(os_entry.get("values"), dict) else {}
-            value_entry = values.get(value_key, {}) if isinstance(values.get(value_key), dict) else {}
-            value_entry["%d"] = new_label
-            values[value_key] = value_entry
-            os_entry["values"] = values
-            option_sets[option_set_key] = os_entry
-            self._save_cli_cache()
-        return ok
+        return self._schema_lifecycle.options.rename_option_value(option_set_key, value_ref, new_label, ref_kind, dry_run)
 
     def set_option_value_attribute(
-        self,
-        option_set_key: str,
-        value_ref: str,
-        attribute_key: str,
-        value: Any,
-        ref_kind: str = "key",
-        parse_json: bool = False,
-        dry_run: bool = False
+        self, option_set_key: str, value_ref: str, attribute_key: str, value: Any, ref_kind: str = "key",
+        parse_json: bool = False, dry_run: bool = False,
     ) -> bool:
-        """Set an attribute value for a specific option value."""
-        value_key = self._resolve_option_value_key(option_set_key, value_ref, ref_kind=ref_kind)
-        if not value_key:
-            logger.error(
-                f"Could not resolve option value '{value_ref}' in '{option_set_key}' by {ref_kind}."
-            )
-            return False
-
-        coerced_value = self._coerce_schema_value(value, parse_json=parse_json)
-
-        pb = PayloadBuilder(appname=self.appname)
-        self._add_schema_change(
-            pb,
-            "WriteOptionValue",
-            ["option_sets", option_set_key, "values", value_key, attribute_key],
-            coerced_value
+        return self._schema_lifecycle.options.set_option_value_attribute(
+            option_set_key, value_ref, attribute_key, value, ref_kind, parse_json, dry_run
         )
-        ok = self._send_schema_payload(
-            pb,
-            dry_run,
-            f"Attribute '{attribute_key}' updated for option '{value_key}' in '{option_set_key}'."
-        )
-        if ok and not dry_run:
-            option_sets = self._schema_option_sets_cache()
-            os_entry = option_sets.get(option_set_key, {}) if isinstance(option_sets.get(option_set_key), dict) else {}
-            values = os_entry.get("values", {}) if isinstance(os_entry.get("values"), dict) else {}
-            value_entry = values.get(value_key, {}) if isinstance(values.get(value_key), dict) else {}
-            value_entry[attribute_key] = coerced_value
-            values[value_key] = value_entry
-            os_entry["values"] = values
-            option_sets[option_set_key] = os_entry
-            self._save_cli_cache()
-        return ok
 
     def reorder_option_values(
-        self,
-        option_set_key: str,
-        assignments: List[str],
-        ref_kind: str = "key",
-        dry_run: bool = False
+        self, option_set_key: str, assignments: List[str], ref_kind: str = "key", dry_run: bool = False
     ) -> bool:
-        """
-        Reorder option values by updating sort_factor.
-        assignments format: ["bTGMA:2", "bTGMB:1"] or ["bTGMA=2", "bTGMB=1"].
-        """
-        pb = PayloadBuilder(appname=self.appname)
-
-        if not assignments:
-            logger.error("No assignments provided. Use value_key:sort_factor pairs.")
-            return False
-
-        resolved_assignments: List[Tuple[str, int]] = []
-        for raw in assignments:
-            token = str(raw).strip()
-            if ":" in token:
-                value_ref, sort_raw = token.rsplit(":", 1)
-            elif "=" in token:
-                value_ref, sort_raw = token.rsplit("=", 1)
-            else:
-                logger.error(f"Invalid assignment '{token}'. Expected value_key:sort_factor.")
-                return False
-
-            value_ref = value_ref.strip()
-            sort_raw = sort_raw.strip()
-            if not value_ref or not re.fullmatch(r"-?\d+", sort_raw):
-                logger.error(f"Invalid assignment '{token}'.")
-                return False
-
-            value_key = self._resolve_option_value_key(option_set_key, value_ref, ref_kind=ref_kind)
-            if not value_key:
-                logger.error(
-                    f"Could not resolve option value '{value_ref}' in '{option_set_key}' by {ref_kind}."
-                )
-                return False
-
-            self._add_schema_change(
-                pb,
-                "WriteOptionValue",
-                ["option_sets", option_set_key, "values", value_key, "sort_factor"],
-                int(sort_raw)
-            )
-            resolved_assignments.append((value_key, int(sort_raw)))
-
-        ok = self._send_schema_payload(pb, dry_run, f"Option values reordered in '{option_set_key}'.")
-        if ok and not dry_run:
-            option_sets = self._schema_option_sets_cache()
-            os_entry = option_sets.get(option_set_key, {}) if isinstance(option_sets.get(option_set_key), dict) else {}
-            values = os_entry.get("values", {}) if isinstance(os_entry.get("values"), dict) else {}
-            for value_key, sort_factor in resolved_assignments:
-                value_entry = values.get(value_key, {}) if isinstance(values.get(value_key), dict) else {}
-                value_entry["sort_factor"] = sort_factor
-                values[value_key] = value_entry
-            os_entry["values"] = values
-            option_sets[option_set_key] = os_entry
-            self._save_cli_cache()
-        return ok
+        return self._schema_lifecycle.options.reorder_option_values(option_set_key, assignments, ref_kind, dry_run)
 
     def list_option_values(self, option_set_key: str, as_json: bool = False) -> bool:
-        """List option value keys for an option set (key, label, db_value, sort_factor)."""
-        values = self._get_option_set_values(option_set_key)
-        if values is None:
-            logger.error(
-                f"Option set '{option_set_key}' not found in discovery data or schema cache."
-            )
-            return False
-
-        rows: List[Dict[str, Any]] = []
-        for key, data in values.items():
-            if not isinstance(data, dict):
-                continue
-            sort_factor = data.get("sort_factor", "")
-            rows.append({
-                "key": key,
-                "label": data.get("%d", data.get("display", "")),
-                "db_value": data.get("db_value", ""),
-                "sort_factor": sort_factor
-            })
-
-        def _sort_weight(raw: Any) -> int:
-            if isinstance(raw, int):
-                return raw
-            if isinstance(raw, str) and re.fullmatch(r"-?\d+", raw.strip()):
-                return int(raw.strip())
-            return 10**9
-
-        rows.sort(key=lambda r: (_sort_weight(r.get("sort_factor")), str(r.get("label", "")).lower()))
-
-        if as_json:
-            print(json.dumps(rows, indent=2, ensure_ascii=False))
-            return True
-
-        if not rows:
-            logger.info(f"No values found for option set '{option_set_key}'.")
-            return True
-
-        print(f"✅ Option values for '{option_set_key}':")
-        print(f"{'KEY':<10} | {'SORT':<5} | {'DB VALUE':<24} | LABEL")
-        print("-" * 90)
-        for row in rows:
-            print(
-                f"{str(row['key']):<10} | {str(row['sort_factor']):<5} | "
-                f"{str(row['db_value']):<24} | {str(row['label'])}"
-            )
-        return True
+        return self._schema_lifecycle.options.list_option_values(option_set_key, as_json)
 
     def _resolve_custom_state_target_path(
         self,
@@ -68837,6 +60573,29 @@ Examples:
     delete_data_type_parser.add_argument('key', help='Data type key')
     delete_data_type_parser.add_argument('--dry-run', action='store_true', help='Preview payload without sending')
 
+    delete_data_type_permanently_parser = subparsers.add_parser(
+        'delete-data-type-permanently',
+        help='Permanently delete a Bubble Data Type'
+    )
+    delete_data_type_permanently_parser.add_argument('key', help='Exact internal data type key')
+    delete_data_type_permanently_parser.add_argument(
+        '--ref-kind',
+        dest='data_type_ref_kind',
+        choices=['id', 'key'],
+        default='id',
+        help='Exact internal reference kind'
+    )
+    delete_data_type_permanently_parser.add_argument(
+        '--confirm',
+        action='store_true',
+        help='Confirm irreversible deletion'
+    )
+    delete_data_type_permanently_parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Preview payload without sending'
+    )
+
     create_data_field_parser = subparsers.add_parser('create-data-field', help='Create a field in a data type')
     create_data_field_parser.add_argument('data_type_key', help='Data type key (e.g. user)')
     create_data_field_parser.add_argument('field_name', help='Field display name')
@@ -69932,7 +61691,8 @@ Examples:
         profile_name=profile_cfg.get("name"),
         nl_config=nl_config,
         render_config=render_config,
-        style_defaults=profile_cfg.get("style_defaults")
+        style_defaults=profile_cfg.get("style_defaults"),
+        app_version=profile_cfg.get("app_version") or "test"
     )
     global_element_kwargs = _extract_global_element_kwargs(args)
     common_surface_kwargs = _extract_common_surface_kwargs(args)
@@ -74845,6 +66605,13 @@ Examples:
     elif args.command == 'delete-data-type':
         success = cli.delete_data_type(
             args.key,
+            dry_run=args.dry_run
+        )
+    elif args.command == 'delete-data-type-permanently':
+        success = cli.delete_data_type_permanently(
+            args.key,
+            data_type_ref_kind=args.data_type_ref_kind,
+            confirm=args.confirm,
             dry_run=args.dry_run
         )
     elif args.command == 'create-data-field':

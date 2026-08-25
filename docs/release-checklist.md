@@ -45,7 +45,7 @@ Expected:
 ## Packaging Smoke
 
 Build and install a wheel in a clean Python 3.11 venv, then verify imports,
-CLI, and MCP initialize:
+CLI, MCP initialize, and the packaged catalog-quality/ambiguity corpus:
 
 ```bash
 python scripts/package_smoke.py --python python3.11
@@ -58,6 +58,22 @@ Expected:
 - `bubble-mcp` console script starts.
 - `bubble-mcp-server` responds to MCP `initialize` and includes server
   instructions.
+- Catalog quality and all 27 packaged ambiguity cases pass from the clean wheel
+  installation without access to the source checkout.
+- The packaged data-schema precision audit reports `schema_precision_ok: true`
+  and `schema_precision_tool_count: 28`.
+
+## Data-Schema Precision Gate
+
+```bash
+PYTHONPATH=src python scripts/audit_catalog_schema_precision.py
+```
+
+Expected:
+
+- `ok: true`
+- `tool_count: 28`
+- `failure_count: 0`
 
 ## Local Setup Smoke
 
