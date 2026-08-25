@@ -12,7 +12,12 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, cast
 
-from bubble_mcp.context.detector import default_bubble_export_path, detect_project_context, refresh_bubble_export
+from bubble_mcp.context.detector import (
+    default_bubble_export_path,
+    default_crawler_index_path,
+    detect_project_context,
+    refresh_bubble_export,
+)
 from bubble_mcp.context.mutation_overlay import mutation_overlay_path, record_mutation_overlay
 from bubble_mcp.core.config import load_settings, resolve_config_artifact_path, resolve_profile
 from bubble_mcp.core.redaction import SENSITIVE_KEY_PATTERN, redact_sensitive
@@ -74,6 +79,7 @@ ARG_ALIASES = {
     "event_type": ("event",),
     "action_param": ("param",),
     "to_email": ("to",),
+    "reusable_name": ("source", "reusable"),
 }
 
 OPERATION_ARG_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
@@ -153,16 +159,20 @@ def _first_present(*values: Any) -> Any | None:
 
 
 def _normalize_fixed_size_properties(properties: dict[str, Any]) -> None:
+    # Explicit responsive CSS lengths take priority over the legacy %w/%h ints:
+    # builders default %w/%h to 100 and never sync them with min_width/min_height
+    # args, so preferring %w silently rewrote explicit sizes (a 19px dot became
+    # a 100px square). %w/%h remain the fallback for legacy fixed-size payloads.
     if properties.get("fixed_width") is True or properties.get("single_width") is True:
         width_css = _css_px(
-            _first_present(properties.get("%w"), properties.get("max_width_css"), properties.get("min_width_css"))
+            _first_present(properties.get("max_width_css"), properties.get("min_width_css"), properties.get("%w"))
         )
         if width_css is not None:
             properties["min_width_css"] = width_css
             properties["max_width_css"] = width_css
     if properties.get("fixed_height") is True or properties.get("single_height") is True:
         height_css = _css_px(
-            _first_present(properties.get("%h"), properties.get("max_height_css"), properties.get("min_height_css"))
+            _first_present(properties.get("max_height_css"), properties.get("min_height_css"), properties.get("%h"))
         )
         if height_css is not None:
             properties["min_height_css"] = height_css
@@ -190,6 +200,25 @@ def _normalize_fixed_size_create_payload(
             _normalize_fixed_size_properties(properties)
         enforce_visual_create_payload_quality(body, metadata=style_metadata)
     return payload
+
+
+_ERROR_LOG_MARKERS = ("\u274c", "Unsupported", "Invalid", "not found", "Missing", "required", "Failed", "Refusing")
+
+
+def _extract_error_from_logs(logs: str) -> str | None:
+    """Surface the most recent human-readable failure line from captured runtime logs.
+
+    Aria tools report failures by printing and returning False; without this, the MCP
+    result carries ok=false with no reason and agents must parse raw logs.
+    """
+
+    for line in reversed(str(logs or "").splitlines()):
+        text = line.strip()
+        if not text:
+            continue
+        if any(marker in text for marker in _ERROR_LOG_MARKERS):
+            return text.lstrip("\u274c \u26a0\ufe0f").strip() or text
+    return None
 
 
 def _requires_calculate_derived(tool_name: str) -> bool:
@@ -352,26 +381,55 @@ def _resolve_runtime_environment(
         str(configured_consolelog_path) if configured_consolelog_path else None
     )
 
+    # A crawler index registered on the profile (or sitting at its default location) is a
+    # usable data source. Without this check every tool call re-ran detection: a failing
+    # .bubble download plus a browser crawl before any work could start.
+    resolved_crawler_index_path = _resolve_optional_path(
+        args.get("crawler_index_path")
+        or (profile_config.crawler_index_path if profile_config else None)
+    )
+    if resolved_crawler_index_path and not Path(resolved_crawler_index_path).expanduser().exists():
+        resolved_crawler_index_path = None
+    if not resolved_crawler_index_path:
+        default_crawler = default_crawler_index_path(profile, app_id)
+        if default_crawler.exists():
+            resolved_crawler_index_path = str(default_crawler)
+
+    has_local_artifact = bool(
+        (app_json_path and Path(app_json_path).expanduser().exists())
+        or (consolelog_json_path and Path(consolelog_json_path).expanduser().exists())
+        or (resolved_crawler_index_path and Path(resolved_crawler_index_path).expanduser().exists())
+    )
     should_detect = not authoritative_refresh and (
-        bool(args.get("refresh_context") or args.get("force"))
-        or not (app_json_path and Path(app_json_path).expanduser().exists())
+        bool(args.get("refresh_context") or args.get("force")) or not has_local_artifact
     )
     if should_detect:
-        detected = detect_project_context(
-            profile=profile,
-            app_id=app_id,
-            app_version=app_version,
-            force=bool(args.get("refresh_context") or args.get("force")),
-            bubble_file=Path(explicit_bubble_file).expanduser() if explicit_bubble_file else None,
-            consolelog_file=Path(consolelog_json_path).expanduser() if consolelog_json_path else None,
-        )
+        try:
+            detected = detect_project_context(
+                profile=profile,
+                app_id=app_id,
+                app_version=app_version,
+                force=bool(args.get("refresh_context") or args.get("force")),
+                bubble_file=Path(explicit_bubble_file).expanduser() if explicit_bubble_file else None,
+                consolelog_file=Path(consolelog_json_path).expanduser() if consolelog_json_path else None,
+            )
+        except ValueError:
+            # Detection needs a session or local artifact; a previously detected crawler
+            # index (checked below) is still a valid data source, so this is not fatal.
+            detected = None
         candidate = default_bubble_export_path(profile, app_id)
         if candidate.exists():
             app_json_path = str(candidate)
-        elif detected.source.endswith("bubble") and Path(detected.context_path).exists():
+        elif detected is not None and detected.source.endswith("bubble") and Path(detected.context_path).exists():
             app_json_path = app_json_path
 
-    if not app_json_path and not consolelog_json_path and not args.get("crawler_index_path"):
+    if not resolved_crawler_index_path:
+        # Detection may have produced the index only now.
+        default_crawler = default_crawler_index_path(profile, app_id)
+        if default_crawler.exists():
+            resolved_crawler_index_path = str(default_crawler)
+
+    if not app_json_path and not consolelog_json_path and not resolved_crawler_index_path:
         raise ValueError(
             "Aria runtime dispatch requires a .bubble export, consolelog JSON, or crawler index. "
             "Run bubble-mcp context detect for this profile first."
@@ -383,7 +441,7 @@ def _resolve_runtime_environment(
         app_version=app_version,
         app_json_path=app_json_path,
         consolelog_json_path=consolelog_json_path,
-        crawler_index_path=_resolve_optional_path(args.get("crawler_index_path")),
+        crawler_index_path=resolved_crawler_index_path,
         mutation_overlay_path=_resolve_optional_path(args.get("mutation_overlay_path"))
         or str(mutation_overlay_path(profile, app_id)),
     )
@@ -551,6 +609,24 @@ def _call_custom_runtime_tool(name: str, cli: Any, args: dict[str, Any]) -> dict
     return None
 
 
+def merge_write_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Concatenate several editor write payloads into a single request.
+
+    Bubble accepts any number of changes in one /appeditor/write call, so a batch of
+    N commands does not need N round trips. Payloads must share appname/app_version;
+    the first one supplies both.
+    """
+    usable = [payload for payload in payloads if isinstance(payload, dict) and isinstance(payload.get("changes"), list)]
+    if not usable:
+        return None
+    merged = {key: value for key, value in usable[0].items() if key != "changes"}
+    changes: list[Any] = []
+    for payload in usable:
+        changes.extend(payload["changes"])
+    merged["changes"] = changes
+    return merged
+
+
 def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any] | None:
     """Execute an Aria BubbleCLI method when the standalone catalog tool maps to one."""
 
@@ -586,6 +662,9 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
     style_metadata: dict[str, Any] = {}
     captured_payloads: list[dict[str, Any]] = []
     captured_results: list[dict[str, Any]] = []
+    buffered_payloads: list[dict[str, Any]] = []
+    merge_writes = name == "batch"
+    batch_contains_sensitive_payload = False
     captured_builder_ids: set[int] = set()
     sensitive_literals: set[str] = set()
     original_builder_init = bubble_sdk.PayloadBuilder.__init__
@@ -621,8 +700,14 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
         return write_payload
 
     def send_to_local_bubble(builder: Any, _url: str = "", *, sensitive: bool = False) -> Any:
+        nonlocal batch_contains_sensitive_payload
         write_payload = capture_payload(builder, sensitive=sensitive)
         safe_payload = _sensitive_payload_copy(write_payload) if sensitive else write_payload
+        if execute and merge_writes:
+            # One command in a batch = one payload; they are flushed together below.
+            buffered_payloads.append(write_payload)
+            batch_contains_sensitive_payload = batch_contains_sensitive_payload or sensitive
+            return {"ok": True, "deferred": True, "payload": safe_payload}
         if not execute:
             result = {"ok": True, "dry_run": True, "payload": safe_payload}
             captured_results.append({"ok": True, "executed": False, "dry_run": True, "payload": safe_payload})
@@ -711,14 +796,55 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
         bubble_sdk.PayloadBuilder.send_to_webhook = original_send
         bubble_sdk.PayloadBuilder.to_json = original_to_json
 
+    if buffered_payloads:
+        merged_payload = merge_write_payloads(buffered_payloads)
+        if merged_payload is not None:
+            assert session is not None
+            merged_result = BubbleEditorClient().write(
+                merged_payload,
+                session,
+                dry_run=False,
+                calculate_derived=_requires_calculate_derived(name),
+            )
+            safe_merged_result = (
+                _sanitize_sensitive_editor_result(merged_result, sensitive_literals)
+                if batch_contains_sensitive_payload
+                else merged_result
+            )
+            captured_results.append(
+                {
+                    "ok": bool(merged_result.get("ok")),
+                    "executed": True,
+                    "merged_from": len(buffered_payloads),
+                    "result": safe_merged_result,
+                }
+            )
+            if merged_result.get("ok") and not batch_contains_sensitive_payload:
+                request = merged_result.get("request")
+                request_payload = request.get("payload") if isinstance(request, dict) else None
+                overlay_payload = request_payload if isinstance(request_payload, dict) else merged_payload
+                try:
+                    record_mutation_overlay(
+                        profile=profile,
+                        app_id=str(overlay_payload.get("appname") or env.app_id),
+                        payload=overlay_payload,
+                        source=name,
+                        response=merged_result.get("response"),
+                    )
+                except Exception as exc:
+                    warning = f"Remote write succeeded, but the local mutation overlay could not be persisted: {exc}"
+                    captured_results[-1]["local_state_warning"] = warning
+
     logs = "\n".join(part for part in (stdout.getvalue().strip(), stderr.getvalue().strip()) if part)
     if sensitive_literals:
         logs = cast(str, _scrub_sensitive_literals(logs, sensitive_literals))
     ok = bool(return_value) if captured_results else return_value is not False
     if captured_results:
         ok = all(bool(item.get("ok")) for item in captured_results)
+    error = None if ok else _extract_error_from_logs(logs)
     response = {
         "ok": ok,
+        **({"error": error} if error else {}),
         "engine": "aria_runtime",
         "tool_name": name,
         "profile": profile,

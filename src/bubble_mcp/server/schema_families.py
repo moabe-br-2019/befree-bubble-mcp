@@ -552,6 +552,16 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
         "Skip id-to-path lookup generation in the compact context. Leave false for normal agent workflows.",
         default=False,
     ),
+    "include_details": _prop(
+        "boolean",
+        "Include expanded details or redacted raw results when supported. Leave false for compact agent-friendly summaries.",
+        default=False,
+    ),
+    "allow_decoded_keys": _prop(
+        "boolean",
+        "Override the decoded-key lint on bubble_editor_write node bodies (type/properties instead of %x/%p). Only for intentional non-node writes that trip the lint.",
+        default=False,
+    ),
     "message": _prop(
         "string",
         "Natural language Bubble edit request to turn into a deterministic plan.",
@@ -959,11 +969,6 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
         "Runtime smoke suite to run. coverage checks catalog execution coverage and agent-facing catalog quality; agent-routing validates natural-language tool routing without writes; visual-repair validates visual audit repair planning without writes; safe-read runs read-only profile calls; preview-write compiles representative mutations with execute=false; family-preview exercises representative visual/container/input/schema/workflow/style/html/branch/changelog paths without writes; execute-write creates temporary Bubble objects and requires execute=true.",
         enum=["coverage", "agent-routing", "visual-repair", "safe-read", "preview-write", "family-preview", "execute-write"],
         default="coverage",
-    ),
-    "include_details": _prop(
-        "boolean",
-        "Include redacted raw tool results in smoke output. Leave false for compact agent-friendly summaries.",
-        default=False,
     ),
     "include_profile_status": _prop(
         "boolean",
@@ -1446,6 +1451,7 @@ def profile_session_context_tools() -> list[ToolSchema]:
                 "consolelog_file",
                 "force",
                 "skip_id_to_path",
+                "include_details",
             ],
             required=["profile"],
         ),
@@ -1589,8 +1595,8 @@ def planning_execution_tools() -> list[ToolSchema]:
         ),
         tool_schema(
             "bubble_editor_write",
-            "Send a Bubble /appeditor/write payload using a stored local session. Set execute=true to mutate Bubble; otherwise it previews the request.",
-            ["profile", "payload", "execute", "calculate_derived"],
+            "Send a Bubble /appeditor/write payload using a stored local session. Set execute=true to mutate Bubble; otherwise it previews the request. Node bodies must use encoded keys (%x/%p/%nm/%dn); decoded export keys (type/properties) are rejected unless allow_decoded_keys=true. WARNING: the endpoint returns HTTP 200 for ANY body without semantic validation, and expression encodings (APIEventParameter, Message chains, param ids) are NOT derivable from the .bubble export — compose expression-bearing actions from captured editor traffic (bubble_tool_wizard_start) or via add_action, never from export-derived bodies; results carry warnings when such nodes are detected.",
+            ["profile", "payload", "execute", "calculate_derived", "allow_decoded_keys"],
             required=["profile", "payload"],
         ),
         tool_schema(

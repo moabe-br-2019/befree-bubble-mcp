@@ -2563,6 +2563,19 @@ class BubbleCLI:
             "parallax": "parallax",
             "parallax factor": "parallax",
             "parallax effect factor": "parallax",
+            "font size": "font_size",
+            "font color": "font_color",
+            "font family": "font_family",
+            "text color": "font_color",
+            "order": "order",
+            "rotation angle": "rotation_angle",
+            "rotation": "rotation_angle",
+            "border roundness": "%br",
+            "opacity": "opacity",
+            "background color": "bgcolor",
+            "bg color": "bgcolor",
+            "background style": "background_style",
+            "bg style": "background_style",
         }
 
         if p in aliases:
@@ -2589,6 +2602,8 @@ class BubbleCLI:
             "border_color_top", "border_color_bottom", "border_color_left", "border_color_right",
             "border_roundness_top", "border_roundness_bottom", "border_roundness_left", "border_roundness_right",
             "four_border_style", "style",
+            "font_size", "font_color", "font_family", "order", "rotation_angle", "opacity",
+            "bgcolor", "background_style",
             "float_v_relative", "float_h_relative", "float_zindex", "parallax"
         }:
             return compact
@@ -2698,6 +2713,21 @@ class BubbleCLI:
         raise ValueError(
             f"Invalid scroll direction '{value}'. Use one of: vertical, horizontal, flex_row."
         )
+
+    @staticmethod
+    def _merge_extra_props(
+        kwargs: Dict[str, Any],
+        extra_props: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Fold kwargs["extra_props"] into the caller's local extra_props.
+
+        _apply_common_surface_kwargs moves border_style into kwargs["extra_props"],
+        so a builder call that also passes extra_props= explicitly would raise
+        "got multiple values for keyword argument 'extra_props'".
+        """
+        merged = dict(extra_props or {})
+        merged.update(kwargs.pop("extra_props", None) or {})
+        return merged
 
     def _supported_properties_for_tool(self, tool_name: str) -> set:
         """Capability-map backed property set for a tool name."""
@@ -3144,6 +3174,7 @@ class BubbleCLI:
             "%bw", "%br", "%sw",
             "border_width_top", "border_width_bottom", "border_width_left", "border_width_right",
             "border_roundness_top", "border_roundness_bottom", "border_roundness_left", "border_roundness_right",
+            "font_size", "order", "rotation_angle",
         }:
             return _parse_int(value, prop_key)
 
@@ -3221,6 +3252,25 @@ class BubbleCLI:
 
         if prop_key in {"%bc", "border_color_top", "border_color_bottom", "border_color_left", "border_color_right", "%sc"}:
             return self._resolve_color_arg(str(value).strip())
+
+        if prop_key in {"font_color", "bgcolor"}:
+            return self._resolve_color_arg(str(value).strip())
+
+        if prop_key == "background_style":
+            raw = str(value).strip().lower()
+            mapping = {"color": "bgcolor", "bgcolor": "bgcolor", "none": "none", "gradient": "gradient", "image": "image"}
+            if raw not in mapping:
+                raise ValueError(f"Invalid background_style: '{value}'. Use color, none, gradient, or image.")
+            return mapping[raw]
+
+        if prop_key == "font_family":
+            return str(value).strip()
+
+        if prop_key == "opacity":
+            try:
+                return int(float(str(value).strip().rstrip("%")))
+            except Exception:
+                raise ValueError(f"Invalid opacity value: '{value}'")
 
         if prop_key in {"%bos", "border_style_top", "border_style_bottom", "border_style_left", "border_style_right", "%ss"}:
             raw = str(value or "").strip().lower()
@@ -12551,6 +12601,9 @@ class BubbleCLI:
 
         normalized = raw.replace("/", " ").replace(":", " ")
         normalized = re.sub(r"\s+", " ", normalized).strip()
+        # Accept dashed library prefixes ("ion-checkmark", "feather-check") by mapping
+        # them to the canonical "<library> <name>" form the editor stores.
+        normalized = re.sub(r"^(ion|feather|phosphor|material|heroicons)-", r"\1 ", normalized)
 
         explicit_prefix = self._resolve_icon_prefix(normalized, allow_fallback=False)
         if explicit_prefix:
@@ -12603,7 +12656,12 @@ class BubbleCLI:
         if inherited_prefix:
             return f"{inherited_prefix} {self._slug_icon_name(normalized)}"
 
-        return normalized
+        logger.error(
+            f"Unsupported icon '{incoming}'. Use 'fa fa-<name>' (FontAwesome), "
+            "'phosphor <variant> <name>', 'material <variant> <name>', "
+            "'heroicons <variant> <name>', 'feather <name>', or 'ion <name>'."
+        )
+        return None
 
     def update_icon(self, context_name: str, element_name: str, new_icon: str, dry_run: bool = False, prefer_last: bool = False) -> bool:
         """Update icon for Icon/Button elements."""
@@ -12630,6 +12688,8 @@ class BubbleCLI:
             new_icon,
             existing_icon=existing_icon,
         )
+        if new_icon is not None and resolved_icon is None:
+            return False
 
         # Bubble expects icon updates through %9i in SetData payloads.
         key = "%9i"
@@ -18044,7 +18104,10 @@ class BubbleCLI:
                 return False
             prop_updates["button_type"] = normalized_button_type
         if icon is not None:
-            prop_updates["%9i"] = self._normalize_icon_value_for_write(icon)
+            normalized_button_icon = self._normalize_icon_value_for_write(icon)
+            if normalized_button_icon is None:
+                return False
+            prop_updates["%9i"] = normalized_button_icon
         if icon_size is not None:
             prop_updates["icon_size"] = int(icon_size)
         if raw_kwargs.get("icon_color") is not None:
@@ -18593,7 +18656,10 @@ class BubbleCLI:
 
         prop_updates: Dict[str, Any] = {}
         if icon is not None:
-            prop_updates["%9i"] = self._normalize_icon_value_for_write(icon)
+            normalized_button_icon = self._normalize_icon_value_for_write(icon)
+            if normalized_button_icon is None:
+                return False
+            prop_updates["%9i"] = normalized_button_icon
         if raw_kwargs.get("icon_color") is not None:
             prop_updates["%ic"] = self._resolve_color_arg(
                 raw_kwargs.get("icon_color"),
@@ -19026,7 +19092,10 @@ class BubbleCLI:
         if show_icon is not None:
             prop_updates["show_icon"] = bool(show_icon)
         if icon is not None:
-            prop_updates["%9i"] = self._normalize_icon_value_for_write(icon)
+            normalized_button_icon = self._normalize_icon_value_for_write(icon)
+            if normalized_button_icon is None:
+                return False
+            prop_updates["%9i"] = normalized_button_icon
 
         if font_family is not None:
             prop_updates["font_family"] = str(font_family)
@@ -21780,7 +21849,7 @@ class BubbleCLI:
         self,
         context_name: str,
         parent_name: str,
-        reusable_name: str,
+        reusable_name: Optional[str] = None,
         *,
         name: Optional[str] = None,
         data_class: Optional[str] = None,
@@ -21801,6 +21870,13 @@ class BubbleCLI:
         **kwargs,
     ) -> bool:
         """Create an instance of an existing reusable element."""
+        if not str(reusable_name or "").strip():
+            logger.error(
+                "Missing reusable_name: pass the name of the reusable definition to instantiate "
+                "(MCP argument 'source' or 'reusable_name')."
+            )
+            return False
+        reusable_name = str(reusable_name).strip()
         logger.info(f"Searching for context: {context_name}")
         context_id, context_type = self._find_context(context_name)
         if not context_id:
@@ -21813,10 +21889,14 @@ class BubbleCLI:
             return False
         parent_path = self.discovery.build_path_array(context_id, parent_result["path"], context_type=context_type)
 
-        reusable_id = self.discovery.find_reusable(reusable_name)
-        if not reusable_id:
+        reusable_found = self.discovery.find_reusable_definition(reusable_name)
+        if not reusable_found:
             logger.error(f"Reusable '{reusable_name}' not found")
             return False
+        reusable_key, reusable_definition = reusable_found
+        # Editor-created instances reference the definition's INNER id in custom_id,
+        # never the element_definitions dict key (they often differ).
+        reusable_id = str(reusable_definition.get("id") or reusable_key)
 
         instance_name = str(name or reusable_name or "").strip()
         if not instance_name:
@@ -21880,6 +21960,10 @@ class BubbleCLI:
                 prop_updates["order"] = int(order_value)
             except Exception:
                 prop_updates["order"] = order_value
+        else:
+            # Editor-created instances always carry %p.order; without it the element is
+            # accepted by the server but invisible in the editor's Elements Tree.
+            prop_updates["order"] = self._next_child_order(context_id, context_type, parent_result)
 
         id_gen = BubbleIDGenerator()
         pb = PayloadBuilder(appname=self.appname)
@@ -23196,6 +23280,78 @@ class BubbleCLI:
             context_id, context_type, parent_result
         )
 
+    @staticmethod
+    def _parent_object_id(parent_result: Any, parent_node: Any) -> str:
+        for source in (parent_result, parent_node):
+            if isinstance(source, dict):
+                candidate = str(source.get("id") or "").strip()
+                if candidate:
+                    return candidate
+        return ""
+
+    def _next_child_order(
+        self,
+        context_id: str,
+        context_type: str,
+        parent_result: Dict[str, Any],
+    ) -> int:
+        """Return max(%p.order of existing children) + 1, or 0 for the first child."""
+        parent_node: Optional[Dict[str, Any]] = None
+        if isinstance(parent_result, dict):
+            candidate = parent_result.get("element")
+            if isinstance(candidate, dict):
+                parent_node = candidate
+        if parent_node is None:
+            try:
+                parent_node = self.discovery._get_context_root(context_id, context_type)
+            except Exception:
+                parent_node = None
+        if not isinstance(parent_node, dict):
+            return 0
+        children = parent_node.get("elements")
+        if not isinstance(children, dict):
+            children = parent_node.get("%el")
+        if not isinstance(children, dict) or not children:
+            # A parent created moments ago is not in the local element cache yet, so it
+            # looks childless and every child would be stamped order 0. The editor index
+            # tracks the sibling ids, so fall back to counting those.
+            try:
+                siblings = self._read_issues_sub_children(self._parent_object_id(parent_result, parent_node))
+            except Exception:
+                siblings = []
+            return len(siblings)
+        max_order = -1
+        for key, value in children.items():
+            if key == "length" or not isinstance(value, dict):
+                continue
+            props = value.get("%p") if isinstance(value.get("%p"), dict) else value.get("properties")
+            if not isinstance(props, dict):
+                continue
+            raw = props.get("order")
+            if isinstance(raw, (int, float)):
+                max_order = max(max_order, int(raw))
+        return max_order + 1
+
+    def _advance_child_order(self, parent_key: str, computed_order: int) -> int:
+        """Keep sibling order strictly increasing within one CLI session.
+
+        _next_child_order reads the discovery cache, which can be cold for a parent
+        that was itself created moments ago; it then returns 0 for every child and
+        Bubble renders them in reverse creation order.
+        """
+        tracker = getattr(self, "_session_child_order", None)
+        if tracker is None:
+            tracker = {}
+            self._session_child_order = tracker
+        previous = tracker.get(parent_key)
+        # Bubble treats %p.order = 0 as "unset" and reassigns it server-side, which
+        # silently moves the first child. Stamped orders therefore start at 1.
+        order_value = max(int(computed_order), 1)
+        if previous is not None and order_value <= previous:
+            order_value = previous + 1
+        tracker[parent_key] = order_value
+        return order_value
+
     def _queue_create_element_with_index_updates(
         self,
         pb: PayloadBuilder,
@@ -23719,16 +23875,17 @@ class BubbleCLI:
                             return True
                 return False
             if strict_rows:
-                strict_rows_noncache = [row for row in strict_rows if not row.get("from_cache")]
-                if strict_rows_noncache:
-                    pool = strict_rows_noncache
-                else:
-                    pool = [row for row in strict_rows if _workflow_exists_in_root(row)]
-                    if not pool:
-                        logger.warning(
-                            "Ignoring cached workflow match because local context root is stale. "
-                            "A fresh workflow will be created instead."
-                        )
+                pool = self._select_trusted_workflow_rows(
+                    strict_rows,
+                    exists_in_root=_workflow_exists_in_root,
+                    root_source_mtime_ms=self._context_root_source_mtime_ms(),
+                )
+                if not pool:
+                    logger.warning(
+                        "Ignoring cached workflow match: the ref is absent from the local context root "
+                        "and older than the root snapshot (likely deleted or a ghost ref). "
+                        "A fresh workflow will be created instead; pass event_ref to force a specific workflow."
+                    )
                 def _rank_row(row_obj: Dict[str, Any]) -> Tuple[int, int]:
                     raw_updated = row_obj.get("updated_at")
                     updated = int(raw_updated) if isinstance(raw_updated, (int, float)) else 0
@@ -24311,11 +24468,14 @@ class BubbleCLI:
         while len(label) >= 2 and ((label[0] == label[-1] and label[0] in {'"', "'"}) or (label[0], label[-1]) in {("“", "”"), (""", "”"), ("“", """)}):
             label = label[1:-1].strip()
         normalized_icon = self._normalize_icon_value_for_write(icon)
+        if icon is not None and normalized_icon is None:
+            return False
         if button_type is None:
             resolved_button_type = "label_icon" if normalized_icon else "label"
         else:
             resolved_button_type = str(button_type).strip().lower().replace("-", "_").replace(" ", "_")
 
+        extra_props = self._merge_extra_props(kwargs, extra_props)
         full_body = eb.button(
             name=name if name else label,
             label=label,
@@ -24663,6 +24823,15 @@ class BubbleCLI:
             if horiz: kwargs["container_horiz_alignment"] = horiz
             if vert: kwargs["container_vert_alignment"] = vert
 
+        existing_page_id = self.discovery.find_page(name)
+        if existing_page_id:
+            logger.error(
+                f"Page '{name}' already exists (id '{existing_page_id}'). "
+                "Bubble keys pages by name: creating a second page with the same name hides one of them "
+                "from the editor and the runtime. Use the existing page, or pick another name."
+            )
+            return False
+
         # Generate page body
         raw_page_body = page_builder.page(
             name=name,
@@ -24721,6 +24890,12 @@ class BubbleCLI:
             "changelog_data": [],
             "session_id": pb.id_gen.session_id()
         })
+
+        # 5. Register the page name. The editor's App Manager and the runtime resolve
+        # pages through _index.page_name_to_id / page_name_to_path; a page created
+        # without these entries exists in the tree but never opens or renders.
+        pb.add_update_index(["_index", "page_name_to_id", name], page_id)
+        pb.add_update_index(["_index", "page_name_to_path", name], f"%p3.{page_slot}")
 
         if dry_run:
             logger.info("\n DRY RUN - Payload preview:")
@@ -24802,6 +24977,13 @@ class BubbleCLI:
         if page_object_id:
             pb.add_update_index(["_index", "issues_list", page_object_id], "[]")
             pb.add_update_index(["_index", "issues_sub", page_object_id], "[]")
+
+        # Drop the page name registration; leaving it behind points the editor and the
+        # runtime at a deleted page node.
+        page_display_name = str(name or "").strip()
+        if page_display_name:
+            pb.add_update_index(["_index", "page_name_to_id", page_display_name], None)
+            pb.add_update_index(["_index", "page_name_to_path", page_display_name], None)
 
         if dry_run:
             logger.info("\n DRY RUN - Payload preview:")
@@ -29803,6 +29985,7 @@ class BubbleCLI:
                     input_height = _to_int(params.get("height"), None)
                     explicit_input_style = bool(params.get("bg_color") or params.get("border_color") or params.get("border_radius"))
                     input_style = None if explicit_input_style else "Input_std_dash_"
+                    extra_props = self._merge_extra_props(visual_kwargs, extra_props)
                     full_body = eb.input(
                         _pipeline_name("in", _clean_text(str(params.get("name", ""))), "input"),
                         placeholder=_clean_text(str(params.get("placeholder", "Type here..."))),
@@ -30707,6 +30890,14 @@ class BubbleCLI:
         bg_style = kwargs.pop("bg_style", None)
         if bg_style:
             kwargs["background_style"] = bg_style
+        if kwargs.get("background_style") is not None:
+            raw_bas = str(kwargs["background_style"]).strip().lower()
+            bas_aliases = {"color": "bgcolor", "bg_color": "bgcolor", "solid": "bgcolor"}
+            raw_bas = bas_aliases.get(raw_bas, raw_bas)
+            if raw_bas not in {"none", "bgcolor", "image", "gradient"}:
+                logger.error("Invalid bg_style. Use one of: none, color/bgcolor, image, gradient.")
+                return False
+            kwargs["background_style"] = raw_bas
 
         bg_color = kwargs.pop("bg_color", None)
         if bg_color is not None and str(bg_color).strip():
@@ -33234,6 +33425,7 @@ class BubbleCLI:
         if "extra_props" in kwargs:
             extra_props.update(kwargs.pop("extra_props"))
 
+        extra_props = self._merge_extra_props(kwargs, extra_props)
         full_body = eb.repeating_group(
             name, resolved_data_type,
             layout=layout,
@@ -35561,7 +35753,7 @@ class BubbleCLI:
         use_aspect_ratio: Optional[bool] = None,
         aspect_ratio_width: Optional[int] = None,
         aspect_ratio_height: Optional[int] = None,
-        order: Optional[int] = 0,
+        order: Optional[int] = None,
         **kwargs
     ) -> bool:
         """Create an Image element"""
@@ -35673,7 +35865,8 @@ class BubbleCLI:
             # Include layout properties in style overrides so they aren't wiped by AssignStyle %p
             style_props = {
                 **kwargs,
-                "order": order,
+                # order is stamped by the create queue when the caller left it unset.
+                "order": order if order is not None else (full_body.get("%p") or {}).get("order"),
                 "width": width,
                 "height": None if aspect_ratio_enabled else height,
                 "fit_width": False,
@@ -35778,7 +35971,7 @@ class BubbleCLI:
         dry_run: bool = False, width_unset: bool = False, style: str = None,
         min_width: str = None, max_width: str = None, fixed_width: bool = False, fit_width: bool = False,
         min_height: str = None, max_height: str = None, fixed_height: bool = False, fit_height: bool = False,
-        order: Optional[int] = 0,
+        order: Optional[int] = None,
         create_missing: bool = False,
         **kwargs
     ) -> bool:
@@ -35825,6 +36018,8 @@ class BubbleCLI:
         if "fit_height" not in supported_props:
             fit_height = False
         normalized_icon_name = self._normalize_icon_value_for_write(icon_name)
+        if icon_name is not None and normalized_icon_name is None:
+            return False
         if not self._apply_common_surface_kwargs(
             kwargs,
             dry_run=dry_run,
@@ -35866,7 +36061,8 @@ class BubbleCLI:
             # Include layout properties in style overrides so they aren't wiped by AssignStyle %p
             style_props = {
                 **kwargs,
-                "order": order,
+                # order is stamped by the create queue when the caller left it unset.
+                "order": order if order is not None else (full_body.get("%p") or {}).get("order"),
                 "fit_width": False,
                 "fit_height": False,
                 "fixed_width": fixed_width,
@@ -49156,6 +49352,56 @@ class BubbleCLI:
             return module_payload
         return None
 
+    # Cached workflow refs recorded up to this long before the local .bubble export was
+    # downloaded may still be missing from that export (generation lag); newer ones always are.
+    _WORKFLOW_CACHE_ROOT_TOLERANCE_MS = 15 * 60 * 1000
+
+    @staticmethod
+    def _select_trusted_workflow_rows(
+        strict_rows: List[Dict[str, Any]],
+        *,
+        exists_in_root: Callable[[Dict[str, Any]], bool],
+        root_source_mtime_ms: Optional[int],
+    ) -> List[Dict[str, Any]]:
+        """Decide which matched workflow rows are safe to append to.
+
+        Order of trust: (1) rows read from the context root itself; (2) cache-only rows the
+        root confirms; (3) cache-only rows NEWER than the root snapshot (minus a tolerance) —
+        a workflow created via MCP after the .bubble download cannot appear in that download,
+        so the root cannot refute it. Only cache rows older than the root stay untrusted
+        (deleted workflows / ghost refs), which is when auto-create is legitimate.
+        """
+
+        noncache = [row for row in strict_rows if not row.get("from_cache")]
+        if noncache:
+            return noncache
+        confirmed = [row for row in strict_rows if exists_in_root(row)]
+        if confirmed:
+            return confirmed
+
+        def _updated_ms(row: Dict[str, Any]) -> int:
+            raw = row.get("updated_at")
+            return int(raw) if isinstance(raw, (int, float)) else 0
+
+        if root_source_mtime_ms is None:
+            threshold = int(time.time() * 1000) - BubbleCLI._WORKFLOW_CACHE_ROOT_TOLERANCE_MS
+        else:
+            threshold = int(root_source_mtime_ms) - BubbleCLI._WORKFLOW_CACHE_ROOT_TOLERANCE_MS
+        return [row for row in strict_rows if _updated_ms(row) > threshold]
+
+    def _context_root_source_mtime_ms(self) -> Optional[int]:
+        """Newest mtime (ms epoch) among the artifacts backing the context root."""
+
+        mtimes: List[int] = []
+        for attribute in ("app_json_path", "consolelog_json_path", "crawler_index_path"):
+            path = getattr(self.discovery, attribute, None)
+            try:
+                if path and os.path.exists(path):
+                    mtimes.append(int(os.path.getmtime(path) * 1000))
+            except OSError:
+                continue
+        return max(mtimes) if mtimes else None
+
     def _cache_event_key(self, context_type: str, context_id: str, workflow_key: str) -> str:
         return f"{context_type}:{context_id}:{workflow_key}"
 
@@ -49907,6 +50153,44 @@ class BubbleCLI:
             workflow_obj=workflow_obj,
             workflow_id=workflow_obj.get("id") if isinstance(workflow_obj, dict) else None
         )
+
+    def _merge_workflow_properties_in_discovery(
+        self,
+        context_id: str,
+        context_type: str,
+        workflow_key: str,
+        properties: Dict[str, Any]
+    ) -> None:
+        """Merge fields into an existing workflow's %p/properties in the in-memory
+        discovery root, without touching its other fields (%x/actions/etc).
+
+        Unlike `_upsert_workflow_in_discovery` (which replaces the whole workflow
+        object and is only safe right after creating a brand-new empty shell),
+        this is for post-create steps like binding the trigger element that must
+        not clobber a workflow's existing actions/type when it already has them.
+        Without this, the in-memory/root copy of a freshly auto-created workflow
+        never learns its own %p.%ei, so the next add_action call in the same
+        process can never match it by element and silently creates a duplicate.
+        """
+        if not isinstance(properties, dict) or not properties:
+            return
+        root = self.discovery._get_context_root(context_id, context_type)
+        if not isinstance(root, dict):
+            return
+        container_key = "%wf" if isinstance(root.get("%wf"), dict) else "workflows"
+        workflows_map = root.get(container_key)
+        if not isinstance(workflows_map, dict):
+            return
+        wf_obj = workflows_map.get(workflow_key)
+        if not isinstance(wf_obj, dict):
+            return
+        use_full_key = "properties" in wf_obj and "%p" not in wf_obj
+        prop_key = "properties" if use_full_key else "%p"
+        props = wf_obj.get(prop_key)
+        if not isinstance(props, dict):
+            props = {}
+        props.update(properties)
+        wf_obj[prop_key] = props
 
     def _get_workflow_object_from_root(
         self,
@@ -51942,6 +52226,15 @@ class BubbleCLI:
             )
         ok = self._send_schema_payload(pb, dry_run, f"Event '{event_ref}' element set to {element_id}.")
         if ok:
+            if not dry_run:
+                # A dry run must not leave the in-memory discovery root claiming a
+                # binding that was never sent to Bubble.
+                self._merge_workflow_properties_in_discovery(
+                    context_id,
+                    context_type,
+                    wf_key,
+                    {"%ei": element_id}
+                )
             self._cache_workflow_event(
                 context_id,
                 context_type,
@@ -52705,8 +52998,8 @@ class BubbleCLI:
     def add_action(
         self,
         context_name: str,
-        element_name: str,
-        action_type: str,
+        element_name: Optional[str] = None,
+        action_type: str = "",
         action_param: Optional[str] = None,
         event: str = "click",
         dry_run: bool = False,
@@ -52737,8 +53030,64 @@ class BubbleCLI:
         query_ignore_empty_constraints: bool = False,
         element_ref_kind: str = "auto",
         match_index: int = 1,
+        event_ref: Optional[str] = None,
+        event_type: Optional[str] = None,
+        ref_kind: str = "auto",
     ) -> bool:
-        """Add an action to an element's workflow"""
+        """Add an action to an element's workflow.
+
+        When event_ref (workflow key/id/name/alias/shorthand) or event_type is given,
+        the target workflow is resolved directly via add_event_action instead of
+        element+event matching. This keeps the MCP schema contract: event_ref must
+        never be silently dropped (it used to be, causing duplicate workflows or
+        manual /appeditor/write fallbacks for ConditionTrue/CustomEvent workflows).
+        """
+        event_ref_text = str(event_ref or "").strip()
+        event_type_text = str(event_type or "").strip()
+        element_text = str(element_name or "").strip()
+        # Arg aliasing can copy `event` into `event_type`; honor event_type routing
+        # only when no element target was given (element+event stays the legacy path).
+        if event_ref_text or (event_type_text and not element_text):
+            return self.add_event_action(
+                context_name=context_name,
+                action_type=action_type,
+                action_param=action_param,
+                event_ref=event_ref_text or None,
+                event_type=event_type_text or None,
+                ref_kind=ref_kind,
+                dry_run=dry_run,
+                data_type=data_type,
+                fields=fields,
+                thing=thing,
+                to_email=to_email,
+                subject=subject,
+                body=body,
+                message=message,
+                title=title,
+                pause_ms=pause_ms,
+                hide_status_bar=hide_status_bar,
+                open_in_new_tab=open_in_new_tab,
+                animation=animation,
+                duration_ms=duration_ms,
+                customize_duration=customize_duration,
+                offset=offset,
+                custom_state=custom_state,
+                value=value,
+                query_json=query_json,
+                query_source_type=query_source_type,
+                query_result_from_field=query_result_from_field,
+                query_constraints_json=query_constraints_json,
+                query_sort_field=query_sort_field,
+                query_sort_desc=query_sort_desc,
+                query_ignore_empty_constraints=query_ignore_empty_constraints,
+            )
+        if not element_text:
+            print("❌ Provide element_name (with event) or event_ref/event_type to target the workflow.")
+            return False
+        if not str(action_type or "").strip():
+            print("❌ Missing action_type")
+            return False
+        element_name = element_text
         print(f" Searching for context: {context_name}")
         context_id, context_type = self._find_context(context_name)
         if not context_id: return False
@@ -52930,18 +53279,17 @@ class BubbleCLI:
                             return True
                 return False
             if strict_rows:
-                strict_rows_noncache = [row for row in strict_rows if not row.get("from_cache")]
-                if strict_rows_noncache:
-                    pool = strict_rows_noncache
-                else:
-                    # Cache-only workflow refs can be stale (webhook accepted, local cache updated,
-                    # but event not actually present in context root). Ignore those and auto-create.
-                    pool = [row for row in strict_rows if _workflow_exists_in_root(row)]
-                    if not pool:
-                        logger.warning(
-                            "Ignoring cached workflow match because local context root is stale. "
-                            "A fresh workflow will be created instead."
-                        )
+                pool = self._select_trusted_workflow_rows(
+                    strict_rows,
+                    exists_in_root=_workflow_exists_in_root,
+                    root_source_mtime_ms=self._context_root_source_mtime_ms(),
+                )
+                if not pool:
+                    logger.warning(
+                        "Ignoring cached workflow match: the ref is absent from the local context root "
+                        "and older than the root snapshot (likely deleted or a ghost ref). "
+                        "A fresh workflow will be created instead; pass event_ref to force a specific workflow."
+                    )
                 def _rank_row(row_obj: Dict[str, Any]) -> Tuple[int, int]:
                     raw_updated = row_obj.get("updated_at")
                     updated = int(raw_updated) if isinstance(raw_updated, (int, float)) else 0

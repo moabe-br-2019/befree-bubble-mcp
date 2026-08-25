@@ -157,10 +157,16 @@ def create_from_html_runtime(
         force=refresh_context,
     )
     bubble_file = detected.context_path.with_name(f"{resolved_app_id}.bubble")
-    if not bubble_file.exists():
-        raise ValueError(f"Bubble export not found for Aria runtime: {bubble_file}")
     crawler_index_path = detected.crawler_index_path or default_crawler_index_path(profile, resolved_app_id)
     resolved_crawler_index_path = str(crawler_index_path) if crawler_index_path and crawler_index_path.exists() else None
+    resolved_bubble_file = str(bubble_file) if bubble_file.exists() else None
+    if resolved_bubble_file is None and resolved_crawler_index_path is None:
+        # Crawler-only profiles (e.g. the .bubble export endpoint returns 401 on some plans)
+        # are served by PathDiscovery's crawler-primary fallback; only fail when NO source exists.
+        raise ValueError(
+            f"No app data source for the Aria HTML runtime: neither {bubble_file} nor a crawler index exists. "
+            "Run bubble_context_detect for this profile first."
+        )
     resolved_consolelog_path = _resolve_optional_profile_path(raw_profile, "consolelog_json_path")
     resolved_mutation_overlay_path = str(mutation_overlay_path(profile, resolved_app_id))
     if not Path(resolved_mutation_overlay_path).exists():
@@ -227,7 +233,7 @@ def create_from_html_runtime(
         bubble_sdk.PayloadBuilder.to_json = to_json_with_capture
         with redirect_stdout(stdout), redirect_stderr(stderr):
             cli = bubble_cli.BubbleCLI(
-                app_json_path=str(bubble_file),
+                app_json_path=resolved_bubble_file,
                 consolelog_json_path=resolved_consolelog_path,
                 crawler_index_path=resolved_crawler_index_path,
                 mutation_overlay_path=resolved_mutation_overlay_path,

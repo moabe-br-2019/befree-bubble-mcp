@@ -11,6 +11,7 @@ from copy import deepcopy
 from typing import Any
 
 from bubble_mcp.compiler.payload import CREATE_DEFAULT_ARGS, CREATE_NAME_PREFIXES, VISUAL_CREATE_TYPES
+from bubble_mcp.server.tool_descriptions import LEGACY_TOOL_DESCRIPTIONS, NATIVE_TOOL_DESCRIPTION_EXTRAS
 
 
 COMMON_PROPERTY_DESCRIPTIONS: dict[str, str] = {
@@ -1335,7 +1336,9 @@ def enhance_tool_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
     tool = deepcopy(schema)
     name = str(tool.get("name") or "")
-    tool["description"] = NATIVE_TOOL_DESCRIPTIONS.get(name) or legacy_description(name)
+    tool["description"] = (
+        NATIVE_TOOL_DESCRIPTIONS.get(name) or NATIVE_TOOL_DESCRIPTION_EXTRAS.get(name) or legacy_description(name)
+    )
     tool["annotations"] = tool_annotations(name)
     input_schema = tool.setdefault("inputSchema", {"type": "object"})
     if isinstance(input_schema, dict):
@@ -1753,6 +1756,11 @@ def _visual_fields_for_name(name: str) -> tuple[tuple[str, ...], tuple[str, ...]
     }
     for element, fields in create_fields.items():
         if name == f"create_{element}":
+            if element == "reusable_instance":
+                # `source` (the reusable definition name) is required by the runtime;
+                # omitting it must be a schema validation error, not a Python TypeError.
+                remaining = tuple(field for field in fields if field not in {"name", "source"})
+                return (("profile", "context", "parent", "name", "source"), ("dry_run", "settings_path", *remaining))
             return (("profile", "context", "parent", *fields[:1]), ("dry_run", "settings_path", *fields[1:]))
         if name == f"update_{element}" or name == f"update_{element}_element":
             return (("profile", "context", "element_name"), ("dry_run", "settings_path", *fields, "prefer_last"))
@@ -1876,9 +1884,8 @@ def _app_text_fields(name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
 def legacy_description(name: str) -> str:
     category = _category_for_name(name)
     return (
-        f"{category} This is an Aria-compatible Bubble MCP tool. Use it when the user's intent matches this "
-        "capability by outcome, not because the user named the tool. Prefer profile/context arguments for normal "
-        "operation; pass an exact write_payload only when another step already produced a validated Bubble payload."
+        f"{category} Prefer profile/context arguments; pass write_payload only when another step already produced "
+        "a validated Bubble payload."
     )
 
 
@@ -1990,6 +1997,9 @@ def describe_input_properties(tool: dict[str, Any]) -> None:
 
 
 def _category_for_name(name: str) -> str:
+    specific = LEGACY_TOOL_DESCRIPTIONS.get(name)
+    if specific:
+        return specific
     visual_family = _visual_element_family(name)
     if visual_family:
         return visual_family

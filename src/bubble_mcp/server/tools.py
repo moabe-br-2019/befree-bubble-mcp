@@ -34,6 +34,11 @@ from bubble_mcp.context.source import load_context, save_context
 from bubble_mcp.core.config import BubbleProfile, load_settings, resolve_profile, save_settings, with_profile
 from bubble_mcp.core.redaction import redact_sensitive
 from bubble_mcp.execution.client import BubbleEditorClient, build_editor_write_headers
+from bubble_mcp.execution.write_lint import (
+    lint_editor_write_changes,
+    lint_enum_warnings,
+    lint_expression_warnings,
+)
 from bubble_mcp.execution.editor_api import (
     confirm_bubble_branch_merge,
     create_bubble_branch,
@@ -1333,7 +1338,34 @@ def call_tool(
             else None,
             include_id_to_path=not bool(args.get("skip_id_to_path")),
         )
-        return detection_result.to_dict()
+        full = detection_result.to_dict()
+        if bool(args.get("include_details")):
+            return full
+        # Default to a compact response: full attempts/summaries can exceed 70k chars
+        # and blow the MCP client's token budget on every call.
+        raw_summary = full.get("summary")
+        summary: dict[str, Any] = raw_summary if isinstance(raw_summary, dict) else {}
+        compact_attempts = [
+            {
+                key: attempt.get(key)
+                for key in ("source", "ok", "status", "reason", "pages", "reusables")
+                if attempt.get(key) is not None
+            }
+            for attempt in full.get("attempts") or []
+            if isinstance(attempt, dict)
+        ]
+        return {
+            "ok": full.get("ok"),
+            "app_id": full.get("app_id"),
+            "source": full.get("source"),
+            "context_path": full.get("context_path"),
+            "crawler_index_path": full.get("crawler_index_path"),
+            "counts": summary.get("counts"),
+            "nodes": summary.get("nodes"),
+            "edges": summary.get("edges"),
+            "attempts": compact_attempts,
+            "detail": "Pass include_details=true for the full summary and attempt payloads.",
+        }
     if name in {"bubble_plan", "bubble_plan_dry_run"}:
         args = arguments or {}
         plan = plan_message(
@@ -1554,6 +1586,23 @@ def call_tool(
         write_session = load_session(profile)
         if write_session is None:
             raise ValueError(f"No Bubble session stored for profile '{profile}'.")
+        lint_issues = lint_editor_write_changes(write_payload.get("changes"))
+        if lint_issues and not bool(args.get("allow_decoded_keys")):
+            return {
+                "ok": False,
+                "error": "decoded_keys_in_node_body",
+                "issues": lint_issues,
+                "message": (
+                    "Refusing to write node bodies with decoded export keys: the server accepts them "
+                    "(HTTP 200) and the export round-trips them, but the editor renders '[missing: null]'. "
+                    "Use encoded keys (%x/%p/%nm/%dn) copied from a sibling node in the live app tree, "
+                    "or pass allow_decoded_keys=true to override."
+                ),
+            }
+        expression_warnings = [
+            *lint_expression_warnings(write_payload.get("changes")),
+            *lint_enum_warnings(write_payload.get("changes")),
+        ]
         execute = bool(args.get("execute"))
         targeted_payload = _write_payload_for_target_version(write_payload, args)
         write_result: dict[str, Any] = BubbleEditorClient().write(
@@ -1573,6 +1622,8 @@ def call_tool(
                 source="bubble_editor_write",
                 response=write_result.get("response"),
             )
+        if expression_warnings:
+            write_result = {**write_result, "warnings": expression_warnings}
         return write_result
     if name == "bubble_plugin_install":
         args = arguments or {}

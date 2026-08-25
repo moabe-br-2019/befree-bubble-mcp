@@ -25,6 +25,8 @@ class BubbleProfile:
     app_version: str | None = None
     app_json_path: str | None = None
     consolelog_json_path: str | None = None
+    context_path: str | None = None
+    crawler_index_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +108,8 @@ def load_settings(config_dir: Path | None = None) -> BubbleMcpSettings:
             or None,
             app_json_path=str(raw_profile.get("app_json_path") or "").strip() or None,
             consolelog_json_path=str(raw_profile.get("consolelog_json_path") or "").strip() or None,
+            context_path=str(raw_profile.get("context_path") or "").strip() or None,
+            crawler_index_path=str(raw_profile.get("crawler_index_path") or "").strip() or None,
         )
 
     default_profile = str(payload.get("default_profile") or "").strip() or None
@@ -132,6 +136,12 @@ def save_settings(settings: BubbleMcpSettings) -> None:
                 **(
                     {"consolelog_json_path": profile.consolelog_json_path}
                     if profile.consolelog_json_path
+                    else {}
+                ),
+                **({"context_path": profile.context_path} if profile.context_path else {}),
+                **(
+                    {"crawler_index_path": profile.crawler_index_path}
+                    if profile.crawler_index_path
                     else {}
                 ),
             }

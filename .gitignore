@@ -32,3 +32,4 @@ settings.json
 *-crawler-index.json
 *-project-graph.json
 *-mutation-overlay.json
+.bubble_cli_cache.json

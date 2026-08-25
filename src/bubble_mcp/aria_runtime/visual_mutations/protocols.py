@@ -88,6 +88,17 @@ class VisualMutationHost(Protocol):
         *,
         target_style_id: str | None = None,
     ) -> list[str]: ...
+    def _next_child_order(
+        self,
+        context_id: str,
+        context_type: str,
+        parent_result: dict[str, Any] | None,
+    ) -> int: ...
+    def _advance_child_order(
+        self,
+        parent_key: str,
+        computed_order: int,
+    ) -> int: ...
     def _looks_like_style_id(
         self,
         value: Any,

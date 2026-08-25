@@ -19,6 +19,35 @@ from bubble_mcp.runtime_discovery import DiscoveryDataBoundary
 
 
 # ==========================================
+# CORE: WIRE VALUE NORMALIZATION
+# ==========================================
+
+# The MCP catalog exposes the friendly enum none|color|image|gradient, while the
+# Bubble editor stores the flat-color option as "bgcolor". Writing "color" is
+# accepted by the editor API but flagged by the Issue Checker as
+# "<element> - is not a possible option".
+BACKGROUND_STYLE_WIRE_VALUES: Dict[str, str] = {
+    "none": "none",
+    "color": "bgcolor",
+    "flat color": "bgcolor",
+    "flat": "bgcolor",
+    "flatcolor": "bgcolor",
+    "bgcolor": "bgcolor",
+    "background color": "bgcolor",
+    "image": "image",
+    "gradient": "gradient",
+}
+
+
+def normalize_background_style(value: Any) -> Any:
+    """Map a catalog background style label to the Bubble wire value."""
+    if value is None or not isinstance(value, str):
+        return value
+    raw = value.strip().lower().replace("_", " ").replace("-", " ")
+    return BACKGROUND_STYLE_WIRE_VALUES.get(raw, value.strip().lower())
+
+
+# ==========================================
 # CORE: LOGGER
 # ==========================================
 
@@ -387,6 +416,17 @@ class ElementBuilder:
         if kwargs.get("border_color_bottom") is not None: properties["border_color_bottom"] = kwargs["border_color_bottom"]
         if kwargs.get("border_color_left") is not None: properties["border_color_left"] = kwargs["border_color_left"]
         if kwargs.get("border_color_right") is not None: properties["border_color_right"] = kwargs["border_color_right"]
+        # With four_border_style on, Bubble reads the per-side keys and ignores the
+        # shared %bos/%bw/%bc trio, so a border set only through the shared keys
+        # renders as no border at all. Mirror the shared values onto every side the
+        # caller did not set explicitly.
+        if properties.get("four_border_style"):
+            for side in ("top", "right", "bottom", "left"):
+                for shared_key, side_prefix in (("%bos", "border_style"), ("%bw", "border_width"), ("%bc", "border_color")):
+                    side_key = f"{side_prefix}_{side}"
+                    if properties.get(shared_key) is not None and properties.get(side_key) is None:
+                        properties[side_key] = properties[shared_key]
+
         if kwargs.get("border_roundness_top") is not None: properties["border_roundness_top"] = kwargs["border_roundness_top"]
         if kwargs.get("border_roundness_bottom") is not None: properties["border_roundness_bottom"] = kwargs["border_roundness_bottom"]
         if kwargs.get("border_roundness_left") is not None: properties["border_roundness_left"] = kwargs["border_roundness_left"]
@@ -411,9 +451,9 @@ class ElementBuilder:
             if kwargs.get("background_style") is None:
                 properties["%bas"] = "bgcolor" # Flat color style
         if kwargs.get("background_style") is not None:
-            properties["%bas"] = kwargs["background_style"]
+            properties["%bas"] = normalize_background_style(kwargs["background_style"])
         elif kwargs.get("bg_style") is not None:
-            properties["%bas"] = kwargs["bg_style"]
+            properties["%bas"] = normalize_background_style(kwargs["bg_style"])
         gradient_start = kwargs.get("gradient_start_color", kwargs.get("gradient_color1"))
         gradient_end = kwargs.get("gradient_end_color", kwargs.get("gradient_color2"))
         gradient_mid = kwargs.get("gradient_mid_color", kwargs.get("gradient_mid"))
@@ -1293,7 +1333,7 @@ class ElementBuilder:
             "%w": width,
             "%h": height,
             "%z": kwargs.get("zindex", 10),
-            "order": kwargs.get("order", 100),
+            "order": kwargs.get("order"),
 
             # MANDATORY: button_type (documented line 106)
             "button_type": button_type,
@@ -2778,7 +2818,7 @@ class ElementBuilder:
             "%w": parsed_width,
             "%h": parsed_height,
             "%z": kwargs.get("zindex", 2),
-            "order": kwargs.get("order", 1),
+            "order": kwargs.get("order"),
             "%3": label_expr,
             "horiz_alignment": kwargs.get("horiz_alignment", "flex-start"),
             "fit_width": True,
@@ -2906,7 +2946,7 @@ class ElementBuilder:
             "%w": parsed_width,
             "%h": parsed_height,
             "%z": kwargs.get("zindex", 2),
-            "order": kwargs.get("order", 1),
+            "order": kwargs.get("order"),
             "%3": content_expr,
             "horiz_alignment": kwargs.get("horiz_alignment", "flex-start"),
             "fit_width": True,
@@ -3031,7 +3071,7 @@ class ElementBuilder:
             "min_height_css": kwargs.get("min_height_css", f"{parsed_height}px"),
             "fit_height": bool(kwargs.get("fit_height_default", False)),
             "single_height": bool(kwargs.get("single_height", True)),
-            "order": kwargs.get("order", 1),
+            "order": kwargs.get("order"),
             **kwargs.get("extra_props", {}),
         }
 
@@ -7058,22 +7098,33 @@ class PathDiscovery(DiscoveryDataBoundary):
     def find_reusable(self, name: str) -> Optional[str]:
         """
         Find reusable element ID by name (case-insensitive).
-        Returns: reusable_id or None
+        Returns: reusable_id (the element_definitions dict key) or None
+        """
+        found = self.find_reusable_definition(name)
+        return found[0] if found else None
+
+    def find_reusable_definition(self, name: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """
+        Find a reusable definition by name (case-insensitive).
+        Returns: (dict_key, definition_dict) or None.
+
+        The dict key and the definition's inner "id" often differ; instances created
+        by the Bubble editor reference the INNER id in %p.custom_id, never the key.
         """
         name_lower = self._norm_lookup(name)
-        seen_ids = set()
+        seen_keys = set()
         for reusables in (self.data.get('element_definitions'), self.data.get('%ed')):
             if not isinstance(reusables, dict):
                 continue
-            for el_id, el_data in reusables.items():
-                if el_id in seen_ids:
+            for el_key, el_data in reusables.items():
+                if el_key in seen_keys:
                     continue
-                seen_ids.add(el_id)
+                seen_keys.add(el_key)
                 if isinstance(el_data, dict):
                     el_name = el_data.get('name') or el_data.get('%nm', '')
                     if self._norm_lookup(el_name) == name_lower:
-                        logger.info(f" [DEBUG] find_reusable: '{name}' -> '{el_id}'")
-                        return el_id
+                        logger.info(f" [DEBUG] find_reusable_definition: '{name}' -> key '{el_key}' id '{el_data.get('id')}'")
+                        return str(el_key), el_data
         return None
 
     def find_page(self, name: str) -> Optional[str]:

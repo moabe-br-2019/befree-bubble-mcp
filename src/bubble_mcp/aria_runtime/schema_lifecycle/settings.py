@@ -285,7 +285,7 @@ class SettingsLifecycleService:
         for change in getattr(preview, "changes", []):
             if isinstance(change, dict) and self._is_sensitive_path(change.get("path_array", [])):
                 change["body"] = "[REDACTED]"
-        return cast(PayloadBuilder, preview)
+        return preview
 
     @staticmethod
     def _is_sensitive_path(path: Any) -> bool:

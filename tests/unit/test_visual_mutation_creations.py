@@ -607,6 +607,7 @@ def test_reusable_instance_finalization_delegates_to_creation_service() -> None:
     cli.discovery = SimpleNamespace(
         build_path_array=lambda context_id, path, context_type: ["%p3", context_id, *path],
         find_reusable=lambda name: "reusable-id" if name == "Card" else None,
+        find_reusable_definition=lambda name: ("reusable-id", {"id": "reusable-id"}) if name == "Card" else None,
         inject_element=lambda *args, **kwargs: None,
     )
     cli._visual_mutations = SimpleNamespace(creations=_FinishSpy())

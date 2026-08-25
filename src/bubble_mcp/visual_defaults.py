@@ -172,8 +172,60 @@ def default_style_for_element(
     return project_default_style_id(merged_metadata, element_type) or fallback
 
 
-def fallback_style_for_element(element_type: str) -> str | None:
-    return FALLBACK_STYLES_BY_ELEMENT_TYPE.get(element_type)
+def _resolved_style_id(style_ref: str | None, metadata: dict[str, Any] | None) -> str | None:
+    """Resolve a style storage key from either its key or display name."""
+
+    if not style_ref:
+        return None
+    styles = _obj((metadata or {}).get("styles"))
+    if not styles:
+        return None
+    if style_ref in styles:
+        return style_ref
+    for candidate_id, value in styles.items():
+        if isinstance(value, dict) and str(value.get("%nm") or value.get("name") or "").strip() == style_ref:
+            return str(candidate_id)
+    return None
+
+
+def style_is_known(style_id: str | None, metadata: dict[str, Any] | None) -> bool:
+    """True only when the project's style map proves the style exists.
+
+    The hardcoded fallback names come from Bubble's default template. An app that
+    never had them (or renamed them) stores a dangling reference, and the editor
+    reports "<element> - None (Custom) is not a possible option" for every element
+    created with it. An unknown style map is treated as "not proven".
+    """
+    return _resolved_style_id(style_id, metadata) is not None
+
+
+def style_from_project_catalog(element_type: str, metadata: dict[str, Any] | None = None) -> str | None:
+    """Pick the app's own style for an element type, by naming convention.
+
+    Bubble names styles "<ElementType>_<variant>_" (Button_filled_light_primary_,
+    Text_body_14_). When the template fallback is absent, the app's own style for
+    that type is a better default than no style at all.
+    """
+    styles = _obj((metadata or {}).get("styles"))
+    if not styles:
+        return None
+    prefixes = tuple(f"{alias}_".lower() for alias in DEFAULT_STYLE_LOOKUP_ALIASES.get(element_type, (element_type,)))
+    candidates: list[tuple[str, str]] = []
+    for style_id, value in styles.items():
+        name = str(style_id)
+        if isinstance(value, dict):
+            name = str(value.get("%nm") or value.get("name") or style_id)
+        if name.lower().startswith(prefixes):
+            candidates.append((name, str(style_id)))
+    return sorted(candidates)[0][1] if candidates else None
+
+
+def fallback_style_for_element(element_type: str, metadata: dict[str, Any] | None = None) -> str | None:
+    style_id = FALLBACK_STYLES_BY_ELEMENT_TYPE.get(element_type)
+    resolved_style_id = _resolved_style_id(style_id, metadata)
+    if resolved_style_id:
+        return resolved_style_id
+    return style_from_project_catalog(element_type, metadata)
 
 
 def apply_visual_default_args(tool_name: str, args: dict[str, Any], *, context: Any | None = None) -> dict[str, Any]:
@@ -184,7 +236,11 @@ def apply_visual_default_args(tool_name: str, args: dict[str, Any], *, context: 
         return args
     if has_explicit_style_arg(args):
         return args
-    style = default_style_for_element(element_type, context=context, fallback=fallback_style_for_element(element_type))
+    style = default_style_for_element(
+        element_type,
+        context=context,
+        fallback=fallback_style_for_element(element_type, _context_metadata(context)),
+    )
     if style and not _style_is_explicitly_disabled(style):
         args = dict(args)
         args["style"] = style
@@ -209,7 +265,9 @@ def enforce_default_style(
     if element_type not in STYLE_DEFAULT_ELEMENT_TYPES:
         return
     project_style = default_style_for_element(element_type, context=context, metadata=metadata)
-    fallback_style = fallback_style_for_element(element_type)
+    merged_metadata = dict(metadata or {})
+    merged_metadata.update(_context_metadata(context))
+    fallback_style = fallback_style_for_element(element_type, merged_metadata)
     existing = body.get("%s1")
     if _style_should_be_replaced(existing, project_style):
         body["%s1"] = project_style
@@ -228,6 +286,21 @@ def enforce_button_create_payload_quality(
     enforce_default_style(body, "Button", context=context, metadata=metadata)
 
 
+def enforce_position_defaults(body: dict[str, Any]) -> None:
+    """Ship X/Y coordinates on every created element.
+
+    Bubble only needs %l/%t when the parent uses a fixed layout, but the create
+    payload is built without knowing the parent's layout. Missing coordinates
+    surface in the Issue Checker as "remember to fill out X"/"... Y"; responsive
+    parents ignore the values, so defaulting them is safe.
+    """
+    properties = body.get("%p")
+    if not isinstance(properties, dict):
+        return
+    properties.setdefault("%t", 0)
+    properties.setdefault("%l", 0)
+
+
 def enforce_visual_create_payload_quality(
     body: dict[str, Any],
     *,
@@ -239,3 +312,4 @@ def enforce_visual_create_payload_quality(
         enforce_button_create_payload_quality(body, context=context, metadata=metadata)
     else:
         enforce_default_style(body, element_type, context=context, metadata=metadata)
+    enforce_position_defaults(body)

@@ -111,6 +111,49 @@ def default_bubble_modules_dir(profile: str, app_id: str) -> Path:
     return context_cache_dir() / safe_profile / "bubble_modules" / safe_app
 
 
+def register_detected_artifacts(
+    profile: str,
+    *,
+    context_path: Path | None = None,
+    crawler_index_path: Path | None = None,
+    app_json_path: Path | None = None,
+) -> bool:
+    """Record detected artifact paths on the profile so later calls skip re-detection.
+
+    Without this the profile keeps no pointer to what detection produced, so every
+    tool call re-runs detection (including a failing .bubble download and a browser
+    crawl) before it can touch the app.
+    """
+    name = str(profile or "").strip()
+    if not name:
+        return False
+    try:
+        settings = load_settings()
+    except Exception:
+        return False
+    configured = settings.profiles.get(name)
+    if configured is None:
+        return False
+    updates: dict[str, str] = {}
+    for field, path in (
+        ("context_path", context_path),
+        ("crawler_index_path", crawler_index_path),
+        ("app_json_path", app_json_path),
+    ):
+        if path is None:
+            continue
+        resolved = str(Path(path).expanduser())
+        if str(getattr(configured, field) or "") != resolved:
+            updates[field] = resolved
+    if not updates:
+        return False
+    try:
+        save_settings(with_profile(settings, replace(configured, **updates)))
+    except Exception:
+        return False
+    return True
+
+
 def refresh_bubble_export(*, profile: str, app_id: str, app_version: str) -> Path:
     """Download a fresh authoritative .bubble export without browser fallback."""
 
@@ -335,6 +378,7 @@ def detect_project_context(
             source=result_source,
             canonical_path=canonical_context_path,
             output=output,
+            profile=profile,
             crawler_index_path=None,
             attempts=attempts,
         )
@@ -435,6 +479,7 @@ def detect_project_context(
             source=f"{console_source}+editor_crawler",
             canonical_path=canonical_context_path,
             output=output,
+            profile=profile,
             crawler_index_path=crawler_path,
             attempts=attempts,
         )
@@ -462,6 +507,7 @@ def detect_project_context(
             source=primary_source,
             canonical_path=canonical_context_path,
             output=output,
+            profile=profile,
             crawler_index_path=crawler_path,
             attempts=attempts,
         )
@@ -542,7 +588,8 @@ def crawl_project_index(
         "idToPath": id_to_path,
         "dataTypes": _obj(_result_data(global_results[0] if global_results else None)),
         "optionSets": _obj(_result_data(global_results[1] if len(global_results) > 1 else None)),
-        "styles": _obj(_result_data(global_results[2] if len(global_results) > 2 else None)),
+        "styles": _obj(_result_data(global_results[2] if len(global_results) > 2 else None))
+        or collect_referenced_styles([pages, reusables]),
         "source": "full_crawl",
         "apiCallCount": 4 + len(page_name_to_id) * 3 + len(custom_name_to_id) * 3 + len(backend_ids),
         "durationMs": int((time.time() - start) * 1000),
@@ -706,6 +753,9 @@ def _try_capture_editor_network_index(
     def absorb_data(data: Any) -> None:
         if not isinstance(data, dict):
             return
+        # Element payloads carry their style reference; that is the only reliable way to
+        # learn which styles exist, since ["styles"] answers with an unresolvable hash.
+        collect_referenced_styles(data, captured["styles"])
         if _looks_like_id_to_path(data):
             captured["idToPath"].update({str(key): str(value) for key, value in data.items()})
             return
@@ -832,6 +882,28 @@ def _merge_crawler_indexes(base: dict[str, Any], overlay: dict[str, Any]) -> dic
         merged["_issuesSub"] = overlay["_issuesSub"]
     merged["source"] = overlay.get("source") or base.get("source")
     return merged
+
+
+def collect_referenced_styles(nodes: Any, found: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Collect style ids referenced by elements (%s1) anywhere in a crawled tree.
+
+    The full style catalog is not readable through the path API: ["styles"] answers
+    with a hash whose chain resolves back to the app root. Styles actually applied to
+    elements are reachable, and that is what the create tools need in order to tell a
+    real style from a dangling reference.
+    """
+    if found is None:
+        found = {}
+    if isinstance(nodes, dict):
+        for key, value in nodes.items():
+            if key in {"%s1", "style", "style_id"} and isinstance(value, str) and value.strip():
+                found.setdefault(value.strip(), {"%nm": value.strip(), "source": "element_reference"})
+            else:
+                collect_referenced_styles(value, found)
+    elif isinstance(nodes, list):
+        for item in nodes:
+            collect_referenced_styles(item, found)
+    return found
 
 
 def _crawl_page(api: BubblePathApiClient, name: str, page_id: str, encoded_path: str) -> dict[str, Any] | None:
@@ -1375,8 +1447,18 @@ def _context_detection_result(
     output: Path | None,
     crawler_index_path: Path | None,
     attempts: list[dict[str, Any]],
+    profile: str | None = None,
 ) -> DetectionResult:
     result_path = _save_context_outputs(context, canonical_path=canonical_path, output=output)
+    if profile:
+        # Without this the profile keeps no pointer to what detection produced, so every
+        # tool call re-runs detection (including a failing .bubble download and a browser
+        # crawl) before it can touch the app.
+        register_detected_artifacts(
+            profile,
+            context_path=canonical_path,
+            crawler_index_path=crawler_index_path,
+        )
     return DetectionResult(
         ok=True,
         app_id=app_id,

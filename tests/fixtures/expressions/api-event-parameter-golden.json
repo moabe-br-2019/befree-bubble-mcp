@@ -1,0 +1,46 @@
+{
+  "_comment": "Canonical raw form of an APIEventParameter-based ChangeThing action, extracted 2026-08-24 from live editor memory (appquery.app().json._child('api')._child(<wf>).raw()) after the editor itself (re)serialized every step. The .bubble export hides btype_id/event_id/param_name and is NOT a valid source for this shape.",
+  "action": {
+    "id": "<action_id>",
+    "type": "ChangeThing",
+    "properties": {
+      "to_change": {
+        "type": "APIEventParameter",
+        "is_slidable": false,
+        "properties": {
+          "btype_id": "custom.<data_type>",
+          "event_id": "<api_event_id>",
+          "param_id": "<param_key>",
+          "param_name": "<param_key>"
+        }
+      },
+      "condition": {
+        "type": "APIEventParameter",
+        "is_slidable": false,
+        "properties": {
+          "btype_id": "custom.<data_type>",
+          "event_id": "<api_event_id>",
+          "param_id": "<param_key>",
+          "param_name": "<param_key>"
+        },
+        "next": {
+          "type": "Message",
+          "is_slidable": false,
+          "name": "<internal_field_name>",
+          "next": {"type": "Message", "is_slidable": false, "name": "is_not_empty"}
+        }
+      },
+      "changes": {
+        "0": {
+          "action": "add",
+          "key": "<internal_field_name>",
+          "value": {
+            "type": "OneOptionValue",
+            "is_slidable": false,
+            "properties": {"option_set": "option.<set>", "option_value": "<value>"}
+          }
+        }
+      }
+    }
+  }
+}

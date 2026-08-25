@@ -146,10 +146,24 @@ class VisualCreationService:
         text_content: Any = None,
         pending_child_ids_by_parent: dict[str, list[str]] | None = None,
     ) -> None:
-        del full_path_str, name_value
         object_id = create_body.get("id")
         if not isinstance(object_id, str) or not object_id:
             raise ValueError("Create element body must include a valid 'id'.")
+
+        # Every editor-created element carries %p.order; without it siblings tie and
+        # Bubble renders them in reverse creation order. Stamp max(sibling)+1 for all
+        # create tools that did not set an explicit order.
+        order_props = create_body.get("%p")
+        if isinstance(order_props, dict) and order_props.get("order") is None:
+            try:
+                parent_key = ".".join(create_path[:-2]) if len(create_path) >= 2 else full_path_str
+                order_props["order"] = self._host._advance_child_order(
+                    parent_key,
+                    self._host._next_child_order(context_id, context_type, parent_result),
+                )
+            except Exception:
+                pass
+
         props = create_body.get("%p")
         if isinstance(props, dict):
             props = {key: value for key, value in props.items() if value is not None}
@@ -213,6 +227,12 @@ class VisualCreationService:
 
         if text_content is not None:
             payload.add_set_data(normalized_path + ["%p", "%3"], text_content)
+
+        # Element-level name label. The editor writes %nm for every element it creates;
+        # without it the element does not show up in the Elements Tree / editor search.
+        if isinstance(name_value, str) and name_value.strip():
+            payload.add_set_data(normalized_path + ["%nm"], name_value.strip())
+
         props = create_body.get("%p") if isinstance(create_body.get("%p"), dict) else {}
         nonant = props.get("nonant_alignment")
         align = props.get("align_to_parent_pos") or nonant

@@ -381,6 +381,151 @@ def test_sensitive_mcp_dispatch_with_short_secret_preserves_trusted_response_met
     assert "echo::[REDACTED]" in result["logs"]
 
 
+def test_sensitive_batch_sends_secret_once_without_returning_or_persisting_it(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    secret = "literal-sensitive-batch-private-key"
+    export_path = tmp_path / "current.bubble"
+    export_path.write_text(json.dumps({"settings": {"secure": {"api_tokens": {}}}}), encoding="utf-8")
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("BUBBLE_CLI_CACHE_PATH", str(tmp_path / "cli-cache.json"))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="smoke",
+            profiles={
+                "smoke": BubbleProfile(
+                    name="smoke",
+                    app_id="literal-app",
+                    appname="literal-app",
+                    app_version="test",
+                    app_json_path=str(export_path),
+                )
+            },
+        )
+    )
+    save_session(
+        "smoke",
+        session_from_payload(
+            {
+                "appId": "literal-app",
+                "appVersion": "test",
+                "headers": {"Cookie": "sid=session-only"},
+            }
+        ),
+    )
+    remote_payloads: list[dict[str, object]] = []
+
+    def fake_write(_self, payload, _session, **_kwargs):  # type: ignore[no-untyped-def]
+        remote_payloads.append(json.loads(json.dumps(payload)))
+        return {
+            "ok": True,
+            "request": {"payload": payload},
+            "response": {"debug": f"remote echoed {secret}"},
+        }
+
+    monkeypatch.setattr("bubble_mcp.aria_dispatch.BubbleEditorClient.write", fake_write)
+    monkeypatch.setattr(
+        "bubble_mcp.aria_dispatch.record_mutation_overlay",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("sensitive overlay persisted")),
+    )
+
+    result = dispatch_aria_runtime_tool(
+        "batch",
+        {
+            "profile": "smoke",
+            "commands": [
+                {
+                    "command": "create-api-token",
+                    "token_id": "token-1",
+                    "private_key": secret,
+                    "label": "Regression token",
+                }
+            ],
+            "execute": True,
+        },
+    )
+
+    assert result is not None
+    assert result["ok"] is True
+    assert len(remote_payloads) == 1
+    assert secret in json.dumps(remote_payloads[0], sort_keys=True)
+    assert secret not in json.dumps(result, sort_keys=True)
+    assert not any(
+        secret.encode() in path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    )
+
+
+def test_batch_reports_remote_success_when_overlay_persistence_fails(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    export_path = tmp_path / "current.bubble"
+    export_path.write_text(json.dumps({"settings": {"client_safe": {}}}), encoding="utf-8")
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("BUBBLE_CLI_CACHE_PATH", str(tmp_path / "cli-cache.json"))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="smoke",
+            profiles={
+                "smoke": BubbleProfile(
+                    name="smoke",
+                    app_id="literal-app",
+                    appname="literal-app",
+                    app_version="test",
+                    app_json_path=str(export_path),
+                )
+            },
+        )
+    )
+    save_session(
+        "smoke",
+        session_from_payload(
+            {
+                "appId": "literal-app",
+                "appVersion": "test",
+                "headers": {"Cookie": "sid=session-only"},
+            }
+        ),
+    )
+
+    monkeypatch.setattr(
+        "bubble_mcp.aria_dispatch.BubbleEditorClient.write",
+        lambda _self, payload, _session, **_kwargs: {
+            "ok": True,
+            "request": {"payload": payload},
+            "response": {"status": 200},
+        },
+    )
+
+    def fail_overlay(**_kwargs):  # type: ignore[no-untyped-def]
+        raise OSError("disk full")
+
+    monkeypatch.setattr("bubble_mcp.aria_dispatch.record_mutation_overlay", fail_overlay)
+
+    result = dispatch_aria_runtime_tool(
+        "batch",
+        {
+            "profile": "smoke",
+            "commands": [
+                {
+                    "command": "set-project-setting",
+                    "setting_key": "app-rights",
+                    "value": "private",
+                }
+            ],
+            "execute": True,
+        },
+    )
+
+    assert result is not None
+    assert result["ok"] is True
+    assert "Remote write succeeded" in result["results"][0]["local_state_warning"]
+    assert "Remote write succeeded" in result["warnings"][0]
+
+
 def test_delete_data_field_requires_calculate_derived_refresh() -> None:
     assert _requires_calculate_derived("delete_data_field") is True
     assert _requires_calculate_derived("delete_data_type_permanently") is False
@@ -960,3 +1105,283 @@ def test_aria_runtime_applies_project_default_styles_to_created_elements(tmp_pat
     radio_body = payload["changes"][4]["body"]
     assert input_body["%s1"] == "Input_runtime_default"
     assert radio_body["%s1"] == "Radio_runtime_default"
+
+
+def test_add_action_schema_args_are_accepted_by_runtime_signature() -> None:
+    """Every arg the MCP schema advertises for add_action must reach BubbleCLI.add_action.
+
+    Regression: the schema advertised event_ref/event_type/ref_kind but the runtime
+    signature lacked them, so _method_kwargs silently dropped the workflow reference
+    and add_action fell back to element/event matching (auto-creating duplicates).
+    """
+
+    import inspect
+
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+    from bubble_mcp.server.agent_catalog import _legacy_fields_for_name
+    from bubble_mcp.aria_dispatch import ARG_ALIASES, CONTROL_ARG_KEYS
+
+    fields = _legacy_fields_for_name("add_action")
+    assert fields is not None
+    required, optional = fields
+    signature = inspect.signature(BubbleCLI.add_action)
+    accepted = set(signature.parameters)
+    alias_targets = {alias: param for param, aliases in ARG_ALIASES.items() for alias in aliases}
+    ignorable = set(CONTROL_ARG_KEYS) | {"profile", "context", "dry_run", "settings_path"}
+
+    missing = []
+    for field in (*required, *optional):
+        if field in ignorable:
+            continue
+        if field in accepted:
+            continue
+        if alias_targets.get(field) in accepted:
+            continue
+        missing.append(field)
+    assert missing == [], f"schema args dropped by BubbleCLI.add_action: {missing}"
+
+
+def test_add_action_delegates_to_add_event_action_for_event_ref() -> None:
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    cli = object.__new__(BubbleCLI)
+    captured: dict = {}
+
+    def fake_add_event_action(**kwargs):
+        captured.update(kwargs)
+        return True
+
+    cli.add_event_action = fake_add_event_action
+
+    ok = BubbleCLI.add_action(
+        cli,
+        "dashboard",
+        None,
+        "show_alert",
+        event_ref="bTYJT0",
+        ref_kind="key",
+        message="hello",
+        dry_run=True,
+    )
+
+    assert ok is True
+    assert captured["context_name"] == "dashboard"
+    assert captured["event_ref"] == "bTYJT0"
+    assert captured["ref_kind"] == "key"
+    assert captured["action_type"] == "show_alert"
+    assert captured["message"] == "hello"
+    assert captured["dry_run"] is True
+
+
+def test_add_action_without_element_or_ref_fails_with_guidance(capsys) -> None:
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    cli = object.__new__(BubbleCLI)
+    ok = BubbleCLI.add_action(cli, "dashboard", None, "show_alert", message="x", dry_run=True)
+
+    assert ok is False
+    out = capsys.readouterr().out
+    assert "event_ref" in out
+
+
+def test_select_trusted_workflow_rows_prefers_noncache_then_root_then_recent_cache() -> None:
+    """Guard regression: a workflow created via MCP lives only in the local cache until the
+    .bubble export is re-downloaded. The old guard discarded such rows and auto-created a
+    duplicate workflow. Cached rows newer than (root mtime - tolerance) must be trusted."""
+
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    noncache = {"key": "a", "from_cache": False, "updated_at": 10}
+    cached_in_root = {"key": "b", "from_cache": True, "updated_at": 20}
+    cached_recent = {"key": "c", "from_cache": True, "updated_at": 1_000_000}
+    cached_stale = {"key": "d", "from_cache": True, "updated_at": 100}
+
+    # 1. Non-cache rows always win.
+    pool = BubbleCLI._select_trusted_workflow_rows(
+        [noncache, cached_recent], exists_in_root=lambda row: False, root_source_mtime_ms=2_000_000
+    )
+    assert pool == [noncache]
+
+    # 2. Cache-only rows that the root confirms are kept.
+    pool = BubbleCLI._select_trusted_workflow_rows(
+        [cached_in_root, cached_stale], exists_in_root=lambda row: row is cached_in_root, root_source_mtime_ms=2_000_000
+    )
+    assert pool == [cached_in_root]
+
+    # 3. Cache-only rows newer than the root snapshot (minus tolerance) are trusted even when
+    #    the root does not (yet) contain them — the root cannot refute what it predates.
+    tolerance = BubbleCLI._WORKFLOW_CACHE_ROOT_TOLERANCE_MS
+    pool = BubbleCLI._select_trusted_workflow_rows(
+        [cached_recent, cached_stale],
+        exists_in_root=lambda row: False,
+        root_source_mtime_ms=1_000_000 + tolerance - 1,
+    )
+    assert pool == [cached_recent]
+
+    # 4. Cache-only rows older than the root snapshot stay untrusted (deleted/ghost refs).
+    pool = BubbleCLI._select_trusted_workflow_rows(
+        [cached_stale], exists_in_root=lambda row: False, root_source_mtime_ms=10_000_000
+    )
+    assert pool == []
+
+    # 5. Unknown root mtime: trust only rows that are recent relative to the current time.
+    cached_recent_now = {"key": "e", "from_cache": True, "updated_at": int(__import__("time").time() * 1000)}
+    pool = BubbleCLI._select_trusted_workflow_rows(
+        [cached_recent_now, cached_stale], exists_in_root=lambda row: False, root_source_mtime_ms=None
+    )
+    assert pool == [cached_recent_now]
+
+
+def test_context_root_source_mtime_uses_existing_crawler_when_bubble_export_is_absent(tmp_path) -> None:
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    crawler_path = tmp_path / "crawler.json"
+    crawler_path.write_text("{}", encoding="utf-8")
+    cli = object.__new__(BubbleCLI)
+    cli.discovery = SimpleNamespace(
+        app_json_path=None,
+        consolelog_json_path=None,
+        crawler_index_path=str(crawler_path),
+    )
+
+    assert BubbleCLI._context_root_source_mtime_ms(cli) == int(crawler_path.stat().st_mtime * 1000)
+
+
+def test_runtime_environment_falls_back_to_profile_default_crawler_index(tmp_path, monkeypatch) -> None:
+    """Crawler-only profiles must work without an explicit crawler_index_path argument."""
+
+    import json as _json
+
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="crawler-profile",
+            profiles={
+                "crawler-profile": BubbleProfile(
+                    name="crawler-profile",
+                    app_id="crawler-app",
+                    appname="crawler-app",
+                    app_version="test",
+                )
+            },
+        )
+    )
+    from bubble_mcp.context.detector import default_crawler_index_path
+
+    crawler_path = default_crawler_index_path("crawler-profile", "crawler-app")
+    crawler_path.parent.mkdir(parents=True, exist_ok=True)
+    crawler_path.write_text(_json.dumps({"pages": [{"id": "p1", "name": "index", "elements": {}}]}), encoding="utf-8")
+
+    from bubble_mcp.aria_dispatch import _resolve_runtime_environment
+
+    env = _resolve_runtime_environment({"profile": "crawler-profile"})
+    assert env.crawler_index_path == str(crawler_path)
+
+
+def test_update_layout_whitelist_covers_font_order_rotation() -> None:
+    """update_layout silently returned False for font_size/order/rotation, forcing agents
+    into style workarounds. The whitelist must accept these common element properties."""
+
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    cli = object.__new__(BubbleCLI)
+    cases = {
+        "font_size": "font_size",
+        "font color": "font_color",
+        "font_family": "font_family",
+        "order": "order",
+        "rotation_angle": "rotation_angle",
+        "border_roundness": "%br",
+    }
+    for raw, expected in cases.items():
+        assert BubbleCLI._normalize_layout_property(cli, raw) == expected, raw
+    assert BubbleCLI._coerce_layout_value(cli, "font_size", "15px") == 15
+    assert BubbleCLI._coerce_layout_value(cli, "font_family", "Comic Sans MS") == "Comic Sans MS"
+    cli._resolve_color_arg = lambda value: value  # color resolution needs app context
+    assert BubbleCLI._coerce_layout_value(cli, "font_color", "#8A8A8A") == "#8A8A8A"
+    assert BubbleCLI._coerce_layout_value(cli, "order", "3") == 3
+    assert BubbleCLI._coerce_layout_value(cli, "rotation_angle", -3) == -3
+
+
+def test_fixed_size_normalizer_prefers_explicit_css_over_legacy_width() -> None:
+    """A shape created with min_width='19px', fixed_width=True was rewritten to 100px
+    because the normalizer preferred the builder's default %w=100 over the explicit CSS."""
+
+    from bubble_mcp.aria_dispatch import _normalize_fixed_size_properties
+
+    props = {"fixed_width": True, "single_width": True, "%w": 100, "min_width_css": "19px"}
+    _normalize_fixed_size_properties(props)
+    assert props["min_width_css"] == "19px"
+    assert props["max_width_css"] == "19px"
+
+    legacy = {"fixed_width": True, "%w": 40}
+    _normalize_fixed_size_properties(legacy)
+    assert legacy["min_width_css"] == "40px"
+    assert legacy["max_width_css"] == "40px"
+
+    height = {"fixed_height": True, "%h": 100, "min_height_css": "4px"}
+    _normalize_fixed_size_properties(height)
+    assert height["min_height_css"] == "4px"
+    assert height["max_height_css"] == "4px"
+
+
+def test_create_queue_assigns_incremental_child_order() -> None:
+    """Batch-created siblings all got order 0 (renderer showed them reversed): the
+    create queue must stamp %p.order = max(sibling)+1 when the body has none."""
+
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+    from bubble_mcp.aria_runtime.bubble_sdk import PayloadBuilder
+    from bubble_mcp.aria_runtime.visual_mutations import VisualMutationService
+
+    cli = object.__new__(BubbleCLI)
+    cli._canonicalize_context_prefix_on_path = lambda path, context_id, context_type: path
+    cli._visual_mutations = VisualMutationService(cli)
+    parent = {"id": "pg1", "element": {"id": "pg1", "%el": {"a": {"id": "a", "%p": {"order": 4}}}}}
+    pb = PayloadBuilder(appname="t")
+    body = {"id": "n1", "%x": "Shape", "%dn": "s", "%p": {"%w": 10}}
+    BubbleCLI._queue_create_element_with_index_updates(
+        cli, pb=pb, context_id="pg1", context_type="page", parent_result=parent,
+        create_path=["%p3", "pg1", "%el", "k1"], create_body=body, full_path_str="x",
+    )
+    assert body["%p"]["order"] == 5
+
+    # explicit order is preserved
+    pb2 = PayloadBuilder(appname="t")
+    body2 = {"id": "n2", "%x": "Shape", "%dn": "s2", "%p": {"order": 9}}
+    BubbleCLI._queue_create_element_with_index_updates(
+        cli, pb=pb2, context_id="pg1", context_type="page", parent_result=parent,
+        create_path=["%p3", "pg1", "%el", "k2"], create_body=body2, full_path_str="x",
+    )
+    assert body2["%p"]["order"] == 9
+
+
+def test_icon_normalization_maps_dashed_libs_and_rejects_unknown() -> None:
+    """ion-checkmark was written verbatim and rendered nothing. Dashed library prefixes
+    must map to the canonical '<lib> <name>' form; unknown libraries must return None so
+    callers can fail with the accepted formats instead of writing a dead glyph."""
+
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    cli = object.__new__(BubbleCLI)
+    def norm(value):  # type: ignore[no-untyped-def]
+        return BubbleCLI._normalize_icon_value_for_write(cli, value)
+
+    assert norm("ion-checkmark") == "ion checkmark"
+    assert norm("feather-check") == "feather check"
+    assert norm("fa fa-check") == "fa fa-check"
+    assert norm("phosphor regular check-circle") == "phosphor regular check-circle"
+    assert norm("wingdings-star") is None
+    assert norm("checkmark") is None
+
+
+def test_extract_error_from_logs_surfaces_last_failure_line() -> None:
+    from bubble_mcp.aria_dispatch import _extract_error_from_logs
+
+    logs = "Searching for context: index\n\u274c Element 'foo' not found\nSearching again"
+    assert _extract_error_from_logs(logs) == "Element 'foo' not found"
+    assert _extract_error_from_logs("all fine here") is None
+    assert _extract_error_from_logs("") is None
+    assert "Unsupported layout property" in _extract_error_from_logs(
+        "info line\nUnsupported layout property: 'bogus'"
+    )

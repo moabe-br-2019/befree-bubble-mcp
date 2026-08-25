@@ -429,5 +429,8 @@ def test_normalize_intent_arguments_maps_api_connector_aliases() -> None:
 
 
 def test_tool_for_intent_maps_api_connector_aliases() -> None:
-    assert tool_for_intent("create_api_connector_resource") == "create_api_connector_resource"
-    assert tool_for_intent("api_call") == "create_api_connector_resource"
+    # Legacy alias stays accepted, but it resolves to the tool name that the generated
+    # API Connector extension pack actually exposes in tools/list.
+    assert tool_for_intent("create_api_connector_resource") == "create_api_connector_call"
+    assert tool_for_intent("api_call") == "create_api_connector_call"
+    assert tool_for_intent("create_api_connector_call") == "create_api_connector_call"

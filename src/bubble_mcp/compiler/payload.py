@@ -13,7 +13,7 @@ import string
 import time
 from typing import Any
 
-from bubble_mcp.aria_runtime.bubble_sdk import ElementBuilder
+from bubble_mcp.aria_runtime.bubble_sdk import ElementBuilder, normalize_background_style
 from bubble_mcp.context.models import BubbleProjectContext
 from bubble_mcp.visual_defaults import apply_visual_default_args, enforce_visual_create_payload_quality
 
@@ -934,7 +934,10 @@ def apply_catalog_argument_properties(properties: dict[str, Any], args: dict[str
         ("table_direction", "table_direction"),
     ):
         if args.get(source_key) is not None:
-            properties[wire_key] = args[source_key]
+            value = args[source_key]
+            if wire_key == "%bas":
+                value = normalize_background_style(value)
+            properties[wire_key] = value
     if args.get("cell_min_height") is not None:
         properties["cell_min_height_css"] = css_px(args["cell_min_height"])
     if args.get("cell_min_width") is not None:
@@ -1038,6 +1041,8 @@ def collect_visual_properties(args: dict[str, Any], *, element_type: str) -> dic
             value = args[source_key]
             if wire_key in {"%3", "%lab", "%ht"}:
                 value = text_expression(value)
+            elif wire_key == "%bas":
+                value = normalize_background_style(value)
             properties[wire_key] = value
     apply_dimension_properties(properties, args)
     if element_type in {"Group", "FloatingGroup", "GroupFocus", "RepeatingGroup", "Table", "Popup"}:
@@ -1147,6 +1152,8 @@ def compile_update_group_changes(
                 value = str(value).strip().lower().replace("-", "_").replace(" ", "_")
                 if value == "align_to_parent":
                     value = "relative"
+            elif wire_key == "%bas":
+                value = normalize_background_style(value)
             properties[wire_key] = value
     if not properties:
         raise ValueError("update_group requires at least one supported property.")
