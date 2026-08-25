@@ -554,7 +554,7 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
     ),
     "include_details": _prop(
         "boolean",
-        "Return the full summary and attempt payloads instead of the compact default response.",
+        "Include expanded details or redacted raw results when supported. Leave false for compact agent-friendly summaries.",
         default=False,
     ),
     "allow_decoded_keys": _prop(
@@ -969,11 +969,6 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
         "Runtime smoke suite to run. coverage checks catalog execution coverage and agent-facing catalog quality; agent-routing validates natural-language tool routing without writes; visual-repair validates visual audit repair planning without writes; safe-read runs read-only profile calls; preview-write compiles representative mutations with execute=false; family-preview exercises representative visual/container/input/schema/workflow/style/html/branch/changelog paths without writes; execute-write creates temporary Bubble objects and requires execute=true.",
         enum=["coverage", "agent-routing", "visual-repair", "safe-read", "preview-write", "family-preview", "execute-write"],
         default="coverage",
-    ),
-    "include_details": _prop(
-        "boolean",
-        "Include redacted raw tool results in smoke output. Leave false for compact agent-friendly summaries.",
-        default=False,
     ),
     "include_profile_status": _prop(
         "boolean",

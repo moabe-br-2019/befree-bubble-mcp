@@ -1343,7 +1343,8 @@ def call_tool(
             return full
         # Default to a compact response: full attempts/summaries can exceed 70k chars
         # and blow the MCP client's token budget on every call.
-        summary = full.get("summary") if isinstance(full.get("summary"), dict) else {}
+        raw_summary = full.get("summary")
+        summary: dict[str, Any] = raw_summary if isinstance(raw_summary, dict) else {}
         compact_attempts = [
             {
                 key: attempt.get(key)

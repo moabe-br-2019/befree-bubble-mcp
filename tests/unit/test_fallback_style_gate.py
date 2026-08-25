@@ -16,7 +16,7 @@ def test_fallback_requires_a_known_style() -> None:
     )
     assert fallback_style_for_element(
         "Button", {"styles": {"bStyleId": {"%nm": "Button_primary_button_"}}}
-    ) == "Button_primary_button_"
+    ) == "bStyleId"
 
 
 def test_button_payload_keeps_no_style_when_app_lacks_it() -> None:
@@ -46,3 +46,9 @@ def test_falls_back_to_the_app_own_style_by_naming_convention() -> None:
     assert fallback_style_for_element("Button", metadata) == "Button_filled_light_primary_"
     assert fallback_style_for_element("Text", metadata) == "Text_body_14_"
     assert fallback_style_for_element("Dropdown", metadata) is None
+
+
+def test_app_style_fallback_returns_storage_id_when_name_differs() -> None:
+    metadata = {"styles": {"bCustomStyle": {"%nm": "Button_custom_primary_"}}}
+
+    assert fallback_style_for_element("Button", metadata) == "bCustomStyle"

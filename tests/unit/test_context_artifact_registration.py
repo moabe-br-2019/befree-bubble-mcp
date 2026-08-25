@@ -7,6 +7,7 @@ re-ran detection (failing .bubble download + browser crawl) before each write.
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from bubble_mcp.core.config import BubbleMcpSettings, BubbleProfile, load_settings, save_settings
 
@@ -90,3 +91,36 @@ def test_dispatch_skips_detection_when_crawler_index_exists(tmp_path: Path, monk
     env = aria_dispatch._resolve_runtime_environment({"profile": "demo"})
 
     assert env.crawler_index_path == str(crawler_file)
+
+
+def test_dispatch_replaces_stale_registered_crawler_with_fresh_detected_artifact(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from bubble_mcp import aria_dispatch
+
+    stale_crawler = tmp_path / "missing-crawler.json"
+    fresh_crawler = tmp_path / "fresh-crawler.json"
+    profile = BubbleProfile(
+        name="demo",
+        app_id="demo-app",
+        appname="demo-app",
+        crawler_index_path=str(stale_crawler),
+    )
+    settings = BubbleMcpSettings(config_dir=tmp_path, default_profile="demo", profiles={"demo": profile})
+    detection_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(aria_dispatch, "load_settings", lambda: settings)
+    monkeypatch.setattr(aria_dispatch, "load_session", lambda _profile: None)
+    monkeypatch.setattr(aria_dispatch, "default_crawler_index_path", lambda _profile, _app_id: fresh_crawler)
+
+    def _detect(**kwargs):  # type: ignore[no-untyped-def]
+        detection_calls.append(kwargs)
+        fresh_crawler.write_text("{}", encoding="utf-8")
+        return SimpleNamespace(source="crawler", context_path=str(fresh_crawler))
+
+    monkeypatch.setattr(aria_dispatch, "detect_project_context", _detect)
+
+    env = aria_dispatch._resolve_runtime_environment({"profile": "demo"})
+
+    assert len(detection_calls) == 1
+    assert env.crawler_index_path == str(fresh_crawler)

@@ -49384,21 +49384,23 @@ class BubbleCLI:
             return int(raw) if isinstance(raw, (int, float)) else 0
 
         if root_source_mtime_ms is None:
-            threshold = 0
+            threshold = int(time.time() * 1000) - BubbleCLI._WORKFLOW_CACHE_ROOT_TOLERANCE_MS
         else:
             threshold = int(root_source_mtime_ms) - BubbleCLI._WORKFLOW_CACHE_ROOT_TOLERANCE_MS
         return [row for row in strict_rows if _updated_ms(row) > threshold]
 
     def _context_root_source_mtime_ms(self) -> Optional[int]:
-        """Mtime (ms epoch) of the raw .bubble export backing the context root, if known."""
+        """Newest mtime (ms epoch) among the artifacts backing the context root."""
 
-        path = getattr(self.discovery, "app_json_path", None)
-        try:
-            if path and os.path.exists(path):
-                return int(os.path.getmtime(path) * 1000)
-        except OSError:
-            pass
-        return None
+        mtimes: List[int] = []
+        for attribute in ("app_json_path", "consolelog_json_path", "crawler_index_path"):
+            path = getattr(self.discovery, attribute, None)
+            try:
+                if path and os.path.exists(path):
+                    mtimes.append(int(os.path.getmtime(path) * 1000))
+            except OSError:
+                continue
+        return max(mtimes) if mtimes else None
 
     def _cache_event_key(self, context_type: str, context_id: str, workflow_key: str) -> str:
         return f"{context_type}:{context_id}:{workflow_key}"

@@ -97,9 +97,14 @@ def _incomplete_api_event_parameters(value: Any, found: list[str]) -> None:
     if isinstance(value, dict):
         type_name = str(value.get("type") or value.get("%x") or "")
         if type_name == "APIEventParameter":
-            props = value.get("properties") if isinstance(value.get("properties"), dict) else (
-                value.get("%p") if isinstance(value.get("%p"), dict) else {}
-            )
+            raw_properties = value.get("properties")
+            raw_legacy_properties = value.get("%p")
+            if isinstance(raw_properties, dict):
+                props = raw_properties
+            elif isinstance(raw_legacy_properties, dict):
+                props = raw_legacy_properties
+            else:
+                props = {}
             missing = [key for key in _API_EVENT_PARAMETER_REQUIRED if not str(props.get(key) or "").strip()]
             if missing:
                 found.append(", ".join(missing))

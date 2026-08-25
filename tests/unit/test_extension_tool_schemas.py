@@ -488,7 +488,7 @@ def test_malformed_installed_extension_does_not_crash_tool_list(tmp_path, monkey
     assert "local.malformed-pack.create_plugin_widget" not in names
 
 
-def test_duplicate_extension_tool_names_are_filtered(tmp_path, monkeypatch) -> None:
+def test_duplicate_extension_tool_names_are_rejected_when_enabling_second_pack(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
     duplicate_pack = tmp_path / "duplicate-pack"
     shutil.copytree(SIMPLE_PACK, duplicate_pack)
@@ -498,11 +498,14 @@ def test_duplicate_extension_tool_names_are_filtered(tmp_path, monkeypatch) -> N
     (duplicate_pack / "extension.json").write_text(json.dumps(manifest), encoding="utf-8")
     import_extension(SIMPLE_PACK)
     import_extension(duplicate_pack)
-    enable_extension("local.simple-pack")
-    enable_extension("local.duplicate-pack")
+    first = enable_extension("local.simple-pack")
+    duplicate = enable_extension("local.duplicate-pack")
 
     names = [tool["name"] for tool in enabled_extension_tool_schemas()]
 
+    assert first.ok is True
+    assert duplicate.ok is False
+    assert any("already exported" in error for error in duplicate.errors)
     assert names.count("local.simple-pack.create_plugin_widget") == 1
 
 

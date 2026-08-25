@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import json
 
 
 def _discovery_with_definitions(defs):

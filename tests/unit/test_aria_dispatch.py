@@ -381,6 +381,151 @@ def test_sensitive_mcp_dispatch_with_short_secret_preserves_trusted_response_met
     assert "echo::[REDACTED]" in result["logs"]
 
 
+def test_sensitive_batch_sends_secret_once_without_returning_or_persisting_it(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    secret = "literal-sensitive-batch-private-key"
+    export_path = tmp_path / "current.bubble"
+    export_path.write_text(json.dumps({"settings": {"secure": {"api_tokens": {}}}}), encoding="utf-8")
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("BUBBLE_CLI_CACHE_PATH", str(tmp_path / "cli-cache.json"))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="smoke",
+            profiles={
+                "smoke": BubbleProfile(
+                    name="smoke",
+                    app_id="literal-app",
+                    appname="literal-app",
+                    app_version="test",
+                    app_json_path=str(export_path),
+                )
+            },
+        )
+    )
+    save_session(
+        "smoke",
+        session_from_payload(
+            {
+                "appId": "literal-app",
+                "appVersion": "test",
+                "headers": {"Cookie": "sid=session-only"},
+            }
+        ),
+    )
+    remote_payloads: list[dict[str, object]] = []
+
+    def fake_write(_self, payload, _session, **_kwargs):  # type: ignore[no-untyped-def]
+        remote_payloads.append(json.loads(json.dumps(payload)))
+        return {
+            "ok": True,
+            "request": {"payload": payload},
+            "response": {"debug": f"remote echoed {secret}"},
+        }
+
+    monkeypatch.setattr("bubble_mcp.aria_dispatch.BubbleEditorClient.write", fake_write)
+    monkeypatch.setattr(
+        "bubble_mcp.aria_dispatch.record_mutation_overlay",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("sensitive overlay persisted")),
+    )
+
+    result = dispatch_aria_runtime_tool(
+        "batch",
+        {
+            "profile": "smoke",
+            "commands": [
+                {
+                    "command": "create-api-token",
+                    "token_id": "token-1",
+                    "private_key": secret,
+                    "label": "Regression token",
+                }
+            ],
+            "execute": True,
+        },
+    )
+
+    assert result is not None
+    assert result["ok"] is True
+    assert len(remote_payloads) == 1
+    assert secret in json.dumps(remote_payloads[0], sort_keys=True)
+    assert secret not in json.dumps(result, sort_keys=True)
+    assert not any(
+        secret.encode() in path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    )
+
+
+def test_batch_reports_remote_success_when_overlay_persistence_fails(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    export_path = tmp_path / "current.bubble"
+    export_path.write_text(json.dumps({"settings": {"client_safe": {}}}), encoding="utf-8")
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("BUBBLE_CLI_CACHE_PATH", str(tmp_path / "cli-cache.json"))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="smoke",
+            profiles={
+                "smoke": BubbleProfile(
+                    name="smoke",
+                    app_id="literal-app",
+                    appname="literal-app",
+                    app_version="test",
+                    app_json_path=str(export_path),
+                )
+            },
+        )
+    )
+    save_session(
+        "smoke",
+        session_from_payload(
+            {
+                "appId": "literal-app",
+                "appVersion": "test",
+                "headers": {"Cookie": "sid=session-only"},
+            }
+        ),
+    )
+
+    monkeypatch.setattr(
+        "bubble_mcp.aria_dispatch.BubbleEditorClient.write",
+        lambda _self, payload, _session, **_kwargs: {
+            "ok": True,
+            "request": {"payload": payload},
+            "response": {"status": 200},
+        },
+    )
+
+    def fail_overlay(**_kwargs):  # type: ignore[no-untyped-def]
+        raise OSError("disk full")
+
+    monkeypatch.setattr("bubble_mcp.aria_dispatch.record_mutation_overlay", fail_overlay)
+
+    result = dispatch_aria_runtime_tool(
+        "batch",
+        {
+            "profile": "smoke",
+            "commands": [
+                {
+                    "command": "set-project-setting",
+                    "setting_key": "app-rights",
+                    "value": "private",
+                }
+            ],
+            "execute": True,
+        },
+    )
+
+    assert result is not None
+    assert result["ok"] is True
+    assert "Remote write succeeded" in result["results"][0]["local_state_warning"]
+    assert "Remote write succeeded" in result["warnings"][0]
+
+
 def test_delete_data_field_requires_calculate_derived_refresh() -> None:
     assert _requires_calculate_derived("delete_data_field") is True
     assert _requires_calculate_derived("delete_data_type_permanently") is False
@@ -1079,11 +1224,27 @@ def test_select_trusted_workflow_rows_prefers_noncache_then_root_then_recent_cac
     )
     assert pool == []
 
-    # 5. Unknown root mtime: fall back to trusting recent-cache rows rather than duplicating.
+    # 5. Unknown root mtime: trust only rows that are recent relative to the current time.
+    cached_recent_now = {"key": "e", "from_cache": True, "updated_at": int(__import__("time").time() * 1000)}
     pool = BubbleCLI._select_trusted_workflow_rows(
-        [cached_recent], exists_in_root=lambda row: False, root_source_mtime_ms=None
+        [cached_recent_now, cached_stale], exists_in_root=lambda row: False, root_source_mtime_ms=None
     )
-    assert pool == [cached_recent]
+    assert pool == [cached_recent_now]
+
+
+def test_context_root_source_mtime_uses_existing_crawler_when_bubble_export_is_absent(tmp_path) -> None:
+    from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
+
+    crawler_path = tmp_path / "crawler.json"
+    crawler_path.write_text("{}", encoding="utf-8")
+    cli = object.__new__(BubbleCLI)
+    cli.discovery = SimpleNamespace(
+        app_json_path=None,
+        consolelog_json_path=None,
+        crawler_index_path=str(crawler_path),
+    )
+
+    assert BubbleCLI._context_root_source_mtime_ms(cli) == int(crawler_path.stat().st_mtime * 1000)
 
 
 def test_runtime_environment_falls_back_to_profile_default_crawler_index(tmp_path, monkeypatch) -> None:
@@ -1203,7 +1364,9 @@ def test_icon_normalization_maps_dashed_libs_and_rejects_unknown() -> None:
     from bubble_mcp.aria_runtime.bubble_cli import BubbleCLI
 
     cli = object.__new__(BubbleCLI)
-    norm = lambda v: BubbleCLI._normalize_icon_value_for_write(cli, v)
+    def norm(value):  # type: ignore[no-untyped-def]
+        return BubbleCLI._normalize_icon_value_for_write(cli, value)
+
     assert norm("ion-checkmark") == "ion checkmark"
     assert norm("feather-check") == "feather check"
     assert norm("fa fa-check") == "fa fa-check"

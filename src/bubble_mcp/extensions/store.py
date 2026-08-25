@@ -144,6 +144,36 @@ def get_installed_extension(extension_id: str) -> InstalledExtension:
     return _installed_from_path(path)
 
 
+def _exported_tool_names(installed: InstalledExtension) -> set[str]:
+    names: set[str] = set()
+    for relative_path in installed.manifest.exports.tools:
+        try:
+            payload = json.loads((installed.path / relative_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict):
+            name = str(payload.get("name") or "").strip()
+            if name:
+                names.add(name)
+    return names
+
+
+def _enabled_tool_name_collisions(installed: InstalledExtension) -> list[str]:
+    requested_names = _exported_tool_names(installed)
+    if not requested_names:
+        return []
+    errors: list[str] = []
+    for other in list_extensions():
+        if other.extension_id == installed.extension_id or other.state != "enabled":
+            continue
+        for name in sorted(requested_names & _exported_tool_names(other)):
+            errors.append(
+                f"Tool name '{name}' is already exported by enabled extension '{other.extension_id}'. "
+                "Disable the existing extension or choose a unique tool name."
+            )
+    return errors
+
+
 def enable_extension(extension_id: str) -> ExtensionOperationReport:
     installed = get_installed_extension(extension_id)
     from bubble_mcp.extensions.validator import validate_extension_pack
@@ -156,6 +186,15 @@ def enable_extension(extension_id: str) -> ExtensionOperationReport:
             state=installed.state,
             path=installed.path,
             errors=report.errors,
+        )
+    collision_errors = _enabled_tool_name_collisions(installed)
+    if collision_errors:
+        return ExtensionOperationReport(
+            ok=False,
+            extension_id=extension_id,
+            state=installed.state,
+            path=installed.path,
+            errors=collision_errors,
         )
     _write_state(extension_id, "enabled")
     return ExtensionOperationReport(ok=True, extension_id=extension_id, state="enabled", path=installed.path)

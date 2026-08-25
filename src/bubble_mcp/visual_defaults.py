@@ -172,6 +172,22 @@ def default_style_for_element(
     return project_default_style_id(merged_metadata, element_type) or fallback
 
 
+def _resolved_style_id(style_ref: str | None, metadata: dict[str, Any] | None) -> str | None:
+    """Resolve a style storage key from either its key or display name."""
+
+    if not style_ref:
+        return None
+    styles = _obj((metadata or {}).get("styles"))
+    if not styles:
+        return None
+    if style_ref in styles:
+        return style_ref
+    for candidate_id, value in styles.items():
+        if isinstance(value, dict) and str(value.get("%nm") or value.get("name") or "").strip() == style_ref:
+            return str(candidate_id)
+    return None
+
+
 def style_is_known(style_id: str | None, metadata: dict[str, Any] | None) -> bool:
     """True only when the project's style map proves the style exists.
 
@@ -180,17 +196,7 @@ def style_is_known(style_id: str | None, metadata: dict[str, Any] | None) -> boo
     reports "<element> - None (Custom) is not a possible option" for every element
     created with it. An unknown style map is treated as "not proven".
     """
-    if not style_id:
-        return False
-    styles = _obj((metadata or {}).get("styles"))
-    if not styles:
-        return False
-    if style_id in styles:
-        return True
-    for value in styles.values():
-        if isinstance(value, dict) and str(value.get("%nm") or value.get("name") or "").strip() == style_id:
-            return True
-    return False
+    return _resolved_style_id(style_id, metadata) is not None
 
 
 def style_from_project_catalog(element_type: str, metadata: dict[str, Any] | None = None) -> str | None:
@@ -204,20 +210,21 @@ def style_from_project_catalog(element_type: str, metadata: dict[str, Any] | Non
     if not styles:
         return None
     prefixes = tuple(f"{alias}_".lower() for alias in DEFAULT_STYLE_LOOKUP_ALIASES.get(element_type, (element_type,)))
-    candidates: list[str] = []
+    candidates: list[tuple[str, str]] = []
     for style_id, value in styles.items():
         name = str(style_id)
         if isinstance(value, dict):
             name = str(value.get("%nm") or value.get("name") or style_id)
         if name.lower().startswith(prefixes):
-            candidates.append(name)
-    return sorted(candidates)[0] if candidates else None
+            candidates.append((name, str(style_id)))
+    return sorted(candidates)[0][1] if candidates else None
 
 
 def fallback_style_for_element(element_type: str, metadata: dict[str, Any] | None = None) -> str | None:
     style_id = FALLBACK_STYLES_BY_ELEMENT_TYPE.get(element_type)
-    if style_is_known(style_id, metadata):
-        return style_id
+    resolved_style_id = _resolved_style_id(style_id, metadata)
+    if resolved_style_id:
+        return resolved_style_id
     return style_from_project_catalog(element_type, metadata)
 
 

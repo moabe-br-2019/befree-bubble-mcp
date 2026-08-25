@@ -388,6 +388,8 @@ def _resolve_runtime_environment(
         args.get("crawler_index_path")
         or (profile_config.crawler_index_path if profile_config else None)
     )
+    if resolved_crawler_index_path and not Path(resolved_crawler_index_path).expanduser().exists():
+        resolved_crawler_index_path = None
     if not resolved_crawler_index_path:
         default_crawler = default_crawler_index_path(profile, app_id)
         if default_crawler.exists():
@@ -395,7 +397,8 @@ def _resolve_runtime_environment(
 
     has_local_artifact = bool(
         (app_json_path and Path(app_json_path).expanduser().exists())
-        or resolved_crawler_index_path
+        or (consolelog_json_path and Path(consolelog_json_path).expanduser().exists())
+        or (resolved_crawler_index_path and Path(resolved_crawler_index_path).expanduser().exists())
     )
     should_detect = not authoritative_refresh and (
         bool(args.get("refresh_context") or args.get("force")) or not has_local_artifact
@@ -661,6 +664,7 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
     captured_results: list[dict[str, Any]] = []
     buffered_payloads: list[dict[str, Any]] = []
     merge_writes = name == "batch"
+    batch_contains_sensitive_payload = False
     captured_builder_ids: set[int] = set()
     sensitive_literals: set[str] = set()
     original_builder_init = bubble_sdk.PayloadBuilder.__init__
@@ -696,11 +700,13 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
         return write_payload
 
     def send_to_local_bubble(builder: Any, _url: str = "", *, sensitive: bool = False) -> Any:
+        nonlocal batch_contains_sensitive_payload
         write_payload = capture_payload(builder, sensitive=sensitive)
         safe_payload = _sensitive_payload_copy(write_payload) if sensitive else write_payload
         if execute and merge_writes:
             # One command in a batch = one payload; they are flushed together below.
             buffered_payloads.append(write_payload)
+            batch_contains_sensitive_payload = batch_contains_sensitive_payload or sensitive
             return {"ok": True, "deferred": True, "payload": safe_payload}
         if not execute:
             result = {"ok": True, "dry_run": True, "payload": safe_payload}
@@ -800,25 +806,34 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
                 dry_run=False,
                 calculate_derived=_requires_calculate_derived(name),
             )
+            safe_merged_result = (
+                _sanitize_sensitive_editor_result(merged_result, sensitive_literals)
+                if batch_contains_sensitive_payload
+                else merged_result
+            )
             captured_results.append(
                 {
                     "ok": bool(merged_result.get("ok")),
                     "executed": True,
                     "merged_from": len(buffered_payloads),
-                    "result": merged_result,
+                    "result": safe_merged_result,
                 }
             )
-            if merged_result.get("ok"):
+            if merged_result.get("ok") and not batch_contains_sensitive_payload:
                 request = merged_result.get("request")
                 request_payload = request.get("payload") if isinstance(request, dict) else None
                 overlay_payload = request_payload if isinstance(request_payload, dict) else merged_payload
-                record_mutation_overlay(
-                    profile=profile,
-                    app_id=str(overlay_payload.get("appname") or env.app_id),
-                    payload=overlay_payload,
-                    source=name,
-                    response=merged_result.get("response"),
-                )
+                try:
+                    record_mutation_overlay(
+                        profile=profile,
+                        app_id=str(overlay_payload.get("appname") or env.app_id),
+                        payload=overlay_payload,
+                        source=name,
+                        response=merged_result.get("response"),
+                    )
+                except Exception as exc:
+                    warning = f"Remote write succeeded, but the local mutation overlay could not be persisted: {exc}"
+                    captured_results[-1]["local_state_warning"] = warning
 
     logs = "\n".join(part for part in (stdout.getvalue().strip(), stderr.getvalue().strip()) if part)
     if sensitive_literals:
