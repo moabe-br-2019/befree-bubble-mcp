@@ -30,6 +30,10 @@ class EditorNotReady(RuntimeError):
     """Raised when the editor page never exposes window.appquery."""
 
 
+class BrowserProfileMissing(RuntimeError):
+    """Raised when the profile has no persistent browser profile directory to drive."""
+
+
 def build_appquery_script(pointer: Sequence[str]) -> str:
     """Return the page script that reads the node at ``pointer`` out of editor memory."""
 
@@ -73,6 +77,16 @@ def _playwright_evaluator(
 
         settings = load_settings()
         user_data_dir = settings.config_dir / "browser-profiles" / profile
+        if not user_data_dir.exists():
+            # launch_persistent_context would happily create an empty profile, load a logged-out
+            # bubble.io, and only fail 90s later as editor_not_ready. bubble_session_import stores
+            # a valid session without ever populating this directory.
+            raise BrowserProfileMissing(
+                f"No browser profile at {user_data_dir}. The live editor read drives a real "
+                f"browser session, which only bubble_session_login creates; run "
+                f"bubble_session_login for profile '{profile}' first (an imported session is not "
+                "enough)."
+            )
         url = EDITOR_URL_TEMPLATE.format(app_id=app_id, app_version=app_version)
         timeout_ms = timeout_sec * 1000
         with sync_playwright() as playwright:
@@ -123,6 +137,13 @@ def read_live_node(
         return {"ok": False, "error": "playwright_missing", "pointer": segments, "message": str(exc)}
     except EditorNotReady as exc:
         return {"ok": False, "error": "editor_not_ready", "pointer": segments, "message": str(exc)}
+    except BrowserProfileMissing as exc:
+        return {
+            "ok": False,
+            "error": "browser_profile_missing",
+            "pointer": segments,
+            "message": str(exc),
+        }
     except Exception as exc:  # noqa: BLE001 - any browser failure must reach the caller as a result
         return {
             "ok": False,

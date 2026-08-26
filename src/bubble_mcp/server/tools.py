@@ -1635,13 +1635,22 @@ def call_tool(
         pointer = args.get("pointer")
         if not isinstance(pointer, list) or not pointer:
             raise ValueError("bubble_live_node_read requires a non-empty pointer array.")
+        raw_timeout = args.get("read_timeout_sec")
+        try:
+            timeout_sec = int(raw_timeout) if raw_timeout not in (None, "") else 90
+        except (TypeError, ValueError):
+            return {
+                "ok": False,
+                "error": "invalid_read_timeout_sec",
+                "message": f"read_timeout_sec must be a number of seconds; got {raw_timeout!r}.",
+            }
         return read_live_node(
             profile,
             [str(part) for part in pointer],
             app_id=str(args.get("app_id") or "") or None,
             app_version=str(args.get("app_version") or "test"),
             headless=bool(args.get("read_headless", True)),
-            timeout_sec=int(args.get("read_timeout_sec") or 90),
+            timeout_sec=timeout_sec,
         )
     if name == "bubble_node_edit":
         args = arguments or {}
@@ -1653,16 +1662,31 @@ def call_tool(
             raise ValueError("bubble_node_edit requires a non-empty pointer array.")
         leaf_pointer = args.get("leaf_pointer")
         order = args.get("order")
-        return edit_live_node(
+        execute = bool(args.get("execute"))
+        edit_result = edit_live_node(
             profile=profile,
             pointer=[str(part) for part in pointer],
             op=str(args.get("op") or ""),
             leaf_pointer=[str(part) for part in leaf_pointer] if isinstance(leaf_pointer, list) else None,
             patch=args.get("patch") if isinstance(args.get("patch"), dict) else None,
             order=[str(part) for part in order] if isinstance(order, list) else None,
-            execute=bool(args.get("execute")),
+            execute=execute,
             app_id=str(args.get("app_id") or "") or None,
+            app_version=str(args.get("app_version") or "test"),
         )
+        edit_write = edit_result.get("write") if isinstance(edit_result, dict) else None
+        if execute and isinstance(edit_write, dict) and edit_write.get("ok"):
+            edit_request = edit_write.get("request")
+            overlay_payload = edit_request.get("payload") if isinstance(edit_request, dict) else None
+            if isinstance(overlay_payload, dict):
+                record_mutation_overlay(
+                    profile=profile,
+                    app_id=str(overlay_payload.get("appname") or args.get("app_id") or ""),
+                    payload=overlay_payload,
+                    source="bubble_node_edit",
+                    response=edit_write.get("response"),
+                )
+        return edit_result
     if name == "bubble_plugin_install":
         args = arguments or {}
         profile = str(args.get("profile") or "").strip()

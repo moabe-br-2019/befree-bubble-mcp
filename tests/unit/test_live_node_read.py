@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+import types
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -92,3 +95,54 @@ def test_read_live_node_reports_an_evaluator_failure_as_a_structured_result() ->
     assert result["error"] == "evaluator_failed"
     assert result["pointer"] == ["api", "nope", "x"]
     assert result["message"] == "RuntimeError: page closed"
+
+
+def _fake_playwright(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Install an importable playwright whose launcher fails the test if it is ever called."""
+
+    package = types.ModuleType("playwright")
+    sync_api = types.ModuleType("playwright.sync_api")
+
+    def _must_not_launch():  # type: ignore[no-untyped-def]
+        raise AssertionError("no browser may be launched without a browser profile")
+
+    sync_api.sync_playwright = _must_not_launch  # type: ignore[attr-defined]
+    package.sync_api = sync_api  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "playwright", package)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", sync_api)
+
+
+def test_read_live_node_refuses_a_profile_with_no_browser_profile_directory(
+    monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    """bubble_session_import stores a session without ever creating this directory."""
+
+    _fake_playwright(monkeypatch)
+    monkeypatch.setattr(
+        "bubble_mcp.execution.live_node_read.load_settings",
+        lambda: SimpleNamespace(config_dir=tmp_path),
+    )
+
+    result = read_live_node("imported-only", ["api", "wf-1"], app_id="mcp-test-app")
+
+    assert result["ok"] is False
+    assert result["error"] == "browser_profile_missing"
+    assert "bubble_session_login" in result["message"]
+    assert result["pointer"] == ["api", "wf-1"]
+
+
+def test_read_live_node_gets_past_the_browser_profile_guard_once_it_exists(
+    monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    _fake_playwright(monkeypatch)
+    (tmp_path / "browser-profiles" / "logged-in").mkdir(parents=True)
+    monkeypatch.setattr(
+        "bubble_mcp.execution.live_node_read.load_settings",
+        lambda: SimpleNamespace(config_dir=tmp_path),
+    )
+
+    result = read_live_node("logged-in", ["api", "wf-1"], app_id="mcp-test-app")
+
+    # The guard passed, so the launcher was reached and refused: a different, later failure.
+    assert result["ok"] is False
+    assert result["error"] == "evaluator_failed"

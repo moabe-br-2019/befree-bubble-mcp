@@ -1657,7 +1657,12 @@ def planning_execution_tools() -> list[ToolSchema]:
             "renumber an actions map (op='reorder'), write it back with only the node root re-encoded, "
             "then read it again and report where the result diverged from the intent. Prefer this over "
             "recomposing an action, which cannot reproduce expression encodings. execute=false previews; "
-            "execute=true mutates and verifies.",
+            "execute=true mutates and verifies. For op='patch' the pointer must address ONE action node "
+            "(e.g. [\"api\",\"<wf>\",\"actions\",\"3\"]), never the actions map: only the node root is "
+            "re-encoded, so a container pointer would write every action with decoded keys. "
+            "verified=true proves the written bytes were read back unchanged; it does NOT prove the "
+            "editor renders the node (render_unverified stays true), because a wrongly decoded interior "
+            "round-trips identically - a human must confirm the step in the editor.",
             [
                 "profile",
                 "pointer",

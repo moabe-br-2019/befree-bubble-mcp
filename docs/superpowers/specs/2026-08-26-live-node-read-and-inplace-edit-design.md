@@ -111,11 +111,34 @@ the lint does not inspect it. For `patch`, `pointer` therefore addresses the act
 `pointer` addresses the actions map (`["api", "<wf_id>", "actions"]`) and every action body
 in that map is encoded at its own root.
 
+**A container pointer is refused for `patch`, and every written body is walked.**
+`encode_node_root` translates exactly one root, so a `patch` whose `pointer` addresses a
+container — the actions map `["api", "<wf>", "actions"]`, or the workflow root
+`["api", "<wf>"]` — would write every action underneath it with decoded keys while the
+re-read compared decoded-to-decoded and reported `verified: true`: the exact
+`[missing: null]` corruption, certified as success. Two defences:
+
+- `_apply` refuses `op == "patch"` unless the node it read is a node (`type` or `%x` at its
+  root), raising `patch requires a pointer to a node, not a container`.
+- `_assert_encoded_node_roots` walks every assembled change body before it is sent, from
+  both `build_patch_changes` and `build_reorder_changes`, descending only through the
+  container keys `actions` / `%el` / `%wf`, and refuses any dict carrying `type` or
+  `properties` without `%x` or `%p`. It never descends into a node's `%p`, because the
+  expression interior is legitimately spelled with decoded-looking keys (`"type": "Message"`)
+  and is the one part nothing here may inspect.
+
+`lint_editor_write_changes` cannot stand in for either: it is path-shaped, and
+`_is_node_position(["api", "<wf>", "actions"])` is false, so the whole container write passes
+it unexamined.
+
 **A reorder also rewrites the index.** Renumbering moves each action to a new path while
 `_index.id_to_path` still points at the old one. Alongside the `SetData` change, `reorder`
 emits one `Update index` change per action — `path_array` `["_index", "id_to_path",
 "<action_id>"]`, body the dotted new path (`"api.<wf_id>.actions.1"`) — the same pairing
-`bubble_cli` already uses when it writes an action.
+`bubble_cli` already uses when it writes an action. An action with no `id` raises: skipping
+its index entry silently would leave `_index.id_to_path` pointing at whatever now occupies
+its old position, which is the same class of quiet damage `reorder_actions` refuses when an
+order would drop a step.
 
 **The comparison lives in the decoded key space.** The write encodes the root because the
 endpoint demands it; the re-read comes back decoded, and the intent is compared as it stood
@@ -151,9 +174,22 @@ Returns `{ok, pointer, node, app_id, read_at}`. Read-only: `readOnlyHint` true,
 | `execute` | no | default `false` — previews the write and stops |
 | `app_id` | no | as above |
 
-Returns `{ok, execute, verified, divergence, pointer, before, intended, write, after}`.
-`verified` is only `true` after a successful re-read whose `first_divergence` is `None`;
-with `execute=false` it is absent, never `true`. Destructive-ish: `readOnlyHint` false,
+Returns `{ok, execute, verified, render_unverified, verified_meaning, divergence, pointer,
+before, intended, write, after}`. `verified` is only `true` after a successful re-read whose
+`first_divergence` is `None`; with `execute=false` it is absent, never `true`. A failed
+re-read reports the read result under `after_read`, never under `after`, which always holds
+the node itself.
+
+**`verified: true` is a byte check, not a render check.** `/appeditor/write` stores any body
+and `.raw()` returns what is stored, so a body whose interior was wrongly decoded round-trips
+byte-identically and `first_divergence` returns `None`. Every executed result therefore also
+carries `render_unverified: true` and a `verified_meaning` string saying so; only step 4 of
+Manual Validation clears it. Reporting `verified: true` alone would be exactly the bare
+success this design promised never to report.
+
+`app_version` is threaded through both reads and into the write payload. Without it the read
+would hard-default to `?version=test` while the write went to the session's version, so a
+branch-configured profile would read `test`, write the branch, and verify against `test`. Destructive-ish: `readOnlyHint` false,
 `openWorldHint` true, and it joins the write-annotated set in `agent_catalog.py`.
 
 ## Error Taxonomy
@@ -164,11 +200,16 @@ Every failure is a structured result, not a stack trace:
 |---|---|
 | Playwright not installed | `ok: false`, `error: "playwright_missing"`, with the `pip install "befree-bubble-mcp[browser]"` instruction already used by scheduled deploy |
 | no stored session for profile | `ValueError`, matching `bubble_editor_write` |
+| profile has no `browser-profiles/<profile>` directory | `ok: false`, `error: "browser_profile_missing"`, naming `bubble_session_login`. A session stored by `bubble_session_import` is valid for writes but never creates this directory; without the check, Playwright creates an empty one, loads a logged-out bubble.io, and fails 90s later as `editor_not_ready` |
 | editor never becomes ready | `ok: false`, `error: "editor_not_ready"` |
 | pointer does not resolve in the live tree | `ok: false`, `error: "pointer_not_found"`, naming the deepest segment that did resolve |
 | `leaf_pointer` addresses a missing key | `KeyError` from `patch_expression_leaf` — creating the key is how a node ends up rendering `[missing: null]` |
 | `order` drops or invents an action | `ValueError` from `reorder_actions` |
-| node root carries `name` | `ValueError` from `encode_node_root` |
+| node root carries `name` (or `%nm` on decode) | `ValueError` from `encode_node_root` / `decode_node_root`, checked before the already-encoded passthrough |
+| node root mixes decoded and encoded members of the mapping | `ValueError` from `encode_node_root` / `decode_node_root`: a half-translated root is either an uncovered node shape or a hand-assembled body |
+| `patch` pointer addresses a container | `ok: false`, `error: "invalid_edit"`, `patch requires a pointer to a node, not a container` |
+| any body carries an untranslated node root | `ok: false`, `error: "invalid_edit"`, naming the dotted position inside the body |
+| `read_timeout_sec` is not numeric | `ok: false`, `error: "invalid_read_timeout_sec"` |
 | write returns 401/403 | the existing `auth_blocked` result from `BubbleEditorClient.write` |
 | re-read differs from intent | `ok: true`, `verified: false`, `divergence: "<dotted.path>"` |
 
@@ -187,6 +228,12 @@ Automated, in CI, with no browser and no Bubble session:
   `execute=false` produces a preview and performs no re-read.
 - `reorder` through the tool: the refusal that would drop a step, and the `Update index`
   change emitted per action with its new dotted path.
+- the container-pointer hazard: a `patch` at the actions map and at a workflow root are both
+  refused, the recursive guard refuses a decoded action nested under an encoded node, and the
+  guard leaves an expression interior spelled `"type": "APIEventParameter"` alone.
+- `app_version` reaches both reads and `payload["app_version"]`; an executed result carries
+  `render_unverified`; a preview carries neither `verified` nor `render_unverified`.
+- `browser_profile_missing` is returned before any browser is launched.
 - Existing `tests/unit/test_raw_node_edit.py` is untouched.
 
 This machine has 14 unit tests that fail on Windows regardless of this change
@@ -213,7 +260,10 @@ after the tools ship.
 
 - `server/schema_families.py`: new `FIELD_LIBRARY` entries (`pointer`, `leaf_pointer`,
   `patch`, `order`, `op`, `headless`, `read_timeout_sec`) and two `tool_schema` entries.
-- `server/tools.py`: two handlers alongside the `bubble_editor_write` branch.
+- `server/tools.py`: two handlers alongside the `bubble_editor_write` branch. The edit handler
+  records a mutation overlay after a successful executed write, exactly as `bubble_editor_write`
+  does, so `bubble_context_summary` does not keep serving pre-edit state. The overlay call stays
+  in the server layer; `node_edit.py` must not import the context package.
 - `server/tool_descriptions.py` and `server/agent_catalog.py`: descriptions, plus
   `bubble_node_edit` in the write-annotated and `openWorldHint` sets.
 - `runtime_coverage.py`: both names in `NATIVE_SPECIAL_TOOLS`.

@@ -93,3 +93,113 @@ def test_the_workflow_guidance_routes_editing_to_the_new_tool() -> None:
     assert "bubble_node_edit" in route["notes"]
     assert "bubble_node_edit" in route["tools"]
     assert "bubble_live_node_read" in route["tools"]
+
+
+def test_edit_tool_records_a_mutation_overlay_for_an_executed_write(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Without this, bubble_context_summary keeps serving pre-edit state after a real write."""
+
+    recorded: dict[str, Any] = {}
+    payload = {"appname": "mcp-test-app", "changes": [{"path_array": ["api", "wf-1"]}]}
+
+    def fake_edit(**kwargs):  # type: ignore[no-untyped-def]
+        return {
+            "ok": True,
+            "execute": True,
+            "verified": True,
+            "write": {"ok": True, "request": {"payload": payload}, "response": {"status": "ok"}},
+        }
+
+    monkeypatch.setattr("bubble_mcp.server.tools.edit_live_node", fake_edit)
+    monkeypatch.setattr(
+        "bubble_mcp.server.tools.record_mutation_overlay",
+        lambda **kwargs: recorded.update(kwargs),
+    )
+
+    call_tool(
+        "bubble_node_edit",
+        {
+            "profile": "mcp-test",
+            "pointer": ["api", "wf-1", "actions", "0"],
+            "op": "patch",
+            "leaf_pointer": ["properties"],
+            "patch": {"param_id": "Order"},
+            "execute": True,
+        },
+    )
+
+    assert recorded["source"] == "bubble_node_edit"
+    assert recorded["profile"] == "mcp-test"
+    assert recorded["app_id"] == "mcp-test-app"
+    assert recorded["payload"] is payload
+    assert recorded["response"] == {"status": "ok"}
+
+
+def test_edit_tool_records_nothing_for_a_preview(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    recorded: list[Any] = []
+
+    monkeypatch.setattr(
+        "bubble_mcp.server.tools.edit_live_node",
+        lambda **kwargs: {
+            "ok": True,
+            "execute": False,
+            "write": {"ok": True, "dry_run": True, "request": {"payload": {"changes": []}}},
+        },
+    )
+    monkeypatch.setattr(
+        "bubble_mcp.server.tools.record_mutation_overlay",
+        lambda **kwargs: recorded.append(kwargs),
+    )
+
+    call_tool(
+        "bubble_node_edit",
+        {
+            "profile": "mcp-test",
+            "pointer": ["api", "wf-1", "actions", "0"],
+            "op": "patch",
+            "leaf_pointer": ["properties"],
+            "patch": {"param_id": "Order"},
+        },
+    )
+
+    assert recorded == []
+
+
+def test_edit_tool_forwards_app_version_instead_of_dropping_it(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The schema advertises app_version; a dropped one reads test and writes the branch."""
+
+    seen: dict[str, Any] = {}
+
+    def fake_edit(**kwargs):  # type: ignore[no-untyped-def]
+        seen.update(kwargs)
+        return {"ok": True, "execute": False}
+
+    monkeypatch.setattr("bubble_mcp.server.tools.edit_live_node", fake_edit)
+
+    call_tool(
+        "bubble_node_edit",
+        {
+            "profile": "mcp-test",
+            "pointer": ["api", "wf-1", "actions", "0"],
+            "op": "patch",
+            "leaf_pointer": ["properties"],
+            "patch": {"param_id": "Order"},
+            "app_version": "my-branch",
+        },
+    )
+
+    assert seen["app_version"] == "my-branch"
+
+
+def test_the_edit_tool_description_says_verified_is_not_a_render_check() -> None:
+    description = _schema("bubble_node_edit")["description"]
+
+    assert "render_unverified" in description
+    assert "actions" in description
+
+
+def test_the_workflow_guidance_mentions_the_reorder_op() -> None:
+    from bubble_mcp.server.agent_guide import ROUTES
+
+    route = next(r for r in ROUTES if r["intent"] == "manage_workflows")
+
+    assert "reorder" in route["notes"]

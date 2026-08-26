@@ -775,7 +775,10 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
     "bubble_node_edit": (
         "Edit a live Bubble node in place - patch one leaf or reorder an actions map - re-encoding only "
         "the node root, then re-read the node and report where it diverged from the intent. "
-        "execute=false previews."
+        "execute=false previews. For op='patch' the pointer must address ONE action node, never the "
+        "actions map: only the node root is re-encoded. verified=true proves the bytes were read back "
+        "unchanged, not that the editor renders the node - render_unverified stays true until a human "
+        "checks the step in the editor."
     ),
     "bubble_plugin_install": (
         "Preview or install one Bubble plugin in a target app using the stored editor session. Use this when transfer "
