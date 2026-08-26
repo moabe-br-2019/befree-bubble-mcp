@@ -17,7 +17,22 @@ from bubble_mcp.sessions.store import load_session
 
 DEFAULT_READ_TIMEOUT_SEC = 90
 EDITOR_URL_TEMPLATE = "https://bubble.io/page?name=index&id={app_id}&version={app_version}"
-APPQUERY_READY_SCRIPT = "() => typeof window.appquery !== 'undefined'"
+# window.appquery is a getter: it exists (typeof === 'function') well before it is usable, and
+# calling through it while the editor is still initializing throws "The variable appquery is
+# not fully initialized yet". A typeof check races that window and passes too early, so the
+# very next page.evaluate throws. The functional probe below calls all the way through to
+# .json inside a try/catch, which is both safe (never propagates the getter's exception, so
+# wait_for_function keeps polling instead of failing) and only true once the editor is
+# actually ready.
+APPQUERY_READY_SCRIPT = """
+() => {
+  try {
+    return Boolean(window.appquery && window.appquery.app && window.appquery.app().json);
+  } catch (error) {
+    return false;
+  }
+}
+"""
 
 Evaluator = Callable[[str], Any]
 
@@ -32,6 +47,16 @@ class EditorNotReady(RuntimeError):
 
 class BrowserProfileMissing(RuntimeError):
     """Raised when the profile has no persistent browser profile directory to drive."""
+
+
+class NotLoggedIn(RuntimeError):
+    """Raised when the browser profile exists but never logged in to Bubble.
+
+    Chrome creates the profile directory shell on first launch, so ``exists()`` alone
+    (``BrowserProfileMissing``'s check) is true even when no session cookie was ever stored.
+    bubble.io then redirects the editor URL to its marketing or login page instead of the
+    editor, and the app id disappears from the final URL.
+    """
 
 
 def build_appquery_script(pointer: Sequence[str]) -> str:
@@ -96,6 +121,18 @@ def _playwright_evaluator(
             try:
                 page = context.pages[0] if context.pages else context.new_page()
                 page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                landed_url = page.url
+                if app_id not in landed_url:
+                    # A logged-in editor load keeps the app id in the URL. A logged-out
+                    # profile (directory exists, but Chrome never got a session cookie
+                    # written into it) gets redirected by bubble.io to its marketing page
+                    # or a /login-ish path instead, and the app id drops out of the URL.
+                    raise NotLoggedIn(
+                        f"Browser profile '{profile}' landed on {landed_url} instead of the "
+                        f"editor for app '{app_id}'. The profile directory exists but appears "
+                        f"never to have logged in to Bubble; run bubble_session_login for "
+                        f"profile '{profile}', then retry."
+                    )
                 try:
                     page.wait_for_function(APPQUERY_READY_SCRIPT, timeout=timeout_ms)
                 except Exception as exc:  # noqa: BLE001 - Playwright raises its own timeout type
@@ -141,6 +178,13 @@ def read_live_node(
         return {
             "ok": False,
             "error": "browser_profile_missing",
+            "pointer": segments,
+            "message": str(exc),
+        }
+    except NotLoggedIn as exc:
+        return {
+            "ok": False,
+            "error": "not_logged_in",
             "pointer": segments,
             "message": str(exc),
         }

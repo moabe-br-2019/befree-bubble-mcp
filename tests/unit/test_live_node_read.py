@@ -10,6 +10,8 @@ from typing import Any
 import pytest
 
 from bubble_mcp.execution.live_node_read import (
+    APPQUERY_READY_SCRIPT,
+    NotLoggedIn,
     build_appquery_script,
     read_live_node,
 )
@@ -38,6 +40,22 @@ def test_build_appquery_script_escapes_a_segment_with_a_quote() -> None:
     script = build_appquery_script(['we"ird'])
 
     assert '._child("we\\"ird")' in script
+
+
+def test_appquery_ready_script_is_a_functional_probe_not_a_typeof_race() -> None:
+    """Regression pin: window.appquery is a getter that exists before it works.
+
+    A bare `typeof window.appquery !== 'undefined'` check passes the instant the getter is
+    defined, well before the editor can actually serve `.app().json`, so the very next
+    page.evaluate throws "The variable appquery is not fully initialized yet". The probe must
+    call all the way through to something usable, inside a try/catch so the getter's exception
+    never propagates out of wait_for_function (which would fail the wait instead of polling).
+    """
+
+    assert "typeof window.appquery !== 'undefined'" not in APPQUERY_READY_SCRIPT
+    assert "try" in APPQUERY_READY_SCRIPT
+    assert "catch" in APPQUERY_READY_SCRIPT
+    assert "window.appquery" in APPQUERY_READY_SCRIPT
 
 
 def test_read_live_node_returns_the_node_the_page_produced() -> None:
@@ -95,6 +113,31 @@ def test_read_live_node_reports_an_evaluator_failure_as_a_structured_result() ->
     assert result["error"] == "evaluator_failed"
     assert result["pointer"] == ["api", "nope", "x"]
     assert result["message"] == "RuntimeError: page closed"
+
+
+def test_read_live_node_reports_a_logged_out_profile_as_a_structured_result() -> None:
+    """A profile directory can exist but never have logged in (Chrome creates the shell on
+
+    first launch). That case must not surface as a bare evaluator_failed or a getter
+    exception from https://bubble.io/ - it needs its own actionable error.
+    """
+
+    def raising_evaluator(_script: str) -> Any:
+        raise NotLoggedIn(
+            "Browser profile 'stale' landed on https://bubble.io/ instead of the editor for "
+            "app 'mcp-test-app'. The profile directory exists but appears never to have "
+            "logged in to Bubble; run bubble_session_login for profile 'stale', then retry."
+        )
+
+    result = read_live_node(
+        "stale", ["api", "wf-1"], evaluator=raising_evaluator, app_id="mcp-test-app"
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "not_logged_in"
+    assert result["pointer"] == ["api", "wf-1"]
+    assert "bubble_session_login" in result["message"]
+    assert "stale" in result["message"]
 
 
 def _fake_playwright(monkeypatch) -> None:  # type: ignore[no-untyped-def]

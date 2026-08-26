@@ -84,7 +84,23 @@ decoded form for exactly this reason.
 - The default evaluator uses `playwright.sync_api.sync_playwright` with
   `launch_persistent_context(settings.config_dir / "browser-profiles" / profile)`, the same
   pattern already in production in `browser_automation/scheduled_deploy.py`. Readiness is
-  gated on `typeof window.appquery !== 'undefined'`, not on the deploy button.
+  gated on a functional probe — `Boolean(window.appquery && window.appquery.app &&
+  window.appquery.app().json)` wrapped in a try/catch that returns `false` on error — not on
+  `typeof window.appquery !== 'undefined'`. `window.appquery` is a getter that exists (so
+  `typeof` reports `'function'`) well before it is usable; on the real editor `typeof` passes
+  the wait while the getter still throws "The variable appquery is not fully initialized yet",
+  and the very next `page.evaluate` of the read script throws that same error. The probe must
+  call all the way through to `.json` so it stays `false` until the editor can actually serve
+  it, and the try/catch is load-bearing: without it, the getter's exception propagates out of
+  `wait_for_function` and fails the wait instead of letting it keep polling.
+- After `page.goto`, the evaluator checks that the app id is still present in `page.url` before
+  waiting on readiness. A profile directory that exists but never logged in (Chrome creates the
+  directory shell on first launch, before any session cookie is written into it) gets
+  redirected by bubble.io to its marketing page or a `/login`-ish path, and the app id drops
+  out of the URL; this is the reliable, cheap signal, since the alternative failures
+  (`evaluator_failed` for "Execution context was destroyed, most likely because of a
+  navigation", or the getter error above at `https://bubble.io/` instead of the editor URL)
+  read like unrelated bugs. A mismatch raises `NotLoggedIn`, reported as `not_logged_in`.
 - The evaluator is a parameter so tests supply a fake and never launch a browser.
 
 ### `node_edit.py` — the cycle
@@ -205,7 +221,8 @@ Every failure is a structured result, not a stack trace:
 |---|---|
 | Playwright not installed | `ok: false`, `error: "playwright_missing"`, with the `pip install "befree-bubble-mcp[browser]"` instruction already used by scheduled deploy |
 | no stored session for profile | `ValueError`, matching `bubble_editor_write` |
-| profile has no `browser-profiles/<profile>` directory | `ok: false`, `error: "browser_profile_missing"`, naming `bubble_session_login`. A session stored by `bubble_session_import` is valid for writes but never creates this directory; without the check, Playwright creates an empty one, loads a logged-out bubble.io, and fails 90s later as `editor_not_ready` |
+| profile has no `browser-profiles/<profile>` directory at all | `ok: false`, `error: "browser_profile_missing"`, naming `bubble_session_login`. A session stored by `bubble_session_import` is valid for writes but never creates this directory; without the check, Playwright creates an empty one, loads a logged-out bubble.io, and fails 90s later as `editor_not_ready`. This check only covers an absent directory — it does not detect a directory that exists but was never logged in |
+| profile directory exists but never logged in (no session cookie; the editor URL redirects off the app id) | `ok: false`, `error: "not_logged_in"`, naming `bubble_session_login` and the profile |
 | editor never becomes ready | `ok: false`, `error: "editor_not_ready"` |
 | pointer does not resolve in the live tree | `ok: false`, `error: "pointer_not_found"`, naming the deepest segment that did resolve |
 | `leaf_pointer` addresses a missing key | `KeyError` from `patch_expression_leaf` — creating the key is how a node ends up rendering `[missing: null]` |
@@ -239,6 +256,11 @@ Automated, in CI, with no browser and no Bubble session:
 - `app_version` reaches both reads and `payload["app_version"]`; an executed result carries
   `render_unverified`; a preview carries neither `verified` nor `render_unverified`.
 - `browser_profile_missing` is returned before any browser is launched.
+- `APPQUERY_READY_SCRIPT` is asserted, as text, to be a functional probe with a try/catch and
+  to not use the bare `typeof window.appquery !== 'undefined'` form — pinning the regression
+  where that race passed the readiness gate before `appquery` was actually usable.
+- `not_logged_in`, raised by a fake evaluator, comes back as `{"ok": False, "error":
+  "not_logged_in", ...}` with a message naming `bubble_session_login` and the profile.
 - Existing `tests/unit/test_raw_node_edit.py` is untouched.
 
 This machine has 14 unit tests that fail on Windows regardless of this change
