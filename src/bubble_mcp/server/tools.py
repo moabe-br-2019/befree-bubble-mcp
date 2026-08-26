@@ -60,6 +60,8 @@ from bubble_mcp.execution.editor_api import (
     start_bubble_branch_merge,
 )
 from bubble_mcp.execution.executor import execute_plan
+from bubble_mcp.execution.live_node_read import read_live_node
+from bubble_mcp.execution.node_edit import edit_live_node
 from bubble_mcp.execution.plugins import install_plugin
 from bubble_mcp.execution.state import next_user_action, operation_snapshot
 from bubble_mcp.execution.structural import permanent_data_type_delete_targets, validate_structure
@@ -1625,6 +1627,42 @@ def call_tool(
         if expression_warnings:
             write_result = {**write_result, "warnings": expression_warnings}
         return write_result
+    if name == "bubble_live_node_read":
+        args = arguments or {}
+        profile = str(args.get("profile") or "").strip()
+        if not profile:
+            raise ValueError("bubble_live_node_read requires a profile.")
+        pointer = args.get("pointer")
+        if not isinstance(pointer, list) or not pointer:
+            raise ValueError("bubble_live_node_read requires a non-empty pointer array.")
+        return read_live_node(
+            profile,
+            [str(part) for part in pointer],
+            app_id=str(args.get("app_id") or "") or None,
+            app_version=str(args.get("app_version") or "test"),
+            headless=bool(args.get("read_headless", True)),
+            timeout_sec=int(args.get("read_timeout_sec") or 90),
+        )
+    if name == "bubble_node_edit":
+        args = arguments or {}
+        profile = str(args.get("profile") or "").strip()
+        if not profile:
+            raise ValueError("bubble_node_edit requires a profile.")
+        pointer = args.get("pointer")
+        if not isinstance(pointer, list) or not pointer:
+            raise ValueError("bubble_node_edit requires a non-empty pointer array.")
+        leaf_pointer = args.get("leaf_pointer")
+        order = args.get("order")
+        return edit_live_node(
+            profile=profile,
+            pointer=[str(part) for part in pointer],
+            op=str(args.get("op") or ""),
+            leaf_pointer=[str(part) for part in leaf_pointer] if isinstance(leaf_pointer, list) else None,
+            patch=args.get("patch") if isinstance(args.get("patch"), dict) else None,
+            order=[str(part) for part in order] if isinstance(order, list) else None,
+            execute=bool(args.get("execute")),
+            app_id=str(args.get("app_id") or "") or None,
+        )
     if name == "bubble_plugin_install":
         args = arguments or {}
         profile = str(args.get("profile") or "").strip()

@@ -767,6 +767,16 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "Preview or send an exact Bubble /appeditor/write payload with a stored local session. Use for advanced writes "
         "when a tool already produced a valid payload; execute=false previews, execute=true mutates Bubble."
     ),
+    "bubble_live_node_read": (
+        "Read one node as the running Bubble editor holds it, via window.appquery in a browser using "
+        "the stored session. The only source of the raw expression encoding; the .bubble export is "
+        "decoded and cannot be inverted."
+    ),
+    "bubble_node_edit": (
+        "Edit a live Bubble node in place - patch one leaf or reorder an actions map - re-encoding only "
+        "the node root, then re-read the node and report where it diverged from the intent. "
+        "execute=false previews."
+    ),
     "bubble_plugin_install": (
         "Preview or install one Bubble plugin in a target app using the stored editor session. Use this when transfer "
         "planning reports a missing plugin-backed element/action type such as progressbar-ProgressBar. The tool writes "
@@ -1957,6 +1967,8 @@ def tool_annotations(name: str) -> dict[str, bool]:
             "bubble_editor_write",
             "bubble_plugin_install",
             "bubble_execute_plan",
+            "bubble_live_node_read",
+            "bubble_node_edit",
             "bubble_visual_capture",
         "bubble_visual_capture_actual",
         "bubble_visual_audit",
@@ -2109,6 +2121,7 @@ def _is_read_only(name: str) -> bool:
         "bubble_manual_guidance",
         "bubble_manual_context_for_tool_authoring",
         "bubble_manual_context_for_validation",
+        "bubble_live_node_read",
         "refresh_profile_cache",
         "sync_cache",
         "sync_event_cache",
@@ -2148,4 +2161,11 @@ def _is_mutating(name: str) -> bool:
             "clear_",
             "regenerate_",
         )
-    ) or name in {"bubble_editor_write", "bubble_plugin_install", "bubble_execute_plan", "batch", "natural"}
+    ) or name in {
+        "bubble_editor_write",
+        "bubble_plugin_install",
+        "bubble_execute_plan",
+        "bubble_node_edit",
+        "batch",
+        "natural",
+    }
