@@ -2281,6 +2281,17 @@ def call_legacy_catalog_tool(
     if app_id:
         context = None
         context_file = str(args.get("context_file") or "").strip()
+        if not context_file and profile:
+            # Without a context the compiler trusts element/page refs as if they were already ids,
+            # which is how `log_the_user_in` once wrote `%ei: "in_email"` and a path keyed by the
+            # page NAME. The profile already knows where its context lives; use it.
+            try:
+                configured = resolve_profile(load_settings(), profile)
+            except Exception:  # noqa: BLE001 - a config problem must not break compilation
+                configured = None
+            profile_context = str(getattr(configured, "context_path", "") or "").strip()
+            if profile_context and Path(profile_context).exists():
+                context_file = profile_context
         if context_file:
             context = load_context_with_overlay(
                 Path(context_file),

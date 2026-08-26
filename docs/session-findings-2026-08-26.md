@@ -156,3 +156,29 @@ What it catches: wrong paths, unresolved references, orphan nodes, writes that d
 What it cannot catch: a node whose bytes are correct and which the editor still renders broken —
 hence `render_unverified` on every report. That distinction is not academic; it separated a false
 "restored" from a real repair earlier in this same session.
+
+## 8. The crawler records a page's id as its node key, so derived paths are wrong
+
+Measured on `login_page`, created by this tooling's own `create_page`:
+
+- `create_page` wrote the node at `%p3.bVVl3` with body `id: bG4Jl`, and indexed
+  `_index.page_name_to_path.login_page = "%p3.bVVl3"`.
+- The crawler-built context records
+  `{"bubble_id": "bG4Jl", "key": "bG4Jl", "path_array": ["%p3", "bG4Jl"], "root_id": "bG4Jl"}`.
+- Live reads confirm which is real: `%p3.bVVl3` resolves, `%p3.bG4Jl` is `pointer_not_found`.
+
+So for any page whose node key differs from its id, every path the compiler derives from context
+points at a node that does not exist. It stayed invisible because the app's older pages have
+key == id (`AAX`, `AAL`, `AAU`, `bq8bK`) — the divergence only appears for pages this tooling
+created, which is exactly the case an agent hits.
+
+`_index.page_name_to_path` already holds the correct mapping and is what the crawler should use.
+
+Note the ordering this exposes: `log_the_user_in`'s original defect (writing `%p3.<page NAME>`)
+had a second layer under it. Resolving the name yields the id, and the id is still not the key.
+Fixing the visible half would have produced a different wrong path and the same silent orphan.
+
+The universal verification from section 7 catches this class at runtime without knowing anything
+about it: the write goes to `%p3.bG4Jl`, the read-back reports `pointer_not_found`, and the
+divergence surfaces. That is the argument for the safety net existing independently of any
+particular resolution bug being fixed.
