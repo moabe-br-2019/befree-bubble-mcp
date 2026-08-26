@@ -1644,6 +1644,14 @@ def call_tool(
                 "error": "invalid_read_timeout_sec",
                 "message": f"read_timeout_sec must be a number of seconds; got {raw_timeout!r}.",
             }
+        if timeout_sec <= 0:
+            return {
+                "ok": False,
+                "error": "invalid_read_timeout_sec",
+                "message": (
+                    f"read_timeout_sec must be a positive number of seconds; got {raw_timeout!r}."
+                ),
+            }
         return read_live_node(
             profile,
             [str(part) for part in pointer],
@@ -1679,9 +1687,14 @@ def call_tool(
             edit_request = edit_write.get("request")
             overlay_payload = edit_request.get("payload") if isinstance(edit_request, dict) else None
             if isinstance(overlay_payload, dict):
+                overlay_session = load_session(profile)
                 record_mutation_overlay(
                     profile=profile,
-                    app_id=str(overlay_payload.get("appname") or args.get("app_id") or ""),
+                    app_id=str(
+                        overlay_payload.get("appname")
+                        or args.get("app_id")
+                        or (overlay_session.app_id if overlay_session else "")
+                    ),
                     payload=overlay_payload,
                     source="bubble_node_edit",
                     response=edit_write.get("response"),

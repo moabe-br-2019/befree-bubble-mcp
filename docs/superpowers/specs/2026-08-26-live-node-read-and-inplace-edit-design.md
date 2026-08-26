@@ -127,6 +127,11 @@ re-read compared decoded-to-decoded and reported `verified: true`: the exact
   expression interior is legitimately spelled with decoded-looking keys (`"type": "Message"`)
   and is the one part nothing here may inspect.
 
+These two catch different halves of the container-pointer case: the actions map has no root
+`type`, so `_apply`'s root-type check catches a `patch` aimed at it directly. A workflow root
+does have a root `type`, so it passes that check; it is the recursive `_assert_encoded_node_roots`
+guard, descending into `actions`, that catches the WORKFLOW-root case instead.
+
 `lint_editor_write_changes` cannot stand in for either: it is path-shaped, and
 `_is_node_position(["api", "<wf>", "actions"])` is false, so the whole container write passes
 it unexamined.
@@ -185,12 +190,12 @@ and `.raw()` returns what is stored, so a body whose interior was wrongly decode
 byte-identically and `first_divergence` returns `None`. Every executed result therefore also
 carries `render_unverified: true` and a `verified_meaning` string saying so; only step 4 of
 Manual Validation clears it. Reporting `verified: true` alone would be exactly the bare
-success this design promised never to report.
+success this design promised never to report. Destructive-ish: `readOnlyHint` false,
+`openWorldHint` true, and it joins the write-annotated set in `agent_catalog.py`.
 
 `app_version` is threaded through both reads and into the write payload. Without it the read
 would hard-default to `?version=test` while the write went to the session's version, so a
-branch-configured profile would read `test`, write the branch, and verify against `test`. Destructive-ish: `readOnlyHint` false,
-`openWorldHint` true, and it joins the write-annotated set in `agent_catalog.py`.
+branch-configured profile would read `test`, write the branch, and verify against `test`.
 
 ## Error Taxonomy
 

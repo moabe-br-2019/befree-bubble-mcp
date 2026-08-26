@@ -51,6 +51,30 @@ def test_read_tool_routes_to_read_live_node(monkeypatch) -> None:  # type: ignor
     assert seen["pointer"] == ["api", "wf-1"]
 
 
+def test_read_tool_rejects_a_non_positive_read_timeout(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """timeout_ms=0 reads as no timeout at all to Playwright, so page.goto never gives up."""
+
+    called: list[Any] = []
+
+    def fake_read(profile, pointer, **kwargs):  # type: ignore[no-untyped-def]
+        called.append((profile, pointer, kwargs))
+        return {"ok": True, "pointer": list(pointer), "node": {"id": "act-1"}}
+
+    monkeypatch.setattr("bubble_mcp.server.tools.read_live_node", fake_read)
+
+    result = call_tool(
+        "bubble_live_node_read",
+        {"profile": "mcp-test", "pointer": ["api", "wf-1"], "read_timeout_sec": 0},
+    )
+
+    assert result == {
+        "ok": False,
+        "error": "invalid_read_timeout_sec",
+        "message": "read_timeout_sec must be a positive number of seconds; got 0.",
+    }
+    assert called == []
+
+
 def test_edit_tool_routes_to_edit_live_node(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     seen: dict[str, Any] = {}
 
