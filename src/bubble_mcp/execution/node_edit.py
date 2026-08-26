@@ -7,7 +7,6 @@ it to what was intended, which is what this module does on every executed edit.
 
 from __future__ import annotations
 
-import copy
 from typing import Any, Callable, Sequence
 
 from bubble_mcp.execution.client import BubbleEditorClient
@@ -16,6 +15,7 @@ from bubble_mcp.execution.node_keys import encode_node_root
 from bubble_mcp.execution.raw_node_edit import (
     first_divergence,
     patch_expression_leaf,
+    reorder_actions,
 )
 from bubble_mcp.sessions.store import load_session
 
@@ -42,6 +42,33 @@ def build_patch_changes(pointer: Sequence[str], node: dict[str, Any]) -> list[di
     """Return the single change that writes the whole edited node back at ``pointer``."""
 
     return [_change(pointer, encode_node_root(node))]
+
+
+def build_reorder_changes(
+    pointer: Sequence[str], actions: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Return the map write plus one index repoint per action.
+
+    Renumbering moves every action to a new path while ``_index.id_to_path`` still points at
+    the old one, so the map write alone would leave the editor's index disagreeing with its
+    tree. This mirrors the SetData + "Update index" pairing bubble_cli already uses.
+    """
+
+    encoded = {key: encode_node_root(value) for key, value in actions.items()}
+    changes = [_change(pointer, encoded)]
+    prefix = ".".join(str(part) for part in pointer)
+    for key, value in actions.items():
+        action_id = value.get("id")
+        if not action_id:
+            continue
+        changes.append(
+            _change(
+                ["_index", "id_to_path", str(action_id)],
+                f"{prefix}.{key}",
+                intent="Update index",
+            )
+        )
+    return changes
 
 
 def edit_live_node(
@@ -133,4 +160,7 @@ def _apply(
             raise ValueError("patch requires a patch object")
         intended = patch_expression_leaf(current, [str(part) for part in leaf_pointer], patch)
         return intended, build_patch_changes(pointer, intended)
-    raise ValueError(f"op '{op}' is not implemented")
+    if not order:
+        raise ValueError("reorder requires order")
+    intended = reorder_actions(current, [str(part) for part in order])
+    return intended, build_reorder_changes(pointer, intended)

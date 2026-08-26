@@ -173,3 +173,100 @@ def test_unknown_op_is_refused_before_anything_is_read() -> None:
     assert result["ok"] is False
     assert result["error"] == "unknown_op"
     assert reader.calls == 0
+
+
+def _actions_map() -> dict[str, Any]:
+    return {
+        "0": {"id": "act-a", "type": "SetCustomState", "properties": {"value": 1}},
+        "1": {"id": "act-b", "type": "SetCustomState", "properties": {"value": 2}},
+        "2": {"id": "act-c", "type": "SetCustomState", "properties": {"value": 3}},
+    }
+
+
+def _map_writer(reader: _Reader):  # type: ignore[no-untyped-def]
+    def write(payload, session, *, dry_run=False, calculate_derived=False):  # type: ignore[no-untyped-def]
+        if not dry_run:
+            body = copy.deepcopy(payload["changes"][0]["body"])
+            reader.node = {
+                key: {"id": value["id"], "type": value["%x"], "properties": value["%p"]}
+                for key, value in body.items()
+            }
+        return {"ok": True, "dry_run": dry_run, "request": {"payload": payload}}
+
+    return write
+
+
+def test_reorder_renumbers_the_map_and_encodes_every_action_root() -> None:
+    reader = _Reader(_actions_map())
+
+    result = edit_live_node(
+        profile="mcp-test",
+        pointer=["api", "wf-1", "actions"],
+        op="reorder",
+        order=["2", "0", "1"],
+        execute=False,
+        reader=reader,
+        writer=_map_writer(reader),
+    )
+
+    body = result["write"]["request"]["payload"]["changes"][0]["body"]
+    assert list(body) == ["0", "1", "2"]
+    assert [entry["id"] for entry in body.values()] == ["act-c", "act-a", "act-b"]
+    assert all("%x" in entry and "%p" in entry for entry in body.values())
+
+
+def test_reorder_repoints_the_index_at_every_moved_action() -> None:
+    reader = _Reader(_actions_map())
+
+    result = edit_live_node(
+        profile="mcp-test",
+        pointer=["api", "wf-1", "actions"],
+        op="reorder",
+        order=["2", "0", "1"],
+        execute=False,
+        reader=reader,
+        writer=_map_writer(reader),
+    )
+
+    changes = result["write"]["request"]["payload"]["changes"]
+    index_changes = [change for change in changes if change["intent"]["name"] == "Update index"]
+    assert [(change["path_array"], change["body"]) for change in index_changes] == [
+        (["_index", "id_to_path", "act-c"], "api.wf-1.actions.0"),
+        (["_index", "id_to_path", "act-a"], "api.wf-1.actions.1"),
+        (["_index", "id_to_path", "act-b"], "api.wf-1.actions.2"),
+    ]
+
+
+def test_reorder_verifies_by_reading_the_map_back() -> None:
+    reader = _Reader(_actions_map())
+
+    result = edit_live_node(
+        profile="mcp-test",
+        pointer=["api", "wf-1", "actions"],
+        op="reorder",
+        order=["2", "0", "1"],
+        execute=True,
+        reader=reader,
+        writer=_map_writer(reader),
+    )
+
+    assert result["verified"] is True
+    assert result["divergence"] is None
+
+
+def test_reorder_refuses_an_order_that_would_drop_a_step() -> None:
+    reader = _Reader(_actions_map())
+
+    result = edit_live_node(
+        profile="mcp-test",
+        pointer=["api", "wf-1", "actions"],
+        op="reorder",
+        order=["2", "0"],
+        execute=False,
+        reader=reader,
+        writer=_map_writer(reader),
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "invalid_edit"
+    assert "1" in result["message"]
