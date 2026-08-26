@@ -387,7 +387,14 @@ def resolve_context_key(name: str, context: BubbleProjectContext | None = None) 
                 or str(node.metadata.get("bubble_id") or "") == target
                 or str(node.metadata.get("key") or "") == target
             ):
-                meta_key = node.metadata.get("bubble_id") or node.metadata.get("key")
+                # A page/reusable's node key in the Bubble app tree is frequently NOT
+                # its bubble_id (e.g. crawler-derived pages, see context/importers.py).
+                # Prefer the real path's leaf segment, then the recorded key, and only
+                # fall back to bubble_id when neither is available.
+                raw_path = node.metadata.get("path_array")
+                if isinstance(raw_path, list) and raw_path:
+                    return str(raw_path[-1])
+                meta_key = node.metadata.get("key") or node.metadata.get("bubble_id")
                 return str(meta_key or node.label or target)
     if ":" in target:
         return target.split(":", 1)[1]
@@ -1518,17 +1525,25 @@ def compile_auth_workflow_action_changes(
         )
     if tool_name == "sign_the_user_up":
         signup_properties: dict[str, Any] = {
-            "%em": element_get_data_expression(str(args.get("email_input_ref") or "")),
-            "%pw": element_get_data_expression(str(args.get("password_input_ref") or "")),
+            "%em": element_get_data_expression(resolve_element_ref_id(str(args.get("email_input_ref") or ""), context)),
+            "%pw": element_get_data_expression(resolve_element_ref_id(str(args.get("password_input_ref") or ""), context)),
         }
         if args.get("require_password_confirmation") is not None:
             signup_properties["%rc"] = bool(args.get("require_password_confirmation"))
         if args.get("password_confirmation_input_ref"):
-            signup_properties["%p2"] = element_get_data_expression(str(args.get("password_confirmation_input_ref") or ""))
+            signup_properties["%p2"] = element_get_data_expression(
+                resolve_element_ref_id(str(args.get("password_confirmation_input_ref") or ""), context)
+            )
         if args.get("send_confirm_email") is not None:
             signup_properties["send_confirm_email"] = bool(args.get("send_confirm_email"))
         if args.get("confirmation_page_ref"):
-            signup_properties["%pa"] = str(args.get("confirmation_page_ref"))
+            confirmation_page_ref = str(args.get("confirmation_page_ref"))
+            if context is not None and resolve_context_node_id(confirmation_page_ref, context) is None:
+                raise ValueError(
+                    f"Could not resolve confirmation_page_ref '{confirmation_page_ref}' to a page/reusable "
+                    "node in the loaded context. Pass its real node key, or load a context that includes it."
+                )
+            signup_properties["%pa"] = resolve_context_key(confirmation_page_ref, context)
         if args.get("remember_email") is not None:
             signup_properties["remember_email"] = bool(args.get("remember_email"))
         field_changes = compile_field_changes(args.get("fields"))

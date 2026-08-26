@@ -433,6 +433,11 @@ def test_compile_log_the_user_in_resolves_context_and_element_refs_to_node_keys(
     orphan node instead of writing into the real workflow), and ``%ei`` inside
     the login expression carried the raw element ref instead of the element's
     real id.
+
+    A page's node key in the Bubble app tree is frequently NOT its bubble_id
+    (e.g. crawler-derived pages). This fixture deliberately sets bubble_id and
+    key to DIFFERENT values so the assertion below only passes if the resolver
+    actually prefers the real path/key over the id.
     """
     context = BubbleProjectContext(
         app_id="synthetic-app",
@@ -442,7 +447,7 @@ def test_compile_log_the_user_in_resolves_context_and_element_refs_to_node_keys(
                 id="page:login_page",
                 label="login_page",
                 type="page",
-                metadata={"bubble_id": "bVVl3", "key": "bVVl3", "path_array": ["%p3", "bVVl3"]},
+                metadata={"bubble_id": "bG4Jl", "key": "bVVl3", "path_array": ["%p3", "bVVl3"]},
             ),
             BubbleContextNode(
                 id="element:in_email",
@@ -531,6 +536,130 @@ def test_compile_log_the_user_in_fails_loudly_on_unresolvable_refs() -> None:
         compile_auth_workflow_action_changes(
             "log_the_user_in",
             {**base_args, "password_input_ref": "not_a_real_element"},
+            context=context,
+            session_id="sess1",
+        )
+
+
+def test_compile_sign_the_user_up_resolves_element_and_page_refs_to_node_keys() -> None:
+    """Regression test mirroring log_the_user_in: sign_the_user_up must resolve
+    its email/password/confirmation-page element refs and its confirmation
+    page ref to their real node keys/ids, not build the write payload out of
+    the human-readable names it was called with."""
+    context = BubbleProjectContext(
+        app_id="synthetic-app",
+        source="test",
+        nodes=[
+            BubbleContextNode(
+                id="page:signup_page",
+                label="signup_page",
+                type="page",
+                metadata={"bubble_id": "bG4Jl", "key": "bVVl3", "path_array": ["%p3", "bVVl3"]},
+            ),
+            BubbleContextNode(
+                id="page:confirm_page",
+                label="confirm_email",
+                type="page",
+                metadata={"bubble_id": "bCfmG", "key": "bCfmK", "path_array": ["%p3", "bCfmK"]},
+            ),
+            BubbleContextNode(
+                id="element:in_email",
+                label="in_email",
+                type="element",
+                metadata={"bubble_id": "btTmX", "key": "btTmX"},
+            ),
+            BubbleContextNode(
+                id="element:in_password",
+                label="in_password",
+                type="element",
+                metadata={"bubble_id": "b0sDN", "key": "b0sDN"},
+            ),
+            BubbleContextNode(
+                id="element:in_password_confirm",
+                label="in_password_confirm",
+                type="element",
+                metadata={"bubble_id": "bPcNf", "key": "bPcNf"},
+            ),
+            BubbleContextNode(
+                id="workflow:bSIGN",
+                label="bSIGN",
+                type="workflow",
+                metadata={"bubble_id": "bSIGN", "key": "bSIGN", "context": "page:signup_page"},
+            ),
+        ],
+        edges=[],
+    )
+    plan = {
+        "steps": [
+            {
+                "id": "signup",
+                "tool_name": "sign_the_user_up",
+                "args": {
+                    "context": "signup_page",
+                    "event_ref": "bSIGN",
+                    "email_input_ref": "in_email",
+                    "password_input_ref": "in_password",
+                    "require_password_confirmation": True,
+                    "password_confirmation_input_ref": "in_password_confirm",
+                    "confirmation_page_ref": "confirm_email",
+                },
+            }
+        ]
+    }
+
+    compiled = compile_plan_to_write_payloads(plan, app_id="synthetic-app", context=context)
+
+    signup_payload = compiled["steps"][0]["args"]["write_payload"]
+    signup_action = first_change(signup_payload, "CreateAction")
+    assert signup_action["path_array"] == ["%p3", "bVVl3", "%wf", "bSIGN", "actions"]
+    signup_props = signup_action["body"]["0"]["%p"]
+    assert signup_props["%em"]["%p"]["%ei"] == "btTmX"
+    assert signup_props["%pw"]["%p"]["%ei"] == "b0sDN"
+    assert signup_props["%p2"]["%p"]["%ei"] == "bPcNf"
+    assert signup_props["%pa"] == "bCfmK"
+
+
+def test_compile_sign_the_user_up_fails_loudly_on_unresolvable_refs() -> None:
+    """A ref that doesn't match any node in a loaded context must raise instead
+    of silently passing through as if it were already an id/key."""
+    context = BubbleProjectContext(
+        app_id="synthetic-app",
+        source="test",
+        nodes=[
+            BubbleContextNode(
+                id="page:signup_page",
+                label="signup_page",
+                type="page",
+                metadata={"bubble_id": "bVVl3", "key": "bVVl3"},
+            ),
+            BubbleContextNode(
+                id="element:in_email",
+                label="in_email",
+                type="element",
+                metadata={"bubble_id": "btTmX", "key": "btTmX"},
+            ),
+        ],
+        edges=[],
+    )
+    base_args = {
+        "context": "signup_page",
+        "event_ref": "bSIGN",
+        "email_input_ref": "in_email",
+        "password_input_ref": "in_email",
+    }
+
+    with pytest.raises(ValueError):
+        compile_auth_workflow_action_changes(
+            "sign_the_user_up",
+            {**base_args, "email_input_ref": "not_a_real_element"},
+            context=context,
+            session_id="sess1",
+        )
+
+    with pytest.raises(ValueError):
+        compile_auth_workflow_action_changes(
+            "sign_the_user_up",
+            {**base_args, "confirmation_page_ref": "not_a_real_page"},
             context=context,
             session_id="sess1",
         )
