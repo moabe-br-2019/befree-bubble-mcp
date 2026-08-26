@@ -130,6 +130,41 @@ decoded form for exactly this reason.
   evaluator raises `PointerNotReady`, reported as `pointer_not_ready` — distinct from
   `editor_not_ready` (the editor is up) and from `pointer_not_found` (something was actually
   read and was absent).
+- **Readiness is not a single moment: the editor page reloads underneath the session.** Two
+  consecutive live runs a minute apart reported different `run_js` bundle hashes
+  (`806773c5…` then `f57b23ef…`), proving the page had reinitialized in between. Both
+  readiness gates passing once is therefore not proof they still hold by the time
+  `page.evaluate(script)` actually runs — the page can regress past them in the gap. Measured
+  live, consecutive identical reads of the same valid pointer gave `evaluator_failed` on
+  attempt 1 and the correct node on attempt 2, both errors thrown by `appquery.app()` itself
+  or by the page navigating out from under the evaluate, *after* both gates had already
+  passed. The two observed transient messages, verbatim:
+  ```
+  UnexpectedError: Missing Lib!
+      at Lib.or_throw (https://bubble.io/package/run_js/<hash>/xfalse/x30/run.js:50:5782)
+      at appquery.<computed> [as app] (.../run.js:136:134238)
+  ```
+  ```
+  Execution context was destroyed, most likely because of a navigation
+  ```
+  `is_transient_editor_error(message)` classifies a failure text as one of these
+  reinitialization symptoms via a case-insensitive substring test against a fixed tuple of
+  markers (`Missing Lib`, `Execution context was destroyed`, `NotReadyError`, `not fully
+  initialized`); it does not match an ordinary failure (a `TypeError`, a pointer problem, an
+  empty string). `_playwright_evaluator` wraps the whole per-attempt sequence — wait on
+  `APPQUERY_READY_SCRIPT`, wait on the pointer-ready script, then `page.evaluate(script)` — in
+  a bounded loop of up to 3 attempts, reusing the same browser context and page throughout
+  (never relaunching the browser). On a transient failure it sleeps about a second and retries
+  the FULL sequence, re-waiting both gates rather than just re-evaluating, since the page — not
+  just the read — is what regressed. A non-transient failure raises immediately without
+  burning further attempts. When all attempts are exhausted on transient errors, the evaluator
+  raises `EditorUnstable` (carrying the attempt count and the last underlying message),
+  reported as `editor_unstable` — distinct from `evaluator_failed` in that it names the actual,
+  actionable cause (the editor page kept reinitializing) instead of surfacing whatever
+  transient JS error happened to be current on the final attempt. This retry lives entirely
+  inside `_playwright_evaluator`; the injected `Evaluator` type is unchanged (still a callable
+  taking the single read script), so tests that supply a fake evaluator never exercise the
+  retry loop and continue to work untouched.
 - Pointers must be derived from the *live* tree, via `_child_names()` on the loaded nodes, not
   from the cached crawler index. Measured against this app, the cached `idToPath` named
   `%p3.AAW.%wf.bTHDJ`, while the live `%p3` had an entirely different id set with no `AAW` at
@@ -258,6 +293,7 @@ Every failure is a structured result, not a stack trace:
 | profile directory exists but never logged in (no session cookie; the editor URL redirects off the app id) | `ok: false`, `error: "not_logged_in"`, naming `bubble_session_login` and the profile |
 | editor never becomes ready | `ok: false`, `error: "editor_not_ready"` |
 | pointer's subtree never finishes loading within the timeout (a valid pointer, but that part of the tree has not arrived — the editor loads lazily and progressively) | `ok: false`, `error: "pointer_not_ready"`, naming the pointer and the timeout, saying the subtree never finished loading |
+| the editor page kept reinitializing across every retry attempt (it reloads underneath the session — see above — and every attempt still hit a transient error such as `Missing Lib` or a destroyed execution context) | `ok: false`, `error: "editor_unstable"`, naming the attempt count and the last underlying message, saying the editor page kept reinitializing |
 | pointer does not resolve in the live tree | `ok: false`, `error: "pointer_not_found"`, naming the deepest segment that did resolve |
 | `leaf_pointer` addresses a missing key | `KeyError` from `patch_expression_leaf` — creating the key is how a node ends up rendering `[missing: null]` |
 | `order` drops or invents an action | `ValueError` from `reorder_actions` |

@@ -11,10 +11,12 @@ import pytest
 
 from bubble_mcp.execution.live_node_read import (
     APPQUERY_READY_SCRIPT,
+    EditorUnstable,
     NotLoggedIn,
     PointerNotReady,
     build_appquery_script,
     build_pointer_ready_script,
+    is_transient_editor_error,
     read_live_node,
 )
 
@@ -288,3 +290,64 @@ def test_read_live_node_gets_past_the_browser_profile_guard_once_it_exists(
     # The guard passed, so the launcher was reached and refused: a different, later failure.
     assert result["ok"] is False
     assert result["error"] == "evaluator_failed"
+
+
+@pytest.mark.parametrize(
+    "marker",
+    ["Missing Lib", "Execution context was destroyed", "NotReadyError", "not fully initialized"],
+)
+def test_is_transient_editor_error_matches_each_observed_marker(marker: str) -> None:
+    assert is_transient_editor_error(marker) is True
+
+
+def test_is_transient_editor_error_matches_case_insensitively() -> None:
+    assert is_transient_editor_error("MISSING LIB!") is True
+    assert is_transient_editor_error("execution context was destroyed") is True
+    assert is_transient_editor_error("NOTREADYERROR") is True
+    assert is_transient_editor_error("NOT FULLY INITIALIZED") is True
+
+
+def test_is_transient_editor_error_matches_a_realistic_multiline_stack_trace() -> None:
+    """Regression pin: the actual shape observed on the live editor, verbatim."""
+
+    message = (
+        "UnexpectedError: Missing Lib!\n"
+        "    at Lib.or_throw (https://bubble.io/package/run_js/<hash>/xfalse/x30/run.js:50:5782)\n"
+        "    at appquery.<computed> [as app] (.../run.js:136:134238)"
+    )
+
+    assert is_transient_editor_error(message) is True
+
+    message = "Execution context was destroyed, most likely because of a navigation"
+
+    assert is_transient_editor_error(message) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["TypeError: x is not a function", "", "something unrelated went wrong"],
+)
+def test_is_transient_editor_error_returns_false_for_ordinary_failures(message: str) -> None:
+    assert is_transient_editor_error(message) is False
+
+
+def test_read_live_node_reports_an_unstable_editor_as_a_structured_result() -> None:
+    """Mirrors test_read_live_node_reports_a_pointer_that_never_became_ready_as_a_structured_result:
+
+    when the retry loop in _playwright_evaluator exhausts its attempts because the editor page
+    kept reinitializing (transient errors like "Missing Lib" or a destroyed execution context),
+    it raises EditorUnstable instead of letting the raw error surface as evaluator_failed.
+    """
+
+    def raising_evaluator(_script: str) -> Any:
+        raise EditorUnstable(3, "UnexpectedError: Missing Lib!")
+
+    result = read_live_node(
+        "mcp-test", ["api", "wf-1"], evaluator=raising_evaluator, app_id="mcp-test-app"
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "editor_unstable"
+    assert result["pointer"] == ["api", "wf-1"]
+    assert "kept reinitializing" in result["message"]
+    assert "3" in result["message"]

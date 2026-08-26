@@ -9,6 +9,7 @@ built so the page call is one injectable function: tests pass a fake and never o
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Callable, Sequence
 
 from bubble_mcp.core.config import load_settings
@@ -16,6 +17,22 @@ from bubble_mcp.sessions.store import load_session
 
 
 DEFAULT_READ_TIMEOUT_SEC = 90
+EDITOR_EVALUATE_MAX_ATTEMPTS = 3
+EDITOR_EVALUATE_RETRY_DELAY_SEC = 1
+# Observed verbatim on the live editor, both AFTER window.appquery and the pointer-ready gate
+# had already passed - the editor page reloads underneath the session (proven by two runs a
+# minute apart reporting different run_js bundle hashes), so a single evaluate can land in a
+# freshly-initialized context that regressed past both gates:
+#   UnexpectedError: Missing Lib!
+#       at Lib.or_throw (https://bubble.io/package/run_js/<hash>/xfalse/x30/run.js:50:5782)
+#       at appquery.<computed> [as app] (.../run.js:136:134238)
+#   Execution context was destroyed, most likely because of a navigation
+TRANSIENT_EDITOR_ERROR_MARKERS = (
+    "Missing Lib",
+    "Execution context was destroyed",
+    "NotReadyError",
+    "not fully initialized",
+)
 EDITOR_URL_TEMPLATE = "https://bubble.io/page?name=index&id={app_id}&version={app_version}"
 # window.appquery is a getter: it exists (typeof === 'function') well before it is usable, and
 # calling through it while the editor is still initializing throws "The variable appquery is
@@ -68,6 +85,26 @@ class PointerNotReady(RuntimeError):
     result (something was actually read and turned out absent) - here, nothing was ever read
     because the subtree kept throwing NotReadyError until the clock ran out.
     """
+
+
+class EditorUnstable(RuntimeError):
+    """Raised when the editor page kept reinitializing across every retry attempt.
+
+    The editor page reloads underneath the session (proven by two runs a minute apart
+    reporting different run_js bundle hashes), so passing both readiness gates once is not
+    enough: the page can regress past them before the next evaluate runs. This is raised only
+    after the bounded retry loop in ``_playwright_evaluator`` re-satisfied both gates and
+    retried the read the configured number of times and every attempt still failed with a
+    transient error (see ``is_transient_editor_error``).
+    """
+
+    def __init__(self, attempts: int, last_message: str) -> None:
+        self.attempts = attempts
+        self.last_message = last_message
+        super().__init__(
+            f"The editor page kept reinitializing across {attempts} attempts and never "
+            f"stayed stable long enough to complete the read. Last error: {last_message}"
+        )
 
 
 def _validate_pointer(pointer: Sequence[str]) -> list[str]:
@@ -141,6 +178,13 @@ def build_pointer_ready_script(pointer: Sequence[str]) -> str:
 """
 
 
+def is_transient_editor_error(message: str) -> bool:
+    """True when a page evaluation failed because the editor was (re)initializing, not because the read was wrong."""
+
+    lowered = message.lower()
+    return any(marker.lower() in lowered for marker in TRANSIENT_EDITOR_ERROR_MARKERS)
+
+
 def _resolve_app_id(profile: str, app_id: str | None) -> str:
     explicit = str(app_id or "").strip()
     if explicit:
@@ -206,19 +250,43 @@ def _playwright_evaluator(
                         f"never to have logged in to Bubble; run bubble_session_login for "
                         f"profile '{profile}', then retry."
                     )
-                try:
-                    page.wait_for_function(APPQUERY_READY_SCRIPT, timeout=timeout_ms)
-                except Exception as exc:  # noqa: BLE001 - Playwright raises its own timeout type
-                    raise EditorNotReady(
-                        f"window.appquery never appeared on {url} within {timeout_sec}s"
-                    ) from exc
-                try:
-                    page.wait_for_function(ready_script, timeout=timeout_ms)
-                except Exception as exc:  # noqa: BLE001 - Playwright raises its own timeout type
-                    raise PointerNotReady(
-                        f"pointer subtree never finished loading on {url} within {timeout_sec}s"
-                    ) from exc
-                return page.evaluate(script)
+                # The editor page reloads underneath the session (proven by two runs a minute
+                # apart reporting different run_js bundle hashes), so passing both readiness
+                # gates once is not proof they still hold by the time page.evaluate runs: the
+                # page can regress past them in between. Retry the FULL sequence - both gates,
+                # then the evaluate - rather than just re-evaluating, because it is the gates
+                # that need to be re-satisfied against the (possibly new) page context.
+                last_message = ""
+                for attempt in range(1, EDITOR_EVALUATE_MAX_ATTEMPTS + 1):
+                    try:
+                        try:
+                            page.wait_for_function(APPQUERY_READY_SCRIPT, timeout=timeout_ms)
+                        except Exception as exc:  # noqa: BLE001 - Playwright's own timeout type
+                            raise EditorNotReady(
+                                f"window.appquery never appeared on {url} within {timeout_sec}s"
+                            ) from exc
+                        try:
+                            page.wait_for_function(ready_script, timeout=timeout_ms)
+                        except Exception as exc:  # noqa: BLE001 - Playwright's own timeout type
+                            raise PointerNotReady(
+                                f"pointer subtree never finished loading on {url} within "
+                                f"{timeout_sec}s"
+                            ) from exc
+                        return page.evaluate(script)
+                    except Exception as exc:  # noqa: BLE001 - classified below, then re-raised
+                        cause = exc.__cause__
+                        raw_message = (
+                            f"{type(cause).__name__}: {cause}"
+                            if cause is not None
+                            else f"{type(exc).__name__}: {exc}"
+                        )
+                        last_message = raw_message
+                        if not is_transient_editor_error(raw_message):
+                            raise
+                        if attempt < EDITOR_EVALUATE_MAX_ATTEMPTS:
+                            time.sleep(EDITOR_EVALUATE_RETRY_DELAY_SEC)
+                            continue
+                        raise EditorUnstable(attempt, last_message) from exc
             finally:
                 context.close()
 
@@ -276,6 +344,13 @@ def read_live_node(
         return {
             "ok": False,
             "error": "not_logged_in",
+            "pointer": segments,
+            "message": str(exc),
+        }
+    except EditorUnstable as exc:
+        return {
+            "ok": False,
+            "error": "editor_unstable",
             "pointer": segments,
             "message": str(exc),
         }
