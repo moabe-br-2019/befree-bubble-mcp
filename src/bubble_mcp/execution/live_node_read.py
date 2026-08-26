@@ -97,6 +97,16 @@ def build_pointer_ready_script(pointer: Sequence[str]) -> str:
     this particular subtree has arrived. Only a NotReadyError means "keep waiting": any other
     failure is left for the read itself to report, so a genuinely broken pointer surfaces its
     real error instead of timing out here.
+
+    Detecting NotReadyError is structural, not textual, because it is measured NOT to be a real
+    ``Error`` in the live Bubble editor: ``error.name`` and ``error.message`` are both ``null``,
+    ``String(error)`` is ``"[object Object]"``, and ``error instanceof Error`` is ``false``. A
+    check against ``.name``/``.message``/``String(error)`` therefore can never match - that was
+    the shape of the bug this function fixes, and it is exactly the kind of "obvious"
+    simplification someone will be tempted to reintroduce. What the thrown object does carry is
+    an own key ``not_ready_key`` (a data field the editor sets deliberately, checked first) and
+    ``error.constructor.name === 'NotReadyError'`` (a class name, kept only as the fallback,
+    since a future minifier pass is exactly what would rename that).
     """
 
     segments = _validate_pointer(pointer)
@@ -114,8 +124,16 @@ def build_pointer_ready_script(pointer: Sequence[str]) -> str:
     node.raw();
     return true;
   }} catch (error) {{
+    // NotReadyError is not an Error instance here: name/message are null and stringifying it
+    // yields "[object Object]", so a text match against those can never fire (that was the
+    // bug). Detect it structurally: not_ready_key is an own data field the editor sets
+    // deliberately (checked first, stable); constructor.name is a class name and only a
+    // fallback, since a minifier pass could rename it.
     const isNotReady = Boolean(
-      error && (error.name === 'NotReadyError' || String(error.message || '').indexOf('NotReady') !== -1)
+      error && typeof error === 'object' && (
+        'not_ready_key' in error ||
+        (error.constructor && error.constructor.name === 'NotReadyError')
+      )
     );
     return !isNotReady;
   }}

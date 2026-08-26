@@ -87,6 +87,44 @@ def test_build_pointer_ready_script_returns_false_only_for_not_ready() -> None:
     assert "return !isNotReady;" in script
 
 
+def test_build_pointer_ready_script_detects_not_ready_via_not_ready_key() -> None:
+    """Regression pin: the live NotReadyError is not an Error - .name/.message are null and
+
+    String(error) is "[object Object]" - but it does carry an own `not_ready_key` field that
+    the editor sets deliberately. That must be checked (and checked first, since it is a
+    stable data field rather than a class name a minifier could rename).
+    """
+
+    script = build_pointer_ready_script(["api"])
+
+    assert "'not_ready_key' in error" in script
+
+
+def test_build_pointer_ready_script_detects_not_ready_via_constructor_name() -> None:
+    """Regression pin: constructor.name === 'NotReadyError' is the fallback check."""
+
+    script = build_pointer_ready_script(["api"])
+
+    assert "error.constructor" in script
+    assert "'NotReadyError'" in script
+
+
+def test_build_pointer_ready_script_does_not_rely_on_name_message_or_string_matching() -> None:
+    """Regression pin: the previous version matched error.name/.message/String(error) against
+
+    'NotReady', which can never fire because the live NotReadyError is not an Error instance
+    (name and message are null, String(error) is "[object Object]"). Assert the text-matching
+    form is entirely absent so this defect cannot come back via a "simplification".
+    """
+
+    script = build_pointer_ready_script(["api"])
+
+    assert "error.name" not in script
+    assert "error.message" not in script
+    assert "String(error" not in script
+    assert "indexOf('NotReady')" not in script
+
+
 def test_build_pointer_ready_script_refuses_an_empty_pointer() -> None:
     with pytest.raises(ValueError, match="at least one child"):
         build_pointer_ready_script([])

@@ -113,13 +113,23 @@ decoded form for exactly this reason.
   through when that method exists) and reports whether the pointer's own `raw()` can be called
   yet; `_playwright_evaluator` waits on this second script, after the appquery wait and before
   evaluating the read script. `raw()` returning `undefined` still counts as ready — an absent
-  node is `pointer_not_found`, the read's business to report, not something to wait for. The
-  script's catch only treats `NotReadyError` as "keep waiting" (matched on the error's `name`
-  and on `message` containing `NotReady`); any other error returns `true`, so a genuinely
-  broken pointer surfaces its real error from the read instead of hanging until the timeout.
-  If the pointer's subtree never reports ready in time, the evaluator raises
-  `PointerNotReady`, reported as `pointer_not_ready` — distinct from `editor_not_ready` (the
-  editor is up) and from `pointer_not_found` (something was actually read and was absent).
+  node is `pointer_not_found`, the read's business to report, not something to wait for.
+  Detecting `NotReadyError` is structural, not textual. Measured on the live editor, the
+  thrown object is **not an `Error`**: `error.name` and `error.message` are both `null`,
+  `error instanceof Error` is `false`, and `String(error)` is `"[object Object]"`; the
+  `console.error`-visible fields are `constructor.name === "NotReadyError"` and an own key
+  `not_ready_key` (alongside `suppress_dependency_error` and `stack`). A first version of this
+  gate matched on `error.name === 'NotReadyError'` or `message` containing `NotReady`, which
+  can never fire against that shape — every NotReadyError read as "some other error", the gate
+  returned `true` immediately, and the tool proceeded to read a subtree that had not loaded.
+  The catch therefore checks `'not_ready_key' in error` first (an own data field the editor
+  sets deliberately, stable) and falls back to `error.constructor.name === 'NotReadyError'`
+  (a class name, and so the one a future minifier pass could rename). Any other error returns
+  `true`, so a genuinely broken pointer surfaces its real error from the read instead of
+  hanging until the timeout. If the pointer's subtree never reports ready in time, the
+  evaluator raises `PointerNotReady`, reported as `pointer_not_ready` — distinct from
+  `editor_not_ready` (the editor is up) and from `pointer_not_found` (something was actually
+  read and was absent).
 - Pointers must be derived from the *live* tree, via `_child_names()` on the loaded nodes, not
   from the cached crawler index. Measured against this app, the cached `idToPath` named
   `%p3.AAW.%wf.bTHDJ`, while the live `%p3` had an entirely different id set with no `AAW` at
