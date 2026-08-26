@@ -7,8 +7,10 @@ it to what was intended, which is what this module does on every executed edit.
 
 from __future__ import annotations
 
+import random
 from typing import Any, Callable, Sequence
 
+from bubble_mcp.compiler.payload import bubble_session_id
 from bubble_mcp.execution.client import BubbleEditorClient
 from bubble_mcp.execution.live_node_read import read_live_node
 from bubble_mcp.execution.node_keys import encode_node_root
@@ -26,36 +28,47 @@ Reader = Callable[..., dict[str, Any]]
 Writer = Callable[..., dict[str, Any]]
 
 
-def _change(path_array: Sequence[str], body: Any, *, intent: str = "SetData") -> dict[str, Any]:
+def _change(
+    path_array: Sequence[str], body: Any, *, session_id: str, intent: str = "SetData"
+) -> dict[str, Any]:
     """Return one /appeditor/write change entry in the shape PayloadBuilder already produces."""
 
+    intent_obj: dict[str, Any] = {"name": intent}
+    if intent == "SetData":
+        intent_obj["id"] = random.randint(2, 999)
+        intent_obj["source_appname"] = ""
     return {
-        "intent": {"name": intent},
+        "intent": intent_obj,
         "path_array": [str(part) for part in path_array],
         "body": body,
         "version_control_api_version": 4,
         "changelog_data": [],
+        "session_id": session_id,
     }
 
 
-def build_patch_changes(pointer: Sequence[str], node: dict[str, Any]) -> list[dict[str, Any]]:
+def build_patch_changes(
+    pointer: Sequence[str], node: dict[str, Any], session_id: str
+) -> list[dict[str, Any]]:
     """Return the single change that writes the whole edited node back at ``pointer``."""
 
-    return [_change(pointer, encode_node_root(node))]
+    return [_change(pointer, encode_node_root(node), session_id=session_id)]
 
 
 def build_reorder_changes(
-    pointer: Sequence[str], actions: dict[str, Any]
+    pointer: Sequence[str], actions: dict[str, Any], session_id: str
 ) -> list[dict[str, Any]]:
     """Return the map write plus one index repoint per action.
 
     Renumbering moves every action to a new path while ``_index.id_to_path`` still points at
     the old one, so the map write alone would leave the editor's index disagreeing with its
-    tree. This mirrors the SetData + "Update index" pairing bubble_cli already uses.
+    tree. This mirrors the SetData + "Update index" pairing bubble_cli already uses. Every
+    change in this list shares one ``session_id``, exactly as ``PayloadBuilder`` does with
+    ``self.session_id`` across a batch of changes.
     """
 
     encoded = {key: encode_node_root(value) for key, value in actions.items()}
-    changes = [_change(pointer, encoded)]
+    changes = [_change(pointer, encoded, session_id=session_id)]
     prefix = ".".join(str(part) for part in pointer)
     for key, value in actions.items():
         action_id = value.get("id")
@@ -65,6 +78,7 @@ def build_reorder_changes(
             _change(
                 ["_index", "id_to_path", str(action_id)],
                 f"{prefix}.{key}",
+                session_id=session_id,
                 intent="Update index",
             )
         )
@@ -100,8 +114,9 @@ def edit_live_node(
         return before
     current = before["node"]
 
+    session_id = bubble_session_id()
     try:
-        intended, changes = _apply(op, segments, current, leaf_pointer, patch, order)
+        intended, changes = _apply(op, segments, current, leaf_pointer, patch, order, session_id)
     except KeyError as error:
         return {"ok": False, "error": "pointer_not_resolved", "message": str(error).strip("'\"")}
     except (ValueError, TypeError) as error:
@@ -150,6 +165,7 @@ def _apply(
     leaf_pointer: Sequence[str] | None,
     patch: dict[str, Any] | None,
     order: Sequence[str] | None,
+    session_id: str,
 ) -> tuple[Any, list[dict[str, Any]]]:
     """Return (intended node in the decoded key space, changes to write)."""
 
@@ -159,8 +175,8 @@ def _apply(
         if not isinstance(patch, dict):
             raise ValueError("patch requires a patch object")
         intended = patch_expression_leaf(current, [str(part) for part in leaf_pointer], patch)
-        return intended, build_patch_changes(pointer, intended)
+        return intended, build_patch_changes(pointer, intended, session_id)
     if not order:
         raise ValueError("reorder requires order")
     intended = reorder_actions(current, [str(part) for part in order])
-    return intended, build_reorder_changes(pointer, intended)
+    return intended, build_reorder_changes(pointer, intended, session_id)

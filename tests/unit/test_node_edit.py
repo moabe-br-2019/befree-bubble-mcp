@@ -270,3 +270,64 @@ def test_reorder_refuses_an_order_that_would_drop_a_step() -> None:
     assert result["ok"] is False
     assert result["error"] == "invalid_edit"
     assert "1" in result["message"]
+
+
+def test_patch_change_carries_a_session_id_and_a_setdata_intent() -> None:
+    reader = _Reader(_action())
+
+    result = edit_live_node(
+        profile="mcp-test",
+        pointer=["api", "wf-1", "actions", "0"],
+        op="patch",
+        leaf_pointer=["properties", "to_change", "properties"],
+        patch={"param_id": "Order", "param_name": "Order"},
+        execute=False,
+        reader=reader,
+        writer=_writer_that_applies(reader),
+    )
+
+    change = result["write"]["request"]["payload"]["changes"][0]
+    assert change["session_id"]
+    assert change["intent"]["name"] == "SetData"
+    assert change["intent"]["source_appname"] == ""
+    assert isinstance(change["intent"]["id"], int)
+
+
+def test_reorder_changes_all_share_one_session_id() -> None:
+    reader = _Reader(_actions_map())
+
+    result = edit_live_node(
+        profile="mcp-test",
+        pointer=["api", "wf-1", "actions"],
+        op="reorder",
+        order=["2", "0", "1"],
+        execute=False,
+        reader=reader,
+        writer=_map_writer(reader),
+    )
+
+    changes = result["write"]["request"]["payload"]["changes"]
+    session_ids = {change["session_id"] for change in changes}
+    assert len(session_ids) == 1
+    assert all(session_id for session_id in session_ids)
+
+
+def test_reorder_update_index_intent_carries_only_a_name() -> None:
+    reader = _Reader(_actions_map())
+
+    result = edit_live_node(
+        profile="mcp-test",
+        pointer=["api", "wf-1", "actions"],
+        op="reorder",
+        order=["2", "0", "1"],
+        execute=False,
+        reader=reader,
+        writer=_map_writer(reader),
+    )
+
+    changes = result["write"]["request"]["payload"]["changes"]
+    index_changes = [change for change in changes if change["intent"]["name"] == "Update index"]
+    assert index_changes
+    for change in index_changes:
+        assert change["session_id"]
+        assert change["intent"] == {"name": "Update index"}
