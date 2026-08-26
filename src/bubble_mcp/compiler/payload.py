@@ -1315,6 +1315,40 @@ def compile_workflow_changes(tool_name: str, args: dict[str, Any], session_id: s
     return []
 
 
+def resolve_element_ref_id(element_ref: str, context: BubbleProjectContext | None = None) -> str:
+    """Resolve an element reference (name or id) to its real element id.
+
+    Mirrors the element-node matching already used by ``resolve_element_path``.
+    When no context is loaded, the ref is trusted as-is (same self-authoring
+    fallback ``resolve_context_key`` uses when a caller builds its own plan from
+    scratch). When a context IS loaded but the ref does not match any element
+    node, this fails loudly instead of silently treating an unrecognized name
+    as if it were already an id.
+    """
+    target = str(element_ref or "").strip()
+    if not target:
+        raise ValueError("Element reference is required.")
+    if context is None:
+        return target
+    for node in context.nodes:
+        if node.type != "element":
+            continue
+        if (
+            node.label == target
+            or node.id == target
+            or node.id.endswith(f":{target}")
+            or str(node.metadata.get("bubble_id") or "") == target
+            or str(node.metadata.get("key") or "") == target
+        ):
+            resolved = str(node.metadata.get("bubble_id") or node.metadata.get("key") or "").strip()
+            if resolved:
+                return resolved
+    raise ValueError(
+        f"Could not resolve element reference '{target}' to an element id. "
+        "Pass the element's real id, or load a context that includes it."
+    )
+
+
 def element_get_data_expression(element_ref: str) -> dict[str, Any]:
     element_id = str(element_ref or "").strip()
     if not element_id:
@@ -1449,9 +1483,19 @@ def compile_auth_workflow_action_changes(
     session_id: str,
 ) -> list[dict[str, Any]]:
     if tool_name == "log_the_user_in":
+        login_context_name = str(args.get("context") or "").strip()
+        if (
+            context is not None
+            and login_context_name
+            and resolve_context_node_id(login_context_name, context) is None
+        ):
+            raise ValueError(
+                f"Could not resolve context '{login_context_name}' to a page/reusable node in "
+                "the loaded context. Pass its real node key, or load a context that includes it."
+            )
         login_properties: dict[str, Any] = {
-            "%em": element_get_data_expression(str(args.get("email_input_ref") or "")),
-            "%pw": element_get_data_expression(str(args.get("password_input_ref") or "")),
+            "%em": element_get_data_expression(resolve_element_ref_id(str(args.get("email_input_ref") or ""), context)),
+            "%pw": element_get_data_expression(resolve_element_ref_id(str(args.get("password_input_ref") or ""), context)),
         }
         if args.get("stay_logged_in") is not None:
             login_properties["stay_logged_in"] = bool(args.get("stay_logged_in"))

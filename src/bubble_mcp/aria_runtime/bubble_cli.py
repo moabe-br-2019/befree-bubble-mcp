@@ -50891,32 +50891,36 @@ class BubbleCLI:
             pb.add_change_raw({"type": "id_counter", "value": int(id_counter)})
 
         ok = self._send_schema_payload(pb, dry_run, f"Event created ({wf_key}) with type {bubble_type}.")
-        if ok:
+        if ok and not dry_run:
+            # A dry run must not leave the discovery cache claiming this workflow
+            # exists: a later real call would then believe it was already created
+            # and skip creating it, writing only the follow-up action onto an
+            # orphan workflow with no %x/%p.%ei/id.
             self._upsert_workflow_in_discovery(
                 context_id,
                 context_type,
                 wf_key,
                 {"%x": bubble_type, "%p": None, "id": wf_id, "actions": None}
             )
-            if not dry_run:
-                alias_candidates: List[str] = []
-                if bind_name and str(bind_name).strip():
-                    alias_candidates.append(str(bind_name).strip())
-                if custom_event_name and str(custom_event_name).strip():
-                    alias_candidates.append(str(custom_event_name).strip())
-                seen_norm: set[str] = set()
-                for alias in alias_candidates:
-                    norm = self._norm_lookup(alias)
-                    if not norm or norm in seen_norm:
-                        continue
-                    seen_norm.add(norm)
-                    self._cache_workflow_ref_alias(
-                        context_id=context_id,
-                        context_type=context_type,
-                        alias_name=alias,
-                        workflow_key=str(wf_key),
-                        workflow_id=str(wf_id),
-                    )
+            alias_candidates: List[str] = []
+            if bind_name and str(bind_name).strip():
+                alias_candidates.append(str(bind_name).strip())
+            if custom_event_name and str(custom_event_name).strip():
+                alias_candidates.append(str(custom_event_name).strip())
+            seen_norm: set[str] = set()
+            for alias in alias_candidates:
+                norm = self._norm_lookup(alias)
+                if not norm or norm in seen_norm:
+                    continue
+                seen_norm.add(norm)
+                self._cache_workflow_ref_alias(
+                    context_id=context_id,
+                    context_type=context_type,
+                    alias_name=alias,
+                    workflow_key=str(wf_key),
+                    workflow_id=str(wf_id),
+                )
+        if ok:
             logger.info(f"Event key: {wf_key}")
             logger.info(f"Event id: {wf_id}")
 
@@ -52225,16 +52229,16 @@ class BubbleCLI:
                 json.dumps(target_children)
             )
         ok = self._send_schema_payload(pb, dry_run, f"Event '{event_ref}' element set to {element_id}.")
-        if ok:
-            if not dry_run:
-                # A dry run must not leave the in-memory discovery root claiming a
-                # binding that was never sent to Bubble.
-                self._merge_workflow_properties_in_discovery(
-                    context_id,
-                    context_type,
-                    wf_key,
-                    {"%ei": element_id}
-                )
+        if ok and not dry_run:
+            # A dry run must not leave the in-memory discovery root, the persisted
+            # schema-events cache, or the alias registry claiming a binding that
+            # was never sent to Bubble.
+            self._merge_workflow_properties_in_discovery(
+                context_id,
+                context_type,
+                wf_key,
+                {"%ei": element_id}
+            )
             self._cache_workflow_event(
                 context_id,
                 context_type,

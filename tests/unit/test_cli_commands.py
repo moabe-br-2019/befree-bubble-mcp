@@ -2821,3 +2821,106 @@ def test_add_action_reuses_workflow_it_just_auto_created_for_a_second_action(
 
     workflows = cli.discovery.data["pages"]["pg1"]["workflows"]
     assert len(workflows) == 1
+
+
+def test_add_action_dry_run_does_not_poison_cache_for_a_later_real_call(
+    tmp_path, monkeypatch, capsys
+) -> None:  # type: ignore[no-untyped-def]
+    """Regression test: a dry-run add_action for a not-yet-existing workflow must
+    leave no trace, so a later *real* add_action call for the same trigger
+    element+event still creates the workflow for real.
+
+    Root cause: create_event() (called by add_action's auto-create path)
+    unconditionally upserted the previewed workflow shell into both the
+    in-memory discovery root and the persisted schema-events cache, even when
+    dry_run=True and nothing was actually sent to Bubble. A later real
+    add_action call for the same element+event then found that poisoned cache
+    entry, believed the workflow already existed, and skipped creating it -
+    writing only the follow-up action onto an orphan workflow with no
+    %x/%p.%ei/id.
+    """
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
+
+    app_path = tmp_path / "app.json"
+    app_path.write_text(
+        json.dumps(
+            {
+                "pages": {
+                    "pg1": {
+                        "id": "pg1",
+                        "name": "index",
+                        "type": "Page",
+                        "properties": {},
+                        "custom_states": {},
+                        "workflows": {},
+                        "elements": {
+                            "btn1": {
+                                "id": "btn1",
+                                "name": "Meu Botao",
+                                "type": "Button",
+                                "properties": {},
+                            }
+                        },
+                    }
+                },
+                "user_types": {},
+                "option_sets": {},
+                "styles": {},
+                "settings": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    cli = BubbleCLI(app_json_path=str(app_path), appname="reprotest")
+
+    dispatched_intents: list[str] = []
+
+    def fake_dispatch(payload_builder) -> None:  # type: ignore[no-untyped-def]
+        for change in payload_builder.build().get("changes", []):
+            dispatched_intents.append(str(change.get("intent", {}).get("name") or ""))
+
+    monkeypatch.setattr(cli, "_dispatch_payload", fake_dispatch)
+
+    assert (
+        cli.add_action(
+            context_name="index",
+            element_name="Meu Botao",
+            action_type="show",
+            action_param="Meu Botao",
+            event="click",
+            dry_run=True,
+        )
+        is True
+    )
+    capsys.readouterr()  # discard the dry-run preview output
+
+    # The dry run must leave no trace: nothing dispatched, no workflow recorded.
+    assert dispatched_intents == []
+    assert cli.discovery.data["pages"]["pg1"]["workflows"] == {}
+
+    assert (
+        cli.add_action(
+            context_name="index",
+            element_name="Meu Botao",
+            action_type="show",
+            action_param="Meu Botao",
+            event="click",
+            dry_run=False,
+        )
+        is True
+    )
+    out = capsys.readouterr().out
+    assert "Auto-creating workflow" in out
+
+    # The real call must actually dispatch a CreateEvent/ReplaceWFObject pair for
+    # the workflow (not skip creation because a poisoned cache made it believe
+    # the workflow from the dry run already existed).
+    assert "CreateEvent" in dispatched_intents
+    assert "ReplaceWFObject" in dispatched_intents
+
+    workflows = cli.discovery.data["pages"]["pg1"]["workflows"]
+    assert len(workflows) == 1
+    workflow = next(iter(workflows.values()))
+    assert workflow["%p"]["%ei"] == "btn1"
+    assert workflow.get("id")
+    assert workflow["actions"]
