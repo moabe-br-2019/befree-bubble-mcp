@@ -13,7 +13,6 @@ from typing import Any, Callable, Sequence
 from bubble_mcp.compiler.payload import bubble_session_id
 from bubble_mcp.execution.client import BubbleEditorClient
 from bubble_mcp.execution.live_node_read import read_live_node
-from bubble_mcp.execution.node_keys import encode_node_root
 from bubble_mcp.execution.raw_node_edit import (
     first_divergence,
     patch_expression_leaf,
@@ -26,8 +25,8 @@ SUPPORTED_OPS = ("patch", "reorder")
 DEFAULT_APP_VERSION = "test"
 VERIFIED_MEANING = (
     "verified=true means the node was read back after the write and its bytes matched the "
-    "intent. It does NOT mean the Bubble editor renders the node: a wrongly decoded interior "
-    "round-trips byte-identically through /appeditor/write and .raw(), so render_unverified "
+    "intent. It does NOT mean the Bubble editor renders the node: a wrongly assembled interior "
+    "round-trips byte-identically through /appeditor/write and ._raw(), so render_unverified "
     "stays true until a human opens the editor and confirms the step displays correctly."
 )
 
@@ -67,13 +66,18 @@ def _is_decoded_node_root(value: dict[str, Any]) -> bool:
 
 
 def _assert_encoded_node_roots(value: Any, path: tuple[str, ...] = ()) -> None:
-    """Refuse a change body carrying a node root that was never translated.
+    """Refuse a change body carrying a node root that is not in encoded (write) form.
 
-    ``encode_node_root`` translates exactly one root, so any body assembled around more than
-    one node - an actions map, a workflow root, an element tree - can carry untranslated nodes
-    underneath the one that was encoded. Those are accepted by /appeditor/write with HTTP 200
-    and render "[missing: null]". ``lint_editor_write_changes`` cannot catch them: it is
-    path-shaped and only inspects the body at a path that already looks like a node position.
+    As of 2026-08-26 this module no longer translates anything: the node comes off
+    ``read_live_node`` already encoded (``_raw()``, not ``raw()`` - see
+    ``docs/session-findings-2026-08-26.md`` and the module docstring on ``live_node_read``),
+    is patched in place, and is written back byte-for-byte. This guard used to exist to prove
+    that translation had run; now it is a pure safety net against a body that somehow arrived
+    decoded anyway - most plausibly a caller who built ``patch``/``node`` from a ``.bubble``
+    export, which only ever carries the decoded (``type``/``properties``) form. A decoded root
+    accepted by /appeditor/write gets HTTP 200 and renders "[missing: null]".
+    ``lint_editor_write_changes`` cannot catch it: it is path-shaped and only inspects the body
+    at a path that already looks like a node position.
     """
 
     if not isinstance(value, dict):
@@ -116,9 +120,14 @@ def _guard_changes(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def build_patch_changes(
     pointer: Sequence[str], node: dict[str, Any], session_id: str
 ) -> list[dict[str, Any]]:
-    """Return the single change that writes the whole edited node back at ``pointer``."""
+    """Return the single change that writes the whole edited node back at ``pointer``.
 
-    return _guard_changes([_change(pointer, encode_node_root(node), session_id=session_id)])
+    ``node`` is already encoded - it came from ``read_live_node`` (``_raw()``) and was patched
+    without touching its key spelling - so it is written back as-is. No encode step here; see
+    ``docs/session-findings-2026-08-26.md``.
+    """
+
+    return _guard_changes([_change(pointer, node, session_id=session_id)])
 
 
 def build_reorder_changes(
@@ -131,10 +140,12 @@ def build_reorder_changes(
     tree. This mirrors the SetData + "Update index" pairing bubble_cli already uses. Every
     change in this list shares one ``session_id``, exactly as ``PayloadBuilder`` does with
     ``self.session_id`` across a batch of changes.
+
+    ``actions`` is already encoded - it came from ``read_live_node`` - so each entry is written
+    back exactly as read, just renumbered by key; no encode step here.
     """
 
-    encoded = {key: encode_node_root(value) for key, value in actions.items()}
-    changes = [_change(pointer, encoded, session_id=session_id)]
+    changes = [_change(pointer, dict(actions), session_id=session_id)]
     prefix = ".".join(str(part) for part in pointer)
     for key, value in actions.items():
         action_id = value.get("id")
@@ -240,6 +251,13 @@ def edit_live_node(
             "after_read": after_read,
         }
     result["after"] = after_read["node"]
+    # `intended` and `after_read["node"]` are both encoded (read_live_node reads with _raw(),
+    # and nothing in this module translates that away before or after). Comparing two things
+    # in the same key space is NOT the self-confirming case the original design warned about
+    # (comparing decoded-to-decoded when an encode step could have silently corrupted the
+    # write and the comparison would never see it): here the write body IS the encoded node,
+    # verbatim, with no transformation between "what was written" and "what is compared" for
+    # an encoding bug to hide behind. See docs/session-findings-2026-08-26.md.
     result["divergence"] = first_divergence(intended, after_read["node"])
     result["verified"] = result["divergence"] is None
     return result
@@ -254,16 +272,16 @@ def _apply(
     order: Sequence[str] | None,
     session_id: str,
 ) -> tuple[Any, list[dict[str, Any]]]:
-    """Return (intended node in the decoded key space, changes to write)."""
+    """Return (intended node in the encoded key space, changes to write)."""
 
     _check_op_arguments(op, leaf_pointer, patch, order)
     if op == "patch":
         if not isinstance(current, dict) or not ("type" in current or "%x" in current):
             raise ValueError(
-                "patch requires a pointer to a node, not a container: encode_node_root "
-                "translates exactly one root, so every action under a container pointer would "
-                f"be written with decoded keys. Point at one action, e.g. "
-                f"{[*[str(part) for part in pointer], '0']}."
+                "patch requires a pointer to a node, not a container: a container (an actions "
+                "map, a workflow root) holds several sibling nodes keyed by index or id, and "
+                "leaf_pointer resolves against a single node's own fields. Point at one action, "
+                f"e.g. {[*[str(part) for part in pointer], '0']}."
             )
         intended = patch_expression_leaf(current, [str(part) for part in leaf_pointer or []], patch or {})
         return intended, build_patch_changes(pointer, intended, session_id)

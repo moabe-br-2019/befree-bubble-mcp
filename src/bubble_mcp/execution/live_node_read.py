@@ -2,8 +2,15 @@
 
 The raw encoding of Bubble expressions is not derivable from the .bubble export - the export
 is the decoded projection and the decoding happens server-side - so the only source of truth
-is the tree the editor holds in the page. ``window.appquery`` exposes it. Everything here is
-built so the page call is one injectable function: tests pass a fake and never open a browser.
+is the tree the editor holds in the page. ``window.appquery`` exposes it, and exposes each node
+in BOTH forms: ``raw()`` returns the DECODED form (``type``, ``properties``, ``entries``,
+``next``, ``name``, ``element_id``, ...); ``_raw()`` returns the ENCODED form (``%x``, ``%p``,
+``%e``, ``%n``, ``%nm``, ``%ei``, ...). This module deliberately reads with ``_raw()``, not
+``raw()``: measured against live editor traffic, ``_raw()`` is byte-identical to the body the
+editor itself POSTs to ``/appeditor/write`` (see ``docs/session-findings-2026-08-26.md``). That
+is exactly the form the write endpoint wants, so the read and the write share one key space with
+no translation step in between - not an oversight, the point. Everything here is built so the
+page call is one injectable function: tests pass a fake and never open a browser.
 """
 
 from __future__ import annotations
@@ -179,7 +186,7 @@ def build_appquery_script(pointer: Sequence[str]) -> str:
         "const root = window.appquery.app().json; "
         f"const node = root{chain}; "
         "return {appname: root.appname(), app_version: root.app_version(), "
-        "node: node ? node.raw() : node}; "
+        "node: node ? node._raw() : node}; "
         "}"
     )
 
@@ -225,7 +232,7 @@ def build_pointer_ready_script(pointer: Sequence[str], app_id: str) -> str:
     if (root.appname() !== {json.dumps(app_id)}) return false;
     let node = root;
 {walk}
-    node.raw();
+    node._raw();
     return true;
   }} catch (error) {{
     // NotReadyError is not an Error instance here: name/message are null and stringifying it

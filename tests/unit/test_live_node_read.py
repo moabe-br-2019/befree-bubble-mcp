@@ -30,7 +30,7 @@ def test_build_appquery_script_chains_one_child_per_pointer_segment() -> None:
     assert '._child("wf-1")' in script
     assert '._child("actions")' in script
     assert '._child("3")' in script
-    assert ".raw()" in script
+    assert "._raw()" in script
 
 
 def test_build_appquery_script_requests_appname_and_app_version_alongside_the_node() -> None:
@@ -87,7 +87,7 @@ def test_build_pointer_ready_script_chains_one_child_per_segment_and_calls_raw()
     assert '._child("wf-1")' in script
     assert '._child("actions")' in script
     assert '._child("3")' in script
-    assert "node.raw();" in script
+    assert "node._raw();" in script
 
 
 def test_build_pointer_ready_script_emits_the_appname_comparison() -> None:

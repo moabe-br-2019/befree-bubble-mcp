@@ -1,13 +1,15 @@
 # Live Node Read and In-Place Edit Design
 
 **Date:** 2026-08-26
-**Status:** SUPERSEDED — the encoding rule below is measured wrong. See
-`docs/session-findings-2026-08-26.md`. The design's load-bearing claim, that only the node ROOT
-is translated and the interior travels verbatim, was tested against the live editor and breaks
-the node: the editor also encodes `entries`->`%e`, `next`->`%n`, `name`->`%nm`, and property
-names such as `element_id`->`%ei`. Ground truth pair:
-`tests/fixtures/expressions/action-encoding-pair-golden.json`. Do not implement from this
-document until the encoding section is rewritten from captures.
+**Status:** Approved. The encoding sections below — `node_keys.py`'s role, and the write
+granularity / translation-point argument inside `node_edit.py` — the cycle — were rewritten from
+measurement on 2026-08-26, after this design's original load-bearing claim (only the node ROOT
+is translated; the interior travels verbatim) was tested against the live editor and found
+wrong: the editor also encodes `entries`->`%e`, `next`->`%n`, `name`->`%nm`, and property names
+such as `element_id`->`%ei`, well past the root. The corrected design reads and writes the node
+in the SAME encoded form throughout (`_raw()`, not `raw()`), with no translation step at all.
+Ground truth pair: `tests/fixtures/expressions/action-encoding-pair-golden.json`. See
+`docs/session-findings-2026-08-26.md` for the measurements.
 
 ## Context
 
@@ -61,23 +63,31 @@ this work exists to replace. This design closes that gap and ships the tool surf
 Three new modules under `src/bubble_mcp/execution/`, each depending only downward. None of
 them imports the server package.
 
-### `node_keys.py` — key-space translation
+### The read/write key space — no translation
 
-The editor's in-memory tree and the write endpoint disagree on spelling. A read returns
-decoded keys (`type`, `properties`); `/appeditor/write` requires encoded keys (`%x`, `%p`)
-at the node root, with the same interior. `lint_editor_write_changes` already refuses the
-decoded form for exactly this reason.
+`window.appquery` exposes each node in BOTH forms: `raw()` returns the DECODED form (`type`,
+`properties`, `entries`, `next`, `name`, `element_id`, ...); `_raw()` returns the ENCODED form
+(`%x`, `%p`, `%e`, `%n`, `%nm`, `%ei`, ...) that `/appeditor/write` itself expects. Measured
+against live editor traffic (`tests/fixtures/expressions/action-encoding-pair-golden.json`),
+`_raw()` is byte-identical to the body the editor's own writes POST. So there is no translation
+step to design: `live_node_read.py` reads with `_raw()`, `node_edit.py` patches the leaf in
+place without touching any key's spelling, and the same encoded bytes go straight back to
+`/appeditor/write`.
 
-- `encode_node_root(node)` maps **root keys only**: `type` → `%x`, `properties` → `%p`,
-  `default_name` → `%dn`. It does not recurse. The interior — the expression chain, its
-  `Message` nodes, their `name` fields — is copied verbatim, because the interior is the
-  part nobody can reconstruct.
-- A root that carries `name` raises `ValueError` instead of translating. `name` is `%nm` on
-  an element and an internal field name on a `Message`; the mapping in
-  `write_lint._DECODED_TO_ENCODED` deliberately omits it. v1 targets action nodes, where
-  `name` does not appear at the root, so encountering one means the caller is addressing a
-  node shape this design does not cover.
-- `decode_node_root(node)` is the inverse, used to close the round trip in tests.
+This supersedes the original plan to translate node ROOT keys (`type`→`%x`, `properties`→`%p`,
+`default_name`→`%dn`) while copying the interior verbatim. That plan assumed the interior stayed
+decoded regardless of depth; measured, it does not — the editor also encodes `entries`→`%e`,
+`next`→`%n`, `name`→`%nm`, and per-action-type property names such as `element_id`→`%ei`, well
+past the root. A root-only translation therefore produced a body encoded at the root and
+decoded everywhere else, which is exactly the shape that rendered `[missing: null]` or an
+empty, "should be text but is empty" field when written to the live editor — see
+`docs/session-findings-2026-08-26.md` §2 for the three failed attempts and the render evidence.
+
+`src/bubble_mcp/execution/node_keys.py` still exists (`encode_node_root` / `decode_node_root`,
+root-only translation) but is **not part of the live read/write path any more**. It stays useful
+for the one case where a decoded-only form is unavoidable: a `.bubble` export, which only ever
+carries the decoded projection Bubble's export step produces, never the encoded form. Anything
+reading a node out of an export — not out of the live editor — still needs it.
 
 ### `live_node_read.py` — the read
 
@@ -247,47 +257,52 @@ decoded form for exactly this reason.
 
 ### `node_edit.py` — the cycle
 
-`edit_live_node(...)` runs six steps:
+`edit_live_node(...)` runs five steps:
 
-1. read the node at `pointer` (decoded key space);
+1. read the node at `pointer`, in the encoded key space (`_raw()` — see above);
 2. apply exactly one operation, delegating to the untouched primitives in `raw_node_edit.py`
-   — `patch_expression_leaf` for `patch`, `reorder_actions` for `reorder`;
-3. `encode_node_root` on each body about to be written;
-4. build the `changes` entries, intent `SetData`, matching the shape
-   `PayloadBuilder.add_change` already produces;
-5. `BubbleEditorClient().write(payload, session, dry_run=not execute)`;
-6. when `execute` is true, re-read the same pointer and call `first_divergence(intended,
+   — `patch_expression_leaf` for `patch`, `reorder_actions` for `reorder` — directly on the
+   encoded node, since neither primitive inspects or depends on how a key is spelled;
+3. build the `changes` entries, intent `SetData`, matching the shape
+   `PayloadBuilder.add_change` already produces, with the body being the patched node exactly
+   as it now stands — no encode step;
+4. `BubbleEditorClient().write(payload, session, dry_run=not execute)`;
+5. when `execute` is true, re-read the same pointer and call `first_divergence(intended,
    actual)`.
 
 **The write granularity is the whole node at `pointer`, never the patched leaf.** Writing the
 leaf directly would put an expression interior in the body at a path containing `actions`,
 which `_is_node_position` classifies as a node position, so `lint_editor_write_changes` would
-reject the decoded interior — correctly by its own rules, and wrongly for this case. Sending
-the whole node keeps exactly one translation point (the root) and leaves the interior where
-the lint does not inspect it. For `patch`, `pointer` therefore addresses the action node
+reject it — correctly by its own rules, and wrongly for this case, since that interior is a
+legitimate part of a node body, not free-floating decoded content. Sending the whole node also
+keeps the write and the re-read comparison in the same, single key space with nothing
+transforming the body in between. For `patch`, `pointer` therefore addresses the action node
 (`["api", "<wf_id>", "actions", "3"]`) and `leaf_pointer` is relative to it. For `reorder`,
-`pointer` addresses the actions map (`["api", "<wf_id>", "actions"]`) and every action body
-in that map is encoded at its own root.
+`pointer` addresses the actions map (`["api", "<wf_id>", "actions"]`) and every action body in
+that map is written back exactly as read.
 
-**A container pointer is refused for `patch`, and every written body is walked.**
-`encode_node_root` translates exactly one root, so a `patch` whose `pointer` addresses a
-container — the actions map `["api", "<wf>", "actions"]`, or the workflow root
-`["api", "<wf>"]` — would write every action underneath it with decoded keys while the
-re-read compared decoded-to-decoded and reported `verified: true`: the exact
-`[missing: null]` corruption, certified as success. Two defences:
+**A container pointer is refused for `patch`, and every written body is walked.** `patch`
+resolves `leaf_pointer` against a single node's own fields; a `pointer` that addresses a
+container instead — the actions map `["api", "<wf>", "actions"]`, or a workflow root
+`["api", "<wf>"]` whose own `actions` holds several sibling nodes — does not name one node to
+patch. Two defences, kept from the original design because they catch different callers, not
+because either still proves a translation ran:
 
 - `_apply` refuses `op == "patch"` unless the node it read is a node (`type` or `%x` at its
   root), raising `patch requires a pointer to a node, not a container`.
 - `_assert_encoded_node_roots` walks every assembled change body before it is sent, from
   both `build_patch_changes` and `build_reorder_changes`, descending only through the
   container keys `actions` / `%el` / `%wf`, and refuses any dict carrying `type` or
-  `properties` without `%x` or `%p`. It never descends into a node's `%p`, because the
-  expression interior is legitimately spelled with decoded-looking keys (`"type": "Message"`)
-  and is the one part nothing here may inspect.
+  `properties` without `%x` or `%p`. Its role changed with this rewrite: it used to prove that
+  `encode_node_root` had run; now nothing here translates anything, so a node reaching this
+  guard already decoded means a caller built it from somewhere other than a live read — most
+  plausibly a `.bubble` export, which only ever carries the decoded form (see `node_keys.py`
+  above). It never descends into a node's `%p`, because the expression interior can
+  legitimately contain decoded-looking keys and is the one part nothing here may inspect.
 
 These two catch different halves of the container-pointer case: the actions map has no root
-`type`, so `_apply`'s root-type check catches a `patch` aimed at it directly. A workflow root
-does have a root `type`, so it passes that check; it is the recursive `_assert_encoded_node_roots`
+`type`/`%x`, so `_apply`'s root-type check catches a `patch` aimed at it directly. A workflow
+root does have one, so it passes that check; it is the recursive `_assert_encoded_node_roots`
 guard, descending into `actions`, that catches the WORKFLOW-root case instead.
 
 `lint_editor_write_changes` cannot stand in for either: it is path-shaped, and
@@ -303,11 +318,15 @@ its index entry silently would leave `_index.id_to_path` pointing at whatever no
 its old position, which is the same class of quiet damage `reorder_actions` refuses when an
 order would drop a step.
 
-**The comparison lives in the decoded key space.** The write encodes the root because the
-endpoint demands it; the re-read comes back decoded, and the intent is compared as it stood
-before the encode. Encoding both sides would measure the write with the same ruler that
-produced it, so an encoding error would cancel itself out and the tool would certify a
-broken node.
+**The comparison lives in the same encoded key space as the write, and that is fine.** The
+original design compared in the decoded key space specifically to avoid measuring an encoding
+step with the ruler it produced: if the write body were derived from the compared value by a
+translation, an error in that translation could cancel itself out in the comparison and certify
+a broken node. That risk is gone because its cause is gone — there is no translation between
+"what gets written" and "what gets compared" any more; the write body IS the node,
+byte-for-byte, and the re-read comes back in that same form. Comparing intended-encoded to
+actual-encoded is therefore not the self-confirming case the original design warned against; it
+is the same check, just with no transformation in the middle for a bug to hide behind.
 
 ## Tool Surface
 

@@ -1,8 +1,21 @@
-"""Translation of node ROOT keys between the editor's tree and the write endpoint.
+"""Translation of node ROOT keys between a ``.bubble`` export and the write endpoint.
 
-The editor holds nodes with decoded keys (``type``/``properties``); ``/appeditor/write``
-requires encoded keys (``%x``/``%p``) at the node root, with the very same interior. Only the
-root is translated here. The interior - the expression chain and its ``Message`` nodes - is
+NOT part of the live read/write path any more. This module was built on the assumption that
+the editor's in-memory tree only exposes nodes with decoded keys (``type``/``properties``) and
+that ``/appeditor/write``'s encoded form (``%x``/``%p``, ...) therefore had to be reconstructed
+by translating just the root. That assumption was measured wrong: ``window.appquery`` exposes
+each node in the encoded form directly via ``_raw()``, byte-identical to what the editor itself
+POSTs, and the encoding reaches well past the root (``entries``->``%e``, ``next``->``%n``,
+``name``->``%nm``, and per-action-type property names such as ``element_id``->``%ei``) - far
+more than this root-only mapping covers. See ``docs/session-findings-2026-08-26.md``.
+``src/bubble_mcp/execution/live_node_read.py`` and ``node_edit.py`` now read and write the
+encoded form as-is, with no translation step.
+
+This module is kept, not deleted, because a ``.bubble`` export only ever carries the DECODED
+projection - the encoding happens server-side and the export never sees it - so anything that
+reads a node out of an export (rather than out of the live editor) still needs a decoded-root
+marker to work with, and ``encode_node_root``/``decode_node_root`` remain useful there. Only the
+root is translated here; the interior - the expression chain and its ``Message`` nodes - is
 copied verbatim, because the interior is exactly the part that cannot be reconstructed, and
 touching it is how a node ends up rendering as "[missing: null]".
 """
