@@ -1,5 +1,5 @@
 {
-  "_comment": "Decoded/encoded PAIR for one real Bubble action, captured 2026-08-26 from live editor traffic on mcp-test-app. The decoded half is what window.appquery....raw() returns; the encoded half is what the editor itself POSTs to /appeditor/write. Inferring the encoding from the decoded half alone was attempted three times and failed three times; this pair is ground truth.",
+  "_comment": "Decoded/encoded PAIR for one real Bubble action, captured 2026-08-26 from live editor traffic on mcp-test-app, plus the same node read both ways through appquery. THE KEY FINDING: node._raw() returns the encoded form byte-identical to what the editor POSTs, so no key translation is needed at all -- read with _raw(), not raw().",
   "decoded_from_appquery_raw": {
     "properties": {
       "new_password": {
@@ -134,5 +134,86 @@
     "name": "%nm",
     "element_id": "%ei"
   },
-  "caveat": "element_id -> %ei is a PROPERTY name, not a structural key, and new_password/new_password_again were NOT renamed. The property-name half of the table is per-action-type and only more captures can complete it."
+  "caveat": "element_id -> %ei is a PROPERTY name, not a structural key, and new_password/new_password_again were NOT renamed. The property-name half of the table is per-action-type and only more captures can complete it.",
+  "appquery_raw_decoded": {
+    "properties": {
+      "new_password": {
+        "entries": {
+          "0": {
+            "next": {
+              "type": "Message",
+              "name": "get_data",
+              "is_slidable": false
+            },
+            "properties": {
+              "element_id": "bTGyp0"
+            },
+            "type": "GetElement",
+            "is_slidable": false
+          }
+        },
+        "type": "TextExpression"
+      },
+      "new_password_again": {
+        "entries": {
+          "0": {
+            "next": {
+              "type": "Message",
+              "name": "get_data",
+              "is_slidable": false
+            },
+            "properties": {
+              "element_id": "bTGyj0"
+            },
+            "type": "GetElement",
+            "is_slidable": false
+          }
+        },
+        "type": "TextExpression"
+      }
+    },
+    "type": "ResetPassword",
+    "id": "bTHDN"
+  },
+  "appquery_underscore_raw_encoded": {
+    "%p": {
+      "new_password": {
+        "%e": {
+          "0": {
+            "%n": {
+              "%x": "Message",
+              "%nm": "get_data",
+              "is_slidable": false
+            },
+            "%p": {
+              "%ei": "bTGyp0"
+            },
+            "%x": "GetElement",
+            "is_slidable": false
+          }
+        },
+        "%x": "TextExpression"
+      },
+      "new_password_again": {
+        "%e": {
+          "0": {
+            "%n": {
+              "%x": "Message",
+              "%nm": "get_data",
+              "is_slidable": false
+            },
+            "%p": {
+              "%ei": "bTGyj0"
+            },
+            "%x": "GetElement",
+            "is_slidable": false
+          }
+        },
+        "%x": "TextExpression"
+      }
+    },
+    "%x": "ResetPassword",
+    "id": "bTHDN"
+  },
+  "underscore_raw_equals_editor_post": true
 }

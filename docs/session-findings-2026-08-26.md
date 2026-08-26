@@ -4,6 +4,24 @@ Ground truth captured from live editor traffic on `mcp-test-app`. Fixture:
 `tests/fixtures/expressions/action-encoding-pair-golden.json` holds the decoded and encoded
 halves of the *same* action, which is what makes it usable.
 
+## 0. The finding that supersedes the rest of this document
+
+`window.appquery` exposes the node in BOTH forms:
+
+- `node.raw()` returns the DECODED form (`type`, `properties`, `entries`, `next`, `name`, …)
+- `node._raw()` returns the ENCODED form (`%x`, `%p`, `%e`, `%n`, `%nm`, `%ei`, …)
+
+Measured on the same action, `_raw()` is **byte-identical to the body the editor itself POSTs**
+to `/appeditor/write` (compared against the captured `CreateAction` change: equal).
+
+So no encoder is needed and no key table has to be completed. Read with `_raw()`, patch the
+leaf, write it back. The entire translation layer this branch built — `node_keys.py`, the
+root-only rule, the three failed encoding hypotheses below — exists only because the read used
+`raw()` instead of `_raw()`.
+
+The sections below are kept because they document how the wrong path failed, and because the
+key mapping is still useful for reading a `.bubble` export, which only has the decoded form.
+
 ## 1. The encoding is far wider than `%x`/`%p`
 
 `docs/session-findings-2026-08-24.md` concluded: "Editor memory reads expose nodes with decoded
