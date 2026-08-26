@@ -57,10 +57,39 @@ def test_encode_node_root_refuses_a_root_that_carries_name() -> None:
         encode_node_root({"type": "Text", "name": "Header"})
 
 
-def test_encode_node_root_passes_an_already_encoded_node_through() -> None:
-    node = {"id": "a", "%x": "ChangeThing", "%p": {"k": 1}}
+def test_encode_node_root_passes_an_already_encoded_node_through_as_a_deep_copy() -> None:
+    node = {"id": "a", "%x": "ChangeThing", "%p": {"k": {"type": "Message"}}}
 
-    assert encode_node_root(node) == node
+    encoded = encode_node_root(node)
+
+    assert encoded == node
+    assert encoded is not node
+    # The idempotency branch must copy as deeply as the translating branch does: a caller that
+    # edits the returned body must not reach back into the node the editor handed us.
+    encoded["%p"]["k"]["type"] = "mutated"
+    assert node["%p"]["k"]["type"] == "Message"
+
+
+def test_encode_node_root_refuses_a_root_that_mixes_decoded_and_encoded_keys() -> None:
+    with pytest.raises(ValueError, match="mixes decoded"):
+        encode_node_root(
+            {"id": "a1", "%dn": "Step 1", "type": "ChangeThing", "properties": {"k": 1}}
+        )
+
+
+def test_encode_node_root_refuses_name_even_on_an_already_encoded_root() -> None:
+    with pytest.raises(ValueError, match="name"):
+        encode_node_root({"%x": "Element", "name": "Group A", "%p": {}})
+
+
+def test_decode_node_root_refuses_a_root_that_mixes_decoded_and_encoded_keys() -> None:
+    with pytest.raises(ValueError, match="mixes decoded"):
+        decode_node_root({"id": "a1", "%x": "ChangeThing", "properties": {"k": 1}})
+
+
+def test_decode_node_root_refuses_encoded_name_even_on_an_already_decoded_root() -> None:
+    with pytest.raises(ValueError, match="%nm"):
+        decode_node_root({"type": "Text", "%nm": "Header", "properties": {}})
 
 
 def test_encode_node_root_rejects_a_non_node() -> None:
