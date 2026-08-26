@@ -117,3 +117,42 @@ The render check was scheduled as the last task of the plan. It should have been
 It cost one write and one screenshot and it invalidated the premise the whole design rested on.
 Also: no BEFORE screenshot was taken, so the first breakage could not be distinguished from
 pre-existing state without falling back to an untouched-action control and the issue checker.
+
+## 6. Three defects in the EXISTING write tools, all returning HTTP 200
+
+Found while building a login page end to end. Each looked like a success and each was only
+visible by reading the app tree back.
+
+**A dry run poisons the local cache.** `add_action(execute=false, dry_run=true)` on a button with
+no workflow previewed a `CreateEvent` and recorded it into the mutation overlay as if applied.
+The following `execute=true` call then logged "Found Workflow: bXuqg" and wrote only the action.
+Reading `%p3.bVVl3.%wf.bXuqg` back gave `{"actions": {"0": {...ShowElement...}}}` — no `%x` event
+type, no `%p.%ei`, no `id`. A workflow that cannot fire, created silently by the act of previewing
+first.
+
+**`log_the_user_in` addresses the page by NAME.** It emitted
+`path_array: ["%p3", "login_page", "%wf", "bMIMs", "actions"]` where `login_page` is the page name;
+the node key is `bVVl3`. That created an orphan node at `%p3.login_page` holding the action while
+the real workflow stayed empty. Every other tool resolves first — `create_popup` and friends log
+"Found page: login_page -> bVVl3" and write `%p3.bVVl3...`.
+
+**`log_the_user_in` does not resolve element refs.** It emitted `"%ei": "in_email"` and
+`"%ei": "in_password"` — element NAMES where ids (`btTmX`, `b0sDN`) belong. The expression
+structure it built was otherwise exactly right: the hand-written correction that the editor
+accepted and rendered as `in_email's value` was the same payload with the ids substituted.
+
+The common shape: a name passed where an id belongs, or a preview treated as a write, and the
+endpoint accepts all of it. This is why verification cannot be per-tool opt-in.
+
+## 7. Universal post-write verification
+
+Every change entry is self-describing — it carries `path_array` and `body` — so one verifier can
+re-read what any tool wrote and diff it against intent, with no per-tool knowledge.
+`src/bubble_mcp/execution/write_verify.py` does that, wired into the server so an executed
+aria-runtime tool attaches a `verification` report. `read_live_nodes` batches the reads through a
+single browser context so a payload with a dozen changes costs one launch.
+
+What it catches: wrong paths, unresolved references, orphan nodes, writes that did not land.
+What it cannot catch: a node whose bytes are correct and which the editor still renders broken —
+hence `render_unverified` on every report. That distinction is not academic; it separated a false
+"restored" from a real repair earlier in this same session.
