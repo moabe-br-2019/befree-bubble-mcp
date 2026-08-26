@@ -20,6 +20,7 @@ from bubble_mcp.execution.live_node_read import (
     is_transient_editor_error,
     parse_cookie_header,
     read_live_node,
+    read_live_nodes,
 )
 
 
@@ -554,3 +555,91 @@ def test_parse_cookie_header_returns_bubble_io_domain_and_root_path() -> None:
 @pytest.mark.parametrize("raw", ["", "   "])
 def test_parse_cookie_header_returns_empty_list_for_blank_input(raw: str) -> None:
     assert parse_cookie_header(raw) == []
+
+
+def test_read_live_nodes_reads_several_pointers_through_a_single_evaluator() -> None:
+    """read_live_nodes exists so verifying a dozen-change payload does not open a dozen
+
+    browsers: one evaluator (in the real path, one opened browser context/page) must serve
+    every pointer in the batch. Asserting the SAME fake instance is used for every pointer -
+    not a fresh one built per pointer - is the observable stand-in for "the browser opened
+    once", since a test may never open a real browser.
+    """
+
+    calls: list[str] = []
+
+    class FakeEvaluator:
+        def __init__(self) -> None:
+            self.constructions = 1  # this test builds exactly one instance, see below
+
+        def __call__(self, script: str) -> Any:
+            calls.append(script)
+            return {
+                "appname": "mcp-test-app",
+                "app_version": "test",
+                "node": {"id": f"node-{len(calls)}", "type": "Thing", "properties": {}},
+            }
+
+    fake = FakeEvaluator()  # constructed exactly once for the whole batch
+
+    pointers = [["api", "wf-1", "actions", "0"], ["api", "wf-1", "actions", "1"], ["_index"]]
+    results = read_live_nodes(
+        "mcp-test", pointers, evaluator=fake, app_id="mcp-test-app", app_version="test"
+    )
+
+    assert fake.constructions == 1
+    assert len(calls) == 3  # the one fake was used once per pointer, not reconstructed per pointer
+    assert set(results.keys()) == {
+        ("api", "wf-1", "actions", "0"),
+        ("api", "wf-1", "actions", "1"),
+        ("_index",),
+    }
+    for key, expected_script in zip(results, calls):
+        assert results[key]["ok"] is True
+        assert calls[list(results.keys()).index(key)] == build_appquery_script(list(key))
+
+
+def test_read_live_nodes_reports_each_pointers_own_outcome() -> None:
+    """Different pointers can fail independently within the same batch (e.g. a stale pointer
+
+    next to a valid one); each key gets its own structured result rather than one batch-wide
+    verdict.
+    """
+
+    def fake_evaluator(script: str) -> Any:
+        if "missing" in script:
+            return None
+        return {
+            "appname": "mcp-test-app",
+            "app_version": "test",
+            "node": {"id": "act-1", "type": "Thing", "properties": {}},
+        }
+
+    results = read_live_nodes(
+        "mcp-test",
+        [["api", "wf-1"], ["api", "missing"]],
+        evaluator=fake_evaluator,
+        app_id="mcp-test-app",
+    )
+
+    assert results[("api", "wf-1")]["ok"] is True
+    assert results[("api", "missing")]["ok"] is False
+    assert results[("api", "missing")]["error"] == "pointer_not_found"
+
+
+def test_read_live_node_delegates_to_read_live_nodes_for_one_pointer() -> None:
+    """read_live_node is the one-pointer case of read_live_nodes: same result shape, unwrapped."""
+
+    def fake_evaluator(_script: str) -> Any:
+        return {
+            "appname": "mcp-test-app",
+            "app_version": "test",
+            "node": {"id": "act-1", "type": "ChangeThing", "properties": {}},
+        }
+
+    single = read_live_node("mcp-test", ["api", "wf-1"], evaluator=fake_evaluator, app_id="mcp-test-app")
+    batch = read_live_nodes(
+        "mcp-test", [["api", "wf-1"]], evaluator=fake_evaluator, app_id="mcp-test-app"
+    )
+
+    assert single == batch[("api", "wf-1")]

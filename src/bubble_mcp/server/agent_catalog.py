@@ -46,6 +46,7 @@ COMMON_PROPERTY_DESCRIPTIONS: dict[str, str] = {
     "context": "Target Bubble page, reusable element, or container context by visible name or known id.",
     "parent": "Parent Bubble element/container where new children should be added. Use root for page-level insertion.",
     "execute": "Set true only when the user asked to apply the change in Bubble. Leave false for preview/planning.",
+    "verify": "After an executed write, read every changed path back from the live editor and report divergences from what was sent. On by default; set false to skip the extra read-back for speed.",
     "compile": "Compile abstract plan steps into Bubble editor write payloads before execution.",
     "context_file": "Optional compact Bubble context JSON file to resolve pages, elements, and existing project structure.",
     "file": "Local file path to read as input.",
@@ -1123,6 +1124,7 @@ EXACT_TOOL_FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 FIELD_TYPES: dict[str, dict[str, Any]] = {
     "dry_run": {"type": "boolean", "default": True},
     "execute": {"type": "boolean", "default": False},
+    "verify": {"type": "boolean", "default": True},
     "rendered_html": {"type": "boolean", "default": True},
     "calculate_derived": {"type": "boolean", "default": False},
     "confirm": {"type": "boolean", "default": False},
@@ -1726,9 +1728,9 @@ def _legacy_fields_for_name(name: str) -> tuple[tuple[str, ...], tuple[str, ...]
     if name.startswith(("sync_figma_", "sync_component", "upload_asset")):
         return (("profile",), ("dry_run", "settings_path", "context", "parent", "name", "file", "payload", "execute", "json"))
     if name == "batch":
-        return (("profile", "commands"), ("dry_run", "settings_path", "file", "input", "execute", "json"))
+        return (("profile", "commands"), ("dry_run", "settings_path", "file", "input", "execute", "verify", "json"))
     if name == "natural":
-        return (("profile",), ("dry_run", "settings_path", "message", "query", "commands", "execute", "json"))
+        return (("profile",), ("dry_run", "settings_path", "message", "query", "commands", "execute", "verify", "json"))
     return None
 
 

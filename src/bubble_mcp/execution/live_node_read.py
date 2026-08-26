@@ -15,6 +15,7 @@ page call is one injectable function: tests pass a fake and never open a browser
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 from typing import Any, Callable, Sequence
@@ -316,159 +317,222 @@ def _session_cookie_header(session: Any) -> str:
     return str(getattr(session, "cookies", "") or "")
 
 
-def _playwright_evaluator(
-    *,
-    profile: str,
-    app_id: str,
-    app_version: str,
-    headless: bool,
-    timeout_sec: int,
-    ready_script: str,
-) -> Evaluator:
-    """Return an evaluator that runs one script in the editor page for this app."""
+@contextlib.contextmanager
+def _open_editor_page(
+    *, profile: str, app_id: str, app_version: str, headless: bool, timeout_sec: int
+):
+    """Launch one persistent browser context for this app/profile and yield its page.
 
-    def evaluate(script: str) -> Any:
+    This is the launch/cookie-seed/navigate/not-logged-in-check sequence every read needs,
+    factored out so ``read_live_nodes`` can open it ONCE for a whole batch of pointers instead
+    of once per pointer - opening a browser per pointer is what made verifying a write payload
+    with a dozen changes far too slow (see ``write_verify.verify_changes``).
+    ``PlaywrightMissing``/``BrowserProfileMissing``/``NotLoggedIn`` are raised here because they
+    are session-wide setup failures, not per-pointer ones.
+    """
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:  # noqa: BLE001 - re-raised as a typed, reportable failure
+        raise PlaywrightMissing(
+            "Playwright is required to read the live editor. Install with: "
+            'python -m pip install "befree-bubble-mcp[browser]" '
+            "&& python -m playwright install chromium"
+        ) from exc
+
+    settings = load_settings()
+    user_data_dir = settings.config_dir / "browser-profiles" / profile
+    if not user_data_dir.exists():
+        # launch_persistent_context would happily create an empty profile, load a logged-out
+        # bubble.io, and only fail 90s later as editor_not_ready. bubble_session_import stores
+        # a valid session without ever populating this directory.
+        raise BrowserProfileMissing(
+            f"No browser profile at {user_data_dir}. The live editor read drives a real "
+            f"browser session, which only bubble_session_login creates; run "
+            f"bubble_session_login for profile '{profile}' first (an imported session is not "
+            "enough)."
+        )
+    url = EDITOR_URL_TEMPLATE.format(app_id=app_id, app_version=app_version)
+    timeout_ms = timeout_sec * 1000
+    with sync_playwright() as playwright:
+        context = playwright.chromium.launch_persistent_context(str(user_data_dir), headless=headless)
         try:
-            from playwright.sync_api import sync_playwright
-        except ImportError as exc:  # noqa: BLE001 - re-raised as a typed, reportable failure
-            raise PlaywrightMissing(
-                "Playwright is required to read the live editor. Install with: "
-                'python -m pip install "befree-bubble-mcp[browser]" '
-                "&& python -m playwright install chromium"
-            ) from exc
-
-        settings = load_settings()
-        user_data_dir = settings.config_dir / "browser-profiles" / profile
-        if not user_data_dir.exists():
-            # launch_persistent_context would happily create an empty profile, load a logged-out
-            # bubble.io, and only fail 90s later as editor_not_ready. bubble_session_import stores
-            # a valid session without ever populating this directory.
-            raise BrowserProfileMissing(
-                f"No browser profile at {user_data_dir}. The live editor read drives a real "
-                f"browser session, which only bubble_session_login creates; run "
-                f"bubble_session_login for profile '{profile}' first (an imported session is not "
-                "enough)."
-            )
-        url = EDITOR_URL_TEMPLATE.format(app_id=app_id, app_version=app_version)
-        timeout_ms = timeout_sec * 1000
-        with sync_playwright() as playwright:
-            context = playwright.chromium.launch_persistent_context(
-                str(user_data_dir), headless=headless
-            )
-            try:
-                # Seed the context from the stored session rather than trusting whatever
-                # cookies the browser-profile directory happens to hold. Root cause of the
-                # wrong-app read: a profile directory can be partially authenticated (only for
-                # Bubble's own `meta` app in `live`), which lands on a *working* `meta` editor
-                # instead of a login page - looking like an editor quirk instead of an auth
-                # gap. If there is no session, or it carries no cookies, do not raise here: the
-                # existing not_logged_in / wrong_app checks below already report that, at the
-                # right layer, without a second competing message.
-                session = load_session(profile)
-                if session is not None:
-                    cookies = parse_cookie_header(_session_cookie_header(session))
-                    if cookies:
-                        context.add_cookies(cookies)
-                page = context.pages[0] if context.pages else context.new_page()
-                page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-                landed_url = page.url
-                if app_id not in landed_url:
-                    # A logged-in editor load keeps the app id in the URL. A logged-out
-                    # profile (directory exists, but Chrome never got a session cookie
-                    # written into it) gets redirected by bubble.io to its marketing page
-                    # or a /login-ish path instead, and the app id drops out of the URL.
-                    raise NotLoggedIn(
-                        f"Browser profile '{profile}' landed on {landed_url} instead of the "
-                        f"editor for app '{app_id}'. The profile directory exists but appears "
-                        f"never to have logged in to Bubble; run bubble_session_login for "
-                        f"profile '{profile}', then retry."
-                    )
-                # The editor page reloads underneath the session (proven by two runs a minute
-                # apart reporting different run_js bundle hashes), so passing both readiness
-                # gates once is not proof they still hold by the time page.evaluate runs: the
-                # page can regress past them in between. Retry the FULL sequence - both gates,
-                # then the evaluate - rather than just re-evaluating, because it is the gates
-                # that need to be re-satisfied against the (possibly new) page context.
-                last_message = ""
-                for attempt in range(1, EDITOR_EVALUATE_MAX_ATTEMPTS + 1):
-                    try:
-                        try:
-                            page.wait_for_function(APPQUERY_READY_SCRIPT, timeout=timeout_ms)
-                        except Exception as exc:  # noqa: BLE001 - Playwright's own timeout type
-                            raise EditorNotReady(
-                                f"window.appquery never appeared on {url} within {timeout_sec}s"
-                            ) from exc
-                        try:
-                            page.wait_for_function(ready_script, timeout=timeout_ms)
-                        except Exception as exc:  # noqa: BLE001 - Playwright's own timeout type
-                            raise PointerNotReady(
-                                f"pointer subtree never finished loading on {url} within "
-                                f"{timeout_sec}s"
-                            ) from exc
-                        envelope = page.evaluate(script)
-                        if isinstance(envelope, dict):
-                            actual_app_id = envelope.get("appname")
-                            actual_app_version = envelope.get("app_version")
-                            if actual_app_id != app_id or actual_app_version != app_version:
-                                # Identity is checked here, immediately after the SAME
-                                # evaluate() call that produced the node, not by a later,
-                                # separate check - see WrongApp and build_appquery_script.
-                                raise WrongApp(
-                                    expected_app_id=app_id,
-                                    expected_app_version=app_version,
-                                    actual_app_id=actual_app_id,
-                                    actual_app_version=actual_app_version,
-                                )
-                        return envelope
-                    except Exception as exc:  # noqa: BLE001 - classified below, then re-raised
-                        cause = exc.__cause__
-                        raw_message = (
-                            f"{type(cause).__name__}: {cause}"
-                            if cause is not None
-                            else f"{type(exc).__name__}: {exc}"
-                        )
-                        last_message = raw_message
-                        if not is_transient_editor_error(raw_message):
-                            raise
-                        if attempt < EDITOR_EVALUATE_MAX_ATTEMPTS:
-                            time.sleep(EDITOR_EVALUATE_RETRY_DELAY_SEC)
-                            continue
-                        if isinstance(exc, WrongApp):
-                            # Exhausted retries specifically on a wrong-app identity mismatch:
-                            # surface that as the real problem, not as an undifferentiated
-                            # editor_unstable.
-                            raise
-                        raise EditorUnstable(attempt, last_message) from exc
-            finally:
-                context.close()
-
-    return evaluate
+            # Seed the context from the stored session rather than trusting whatever cookies
+            # the browser-profile directory happens to hold. Root cause of the wrong-app read:
+            # a profile directory can be partially authenticated (only for Bubble's own `meta`
+            # app in `live`), which lands on a *working* `meta` editor instead of a login page -
+            # looking like an editor quirk instead of an auth gap. If there is no session, or it
+            # carries no cookies, do not raise here: the not_logged_in / wrong_app checks below
+            # already report that, at the right layer, without a second competing message.
+            session = load_session(profile)
+            if session is not None:
+                cookies = parse_cookie_header(_session_cookie_header(session))
+                if cookies:
+                    context.add_cookies(cookies)
+            page = context.pages[0] if context.pages else context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            landed_url = page.url
+            if app_id not in landed_url:
+                # A logged-in editor load keeps the app id in the URL. A logged-out profile
+                # (directory exists, but Chrome never got a session cookie written into it)
+                # gets redirected by bubble.io to its marketing page or a /login-ish path
+                # instead, and the app id drops out of the URL.
+                raise NotLoggedIn(
+                    f"Browser profile '{profile}' landed on {landed_url} instead of the "
+                    f"editor for app '{app_id}'. The profile directory exists but appears "
+                    f"never to have logged in to Bubble; run bubble_session_login for "
+                    f"profile '{profile}', then retry."
+                )
+            yield page
+        finally:
+            context.close()
 
 
-def read_live_node(
-    profile: str,
-    pointer: Sequence[str],
+def _evaluate_with_retries(
+    page: Any,
     *,
-    evaluator: Evaluator | None = None,
-    app_id: str | None = None,
-    app_version: str = "test",
-    headless: bool = True,
-    timeout_sec: int = DEFAULT_READ_TIMEOUT_SEC,
-) -> dict[str, Any]:
-    """Read the node at ``pointer`` from the live editor, as a structured result."""
+    ready_script: str,
+    script: str,
+    expected_app_id: str,
+    expected_app_version: str,
+    timeout_sec: int,
+) -> Any:
+    """Run both readiness gates and one ``evaluate()`` against an ALREADY OPEN page.
 
-    segments = [str(part) for part in pointer]
-    resolved_app_id = _resolve_app_id(profile, app_id)
+    Factored out of the single-pointer evaluator so a whole batch of pointers can share ONE
+    open page (``read_live_nodes``) instead of relaunching a browser per pointer. Behaviour is
+    unchanged from the original inline loop: the editor page reloads underneath the session
+    (proven by two runs a minute apart reporting different run_js bundle hashes), so passing
+    both readiness gates once is not proof they still hold by the time ``page.evaluate`` runs -
+    the page can regress past them in between. Retry the FULL sequence - both gates, then the
+    evaluate - rather than just re-evaluating, because it is the gates that need to be
+    re-satisfied against the (possibly new) page context.
+    """
+
+    url = EDITOR_URL_TEMPLATE.format(app_id=expected_app_id, app_version=expected_app_version)
+    timeout_ms = timeout_sec * 1000
+    last_message = ""
+    for attempt in range(1, EDITOR_EVALUATE_MAX_ATTEMPTS + 1):
+        try:
+            try:
+                page.wait_for_function(APPQUERY_READY_SCRIPT, timeout=timeout_ms)
+            except Exception as exc:  # noqa: BLE001 - Playwright's own timeout type
+                raise EditorNotReady(
+                    f"window.appquery never appeared on {url} within {timeout_sec}s"
+                ) from exc
+            try:
+                page.wait_for_function(ready_script, timeout=timeout_ms)
+            except Exception as exc:  # noqa: BLE001 - Playwright's own timeout type
+                raise PointerNotReady(
+                    f"pointer subtree never finished loading on {url} within "
+                    f"{timeout_sec}s"
+                ) from exc
+            envelope = page.evaluate(script)
+            if isinstance(envelope, dict):
+                actual_app_id = envelope.get("appname")
+                actual_app_version = envelope.get("app_version")
+                if actual_app_id != expected_app_id or actual_app_version != expected_app_version:
+                    # Identity is checked here, immediately after the SAME evaluate() call
+                    # that produced the node, not by a later, separate check - see WrongApp
+                    # and build_appquery_script.
+                    raise WrongApp(
+                        expected_app_id=expected_app_id,
+                        expected_app_version=expected_app_version,
+                        actual_app_id=actual_app_id,
+                        actual_app_version=actual_app_version,
+                    )
+            return envelope
+        except Exception as exc:  # noqa: BLE001 - classified below, then re-raised
+            cause = exc.__cause__
+            raw_message = (
+                f"{type(cause).__name__}: {cause}"
+                if cause is not None
+                else f"{type(exc).__name__}: {exc}"
+            )
+            last_message = raw_message
+            if not is_transient_editor_error(raw_message):
+                raise
+            if attempt < EDITOR_EVALUATE_MAX_ATTEMPTS:
+                time.sleep(EDITOR_EVALUATE_RETRY_DELAY_SEC)
+                continue
+            if isinstance(exc, WrongApp):
+                # Exhausted retries specifically on a wrong-app identity mismatch: surface
+                # that as the real problem, not as an undifferentiated editor_unstable.
+                raise
+            raise EditorUnstable(attempt, last_message) from exc
+
+
+class _LazySession:
+    """Opens the editor page on first use and reuses it for every subsequent pointer.
+
+    A setup failure (``PlaywrightMissing``/``BrowserProfileMissing``/``NotLoggedIn``) is
+    session-wide: it is raised on the first pointer and re-raised verbatim on every later one,
+    so each pointer's ``_run_pointer`` reports the SAME structured error instead of
+    ``read_live_nodes`` silently stopping partway through a batch.
+    """
+
+    def __init__(
+        self, *, profile: str, app_id: str, app_version: str, headless: bool, timeout_sec: int
+    ) -> None:
+        self._cm = _open_editor_page(
+            profile=profile,
+            app_id=app_id,
+            app_version=app_version,
+            headless=headless,
+            timeout_sec=timeout_sec,
+        )
+        self._page: Any = None
+        self._opened = False
+        self._setup_error: BaseException | None = None
+
+    def _ensure_open(self) -> Any:
+        if self._setup_error is not None:
+            raise self._setup_error
+        if not self._opened:
+            self._opened = True
+            try:
+                self._page = self._cm.__enter__()
+            except BaseException as exc:  # noqa: BLE001 - recorded so later pointers see the same failure
+                self._setup_error = exc
+                raise
+        return self._page
+
+    def evaluator_for(
+        self, ready_script: str, expected_app_id: str, expected_app_version: str, timeout_sec: int
+    ) -> Evaluator:
+        def run(script: str) -> Any:
+            page = self._ensure_open()
+            return _evaluate_with_retries(
+                page,
+                ready_script=ready_script,
+                script=script,
+                expected_app_id=expected_app_id,
+                expected_app_version=expected_app_version,
+                timeout_sec=timeout_sec,
+            )
+
+        return run
+
+    def close(self) -> None:
+        if self._opened and self._setup_error is None:
+            self._cm.__exit__(None, None, None)
+
+
+def _run_pointer(
+    run: Evaluator,
+    segments: list[str],
+    resolved_app_id: str,
+    app_version: str,
+    timeout_sec: int,
+) -> dict[str, Any]:
+    """Evaluate one pointer's script through ``run`` and turn the outcome into a structured result.
+
+    Shared by ``read_live_node`` (one pointer) and ``read_live_nodes`` (many pointers, one open
+    page): both funnel through this so every error type is classified identically regardless of
+    how many pointers are being read in the same call.
+    """
+
     script = build_appquery_script(segments)
-    ready_script = build_pointer_ready_script(segments, resolved_app_id)
-    run = evaluator or _playwright_evaluator(
-        profile=profile,
-        app_id=resolved_app_id,
-        app_version=app_version,
-        headless=headless,
-        timeout_sec=timeout_sec,
-        ready_script=ready_script,
-    )
     try:
         envelope = run(script)
     except WrongApp as exc:
@@ -557,3 +621,81 @@ def read_live_node(
             "message": f"Expected a node object at '{'.'.join(segments)}', got {type(node).__name__}.",
         }
     return {"ok": True, "pointer": segments, "node": node, "app_id": resolved_app_id}
+
+
+def read_live_nodes(
+    profile: str,
+    pointers: Sequence[Sequence[str]],
+    *,
+    evaluator: Evaluator | None = None,
+    app_id: str | None = None,
+    app_version: str = "test",
+    headless: bool = True,
+    timeout_sec: int = DEFAULT_READ_TIMEOUT_SEC,
+) -> dict[tuple[str, ...], dict[str, Any]]:
+    """Read every pointer in ``pointers`` through ONE persistent browser context.
+
+    ``read_live_node`` opens a browser per call, which is far too slow to verify a write
+    payload with a dozen changes (see ``write_verify.verify_changes``). This opens the context
+    once - via ``_open_editor_page`` / ``_LazySession`` - and walks every pointer through it
+    with ``_evaluate_with_retries``, returning the SAME per-pointer result shape
+    ``read_live_node`` already returns, keyed by the pointer tuple. ``read_live_node`` is now
+    the one-pointer case of this function.
+    """
+
+    resolved_app_id = _resolve_app_id(profile, app_id)
+    keys = [tuple(str(part) for part in pointer) for pointer in pointers]
+    results: dict[tuple[str, ...], dict[str, Any]] = {}
+
+    if evaluator is not None:
+        # A caller-supplied evaluator (every test, and any caller that wants to bypass the
+        # real browser) is shared across every pointer as-is: there is no browser session to
+        # open once here, so each pointer is simply run through the SAME evaluator instance.
+        for key in keys:
+            results[key] = _run_pointer(evaluator, list(key), resolved_app_id, app_version, timeout_sec)
+        return results
+
+    session = _LazySession(
+        profile=profile,
+        app_id=resolved_app_id,
+        app_version=app_version,
+        headless=headless,
+        timeout_sec=timeout_sec,
+    )
+    try:
+        for key in keys:
+            ready_script = build_pointer_ready_script(list(key), resolved_app_id)
+            run = session.evaluator_for(ready_script, resolved_app_id, app_version, timeout_sec)
+            results[key] = _run_pointer(run, list(key), resolved_app_id, app_version, timeout_sec)
+    finally:
+        session.close()
+    return results
+
+
+def read_live_node(
+    profile: str,
+    pointer: Sequence[str],
+    *,
+    evaluator: Evaluator | None = None,
+    app_id: str | None = None,
+    app_version: str = "test",
+    headless: bool = True,
+    timeout_sec: int = DEFAULT_READ_TIMEOUT_SEC,
+) -> dict[str, Any]:
+    """Read the node at ``pointer`` from the live editor, as a structured result.
+
+    The one-pointer case of ``read_live_nodes``: reads just this pointer and returns its result
+    directly instead of the batch call's keyed mapping.
+    """
+
+    segments = [str(part) for part in pointer]
+    results = read_live_nodes(
+        profile,
+        [segments],
+        evaluator=evaluator,
+        app_id=app_id,
+        app_version=app_version,
+        headless=headless,
+        timeout_sec=timeout_sec,
+    )
+    return results[tuple(segments)]

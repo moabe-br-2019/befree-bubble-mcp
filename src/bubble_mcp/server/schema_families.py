@@ -651,6 +651,11 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
         "Set true only when the user asked to apply the change in Bubble. Leave false to preview the authenticated request.",
         default=False,
     ),
+    "verify": _prop(
+        "boolean",
+        "After an executed write, read every changed path back from the live editor and report divergences from what was sent. On by default because /appeditor/write answers 200 for any body with no semantic validation, so a 200 alone is not evidence the write landed as intended. Set false to skip the extra read-back for speed.",
+        default=True,
+    ),
     "pointer": _prop(
         "array",
         "Child keys addressing a node in the live editor tree, from the app root: "

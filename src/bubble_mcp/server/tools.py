@@ -65,6 +65,7 @@ from bubble_mcp.execution.node_edit import edit_live_node
 from bubble_mcp.execution.plugins import install_plugin
 from bubble_mcp.execution.state import next_user_action, operation_snapshot
 from bubble_mcp.execution.structural import permanent_data_type_delete_targets, validate_structure
+from bubble_mcp.execution.write_verify import verify_changes
 from bubble_mcp.extensions.store import (
     disable_extension,
     enable_extension,
@@ -685,6 +686,65 @@ def _profile_cache_refresh(arguments: dict[str, Any] | None) -> dict[str, Any]:
             else "Profile cache refreshed but is not ready. Follow status.next_actions to complete missing context sources or session requirements."
         ),
     }
+
+
+def _executed_write_changes(runtime_result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Collect the change lists from every write that actually executed in a runtime result.
+
+    ``dispatch_aria_runtime_tool`` records one entry per write under ``results``; an executed,
+    successful write carries its normalized payload at ``result.request.payload.changes``
+    (``BubbleEditorClient.write`` builds ``request.payload`` from the exact body it POSTed - see
+    ``execution/client.py``). A dry run or a failed write contributes nothing: there is nothing
+    to verify, or nothing landed to compare against.
+    """
+
+    changes: list[dict[str, Any]] = []
+    for item in runtime_result.get("results") or []:
+        if not isinstance(item, dict) or not item.get("executed") or not item.get("ok"):
+            continue
+        write_result = item.get("result")
+        if not isinstance(write_result, dict):
+            continue
+        request = write_result.get("request")
+        payload = request.get("payload") if isinstance(request, dict) else None
+        item_changes = payload.get("changes") if isinstance(payload, dict) else None
+        if isinstance(item_changes, list):
+            changes.extend(change for change in item_changes if isinstance(change, dict))
+    return changes
+
+
+def _attach_write_verification(
+    runtime_result: dict[str, Any], *, profile: str, args: dict[str, Any]
+) -> dict[str, Any]:
+    """Read every path an executed aria-runtime write touched back and report divergences.
+
+    Only runs when the tool actually executed (never on a dry run/preview) and when there is at
+    least one successful write to verify. Opts out via ``verify=false``. A verification failure
+    (including the verifier itself raising) must never turn a successful write into a reported
+    failure: it is attached as a report under ``verification``, and the caller decides what to
+    do with it.
+    """
+
+    if not runtime_result.get("executed") or args.get("verify") is False:
+        return runtime_result
+    changes = _executed_write_changes(runtime_result)
+    if not changes or not profile:
+        return runtime_result
+    try:
+        verification = verify_changes(
+            profile,
+            changes,
+            app_id=str(runtime_result.get("app_id") or "") or None,
+            app_version=str(runtime_result.get("app_version") or "test"),
+        )
+    except Exception as exc:  # noqa: BLE001 - verification must never turn a success into a raise
+        verification = {
+            "ok": False,
+            "error": "verification_failed",
+            "message": f"{type(exc).__name__}: {exc}",
+        }
+    runtime_result["verification"] = verification
+    return runtime_result
 
 
 def call_tool(
@@ -2214,7 +2274,7 @@ def call_legacy_catalog_tool(
 
     runtime_result = dispatch_aria_runtime_tool(name, args)
     if runtime_result is not None:
-        return runtime_result
+        return _attach_write_verification(runtime_result, profile=profile, args=args)
 
     app_id = str(args.get("app_id") or args.get("appname") or "").strip()
     plan = {"steps": [{"id": "step_1", "tool_name": name, "args": dict(args)}]}
