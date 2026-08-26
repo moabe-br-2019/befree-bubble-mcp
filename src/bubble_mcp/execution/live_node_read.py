@@ -59,9 +59,18 @@ class NotLoggedIn(RuntimeError):
     """
 
 
-def build_appquery_script(pointer: Sequence[str]) -> str:
-    """Return the page script that reads the node at ``pointer`` out of editor memory."""
+class PointerNotReady(RuntimeError):
+    """Raised when a valid pointer's subtree never finishes loading within the timeout.
 
+    The editor's tree loads lazily and per-subtree: window.appquery answering says nothing
+    about whether *this* pointer's node has arrived yet. This is distinct from
+    ``EditorNotReady`` (the editor itself never came up) and from a ``pointer_not_found``
+    result (something was actually read and turned out absent) - here, nothing was ever read
+    because the subtree kept throwing NotReadyError until the clock ran out.
+    """
+
+
+def _validate_pointer(pointer: Sequence[str]) -> list[str]:
     segments = [str(part) for part in pointer]
     if not segments:
         raise ValueError(
@@ -70,8 +79,48 @@ def build_appquery_script(pointer: Sequence[str]) -> str:
         )
     if any(not part for part in segments):
         raise ValueError("pointer segments must be non-empty")
+    return segments
+
+
+def build_appquery_script(pointer: Sequence[str]) -> str:
+    """Return the page script that reads the node at ``pointer`` out of editor memory."""
+
+    segments = _validate_pointer(pointer)
     chain = "".join(f"._child({json.dumps(part)})" for part in segments)
     return f"() => window.appquery.app().json{chain}.raw()"
+
+
+def build_pointer_ready_script(pointer: Sequence[str]) -> str:
+    """Return the page script that reports whether the node at ``pointer`` has finished loading.
+
+    The editor's tree loads lazily, so ``window.appquery`` answering says nothing about whether
+    this particular subtree has arrived. Only a NotReadyError means "keep waiting": any other
+    failure is left for the read itself to report, so a genuinely broken pointer surfaces its
+    real error instead of timing out here.
+    """
+
+    segments = _validate_pointer(pointer)
+    walk = "\n".join(
+        "    node = node._child(%s);\n"
+        "    try { if (node && typeof node.ensure_loading === 'function') node.ensure_loading(); } "
+        "catch (primeError) {}" % json.dumps(part)
+        for part in segments
+    )
+    return f"""
+() => {{
+  try {{
+    let node = window.appquery.app().json;
+{walk}
+    node.raw();
+    return true;
+  }} catch (error) {{
+    const isNotReady = Boolean(
+      error && (error.name === 'NotReadyError' || String(error.message || '').indexOf('NotReady') !== -1)
+    );
+    return !isNotReady;
+  }}
+}}
+"""
 
 
 def _resolve_app_id(profile: str, app_id: str | None) -> str:
@@ -86,7 +135,13 @@ def _resolve_app_id(profile: str, app_id: str | None) -> str:
 
 
 def _playwright_evaluator(
-    *, profile: str, app_id: str, app_version: str, headless: bool, timeout_sec: int
+    *,
+    profile: str,
+    app_id: str,
+    app_version: str,
+    headless: bool,
+    timeout_sec: int,
+    ready_script: str,
 ) -> Evaluator:
     """Return an evaluator that runs one script in the editor page for this app."""
 
@@ -139,6 +194,12 @@ def _playwright_evaluator(
                     raise EditorNotReady(
                         f"window.appquery never appeared on {url} within {timeout_sec}s"
                     ) from exc
+                try:
+                    page.wait_for_function(ready_script, timeout=timeout_ms)
+                except Exception as exc:  # noqa: BLE001 - Playwright raises its own timeout type
+                    raise PointerNotReady(
+                        f"pointer subtree never finished loading on {url} within {timeout_sec}s"
+                    ) from exc
                 return page.evaluate(script)
             finally:
                 context.close()
@@ -160,6 +221,7 @@ def read_live_node(
 
     segments = [str(part) for part in pointer]
     script = build_appquery_script(segments)
+    ready_script = build_pointer_ready_script(segments)
     resolved_app_id = _resolve_app_id(profile, app_id)
     run = evaluator or _playwright_evaluator(
         profile=profile,
@@ -167,6 +229,7 @@ def read_live_node(
         app_version=app_version,
         headless=headless,
         timeout_sec=timeout_sec,
+        ready_script=ready_script,
     )
     try:
         node = run(script)
@@ -174,6 +237,16 @@ def read_live_node(
         return {"ok": False, "error": "playwright_missing", "pointer": segments, "message": str(exc)}
     except EditorNotReady as exc:
         return {"ok": False, "error": "editor_not_ready", "pointer": segments, "message": str(exc)}
+    except PointerNotReady as exc:
+        return {
+            "ok": False,
+            "error": "pointer_not_ready",
+            "pointer": segments,
+            "message": (
+                f"Pointer '{'.'.join(segments)}' never finished loading within {timeout_sec}s: "
+                f"its subtree kept reporting NotReadyError. {exc}"
+            ),
+        }
     except BrowserProfileMissing as exc:
         return {
             "ok": False,

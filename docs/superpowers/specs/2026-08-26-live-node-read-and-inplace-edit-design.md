@@ -102,6 +102,29 @@ decoded form for exactly this reason.
   navigation", or the getter error above at `https://bubble.io/` instead of the editor URL)
   read like unrelated bugs. A mismatch raises `NotLoggedIn`, reported as `not_logged_in`.
 - The evaluator is a parameter so tests supply a fake and never launch a browser.
+- The editor's app tree loads lazily and progressively: `window.appquery` answering says
+  nothing about whether any particular subtree has arrived. Measured on the live editor, the
+  same pointer's `._child_names()` threw `NotReadyError` right after the appquery gate passed
+  (Workflow-tab load) and then worked once the Design tab had loaded. So readiness is
+  pointer-scoped, not app-wide: the wait is two-stage. First, the cheap app-wide gate —
+  `APPQUERY_READY_SCRIPT` — must pass, since it is what makes the pointer walk possible at
+  all. Second, `build_pointer_ready_script(pointer)` walks the same chain the read itself will
+  walk (one `._child(...)` per segment, calling `ensure_loading()` on each node it passes
+  through when that method exists) and reports whether the pointer's own `raw()` can be called
+  yet; `_playwright_evaluator` waits on this second script, after the appquery wait and before
+  evaluating the read script. `raw()` returning `undefined` still counts as ready — an absent
+  node is `pointer_not_found`, the read's business to report, not something to wait for. The
+  script's catch only treats `NotReadyError` as "keep waiting" (matched on the error's `name`
+  and on `message` containing `NotReady`); any other error returns `true`, so a genuinely
+  broken pointer surfaces its real error from the read instead of hanging until the timeout.
+  If the pointer's subtree never reports ready in time, the evaluator raises
+  `PointerNotReady`, reported as `pointer_not_ready` — distinct from `editor_not_ready` (the
+  editor is up) and from `pointer_not_found` (something was actually read and was absent).
+- Pointers must be derived from the *live* tree, via `_child_names()` on the loaded nodes, not
+  from the cached crawler index. Measured against this app, the cached `idToPath` named
+  `%p3.AAW.%wf.bTHDJ`, while the live `%p3` had an entirely different id set with no `AAW` at
+  all. A stale pointer built from the cache reads as `pointer_not_found`, which is a correct
+  result but easy to misread as a tool failure rather than as "the pointer was wrong".
 
 ### `node_edit.py` — the cycle
 
@@ -224,6 +247,7 @@ Every failure is a structured result, not a stack trace:
 | profile has no `browser-profiles/<profile>` directory at all | `ok: false`, `error: "browser_profile_missing"`, naming `bubble_session_login`. A session stored by `bubble_session_import` is valid for writes but never creates this directory; without the check, Playwright creates an empty one, loads a logged-out bubble.io, and fails 90s later as `editor_not_ready`. This check only covers an absent directory — it does not detect a directory that exists but was never logged in |
 | profile directory exists but never logged in (no session cookie; the editor URL redirects off the app id) | `ok: false`, `error: "not_logged_in"`, naming `bubble_session_login` and the profile |
 | editor never becomes ready | `ok: false`, `error: "editor_not_ready"` |
+| pointer's subtree never finishes loading within the timeout (a valid pointer, but that part of the tree has not arrived — the editor loads lazily and progressively) | `ok: false`, `error: "pointer_not_ready"`, naming the pointer and the timeout, saying the subtree never finished loading |
 | pointer does not resolve in the live tree | `ok: false`, `error: "pointer_not_found"`, naming the deepest segment that did resolve |
 | `leaf_pointer` addresses a missing key | `KeyError` from `patch_expression_leaf` — creating the key is how a node ends up rendering `[missing: null]` |
 | `order` drops or invents an action | `ValueError` from `reorder_actions` |

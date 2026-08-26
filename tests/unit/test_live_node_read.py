@@ -12,7 +12,9 @@ import pytest
 from bubble_mcp.execution.live_node_read import (
     APPQUERY_READY_SCRIPT,
     NotLoggedIn,
+    PointerNotReady,
     build_appquery_script,
+    build_pointer_ready_script,
     read_live_node,
 )
 
@@ -56,6 +58,43 @@ def test_appquery_ready_script_is_a_functional_probe_not_a_typeof_race() -> None
     assert "try" in APPQUERY_READY_SCRIPT
     assert "catch" in APPQUERY_READY_SCRIPT
     assert "window.appquery" in APPQUERY_READY_SCRIPT
+
+
+def test_build_pointer_ready_script_chains_one_child_per_segment_and_calls_raw() -> None:
+    script = build_pointer_ready_script(["api", "wf-1", "actions", "3"])
+
+    assert '._child("api")' in script
+    assert '._child("wf-1")' in script
+    assert '._child("actions")' in script
+    assert '._child("3")' in script
+    assert "node.raw();" in script
+
+
+def test_build_pointer_ready_script_primes_the_walk_with_ensure_loading() -> None:
+    script = build_pointer_ready_script(["api", "wf-1"])
+
+    # Each segment's walk step both checks for and calls ensure_loading.
+    assert script.count("ensure_loading") == 2 * 2
+
+
+def test_build_pointer_ready_script_returns_false_only_for_not_ready() -> None:
+    """Regression pin: any other error must return true, or a broken pointer hangs to timeout."""
+
+    script = build_pointer_ready_script(["api"])
+
+    assert "NotReady" in script
+    assert "isNotReady" in script
+    assert "return !isNotReady;" in script
+
+
+def test_build_pointer_ready_script_refuses_an_empty_pointer() -> None:
+    with pytest.raises(ValueError, match="at least one child"):
+        build_pointer_ready_script([])
+
+
+def test_build_pointer_ready_script_refuses_an_empty_segment() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        build_pointer_ready_script(["api", ""])
 
 
 def test_read_live_node_returns_the_node_the_page_produced() -> None:
@@ -138,6 +177,28 @@ def test_read_live_node_reports_a_logged_out_profile_as_a_structured_result() ->
     assert result["pointer"] == ["api", "wf-1"]
     assert "bubble_session_login" in result["message"]
     assert "stale" in result["message"]
+
+
+def test_read_live_node_reports_a_pointer_that_never_became_ready_as_a_structured_result() -> None:
+    """A NotReadyError that never clears is neither editor_not_ready (editor is up) nor
+
+    pointer_not_found (nothing was read) - it needs its own actionable error.
+    """
+
+    def raising_evaluator(_script: str) -> Any:
+        raise PointerNotReady(
+            "pointer subtree never finished loading on https://bubble.io/page?... within 90s"
+        )
+
+    result = read_live_node(
+        "mcp-test", ["api", "wf-1"], evaluator=raising_evaluator, app_id="mcp-test-app"
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "pointer_not_ready"
+    assert result["pointer"] == ["api", "wf-1"]
+    assert "api.wf-1" in result["message"]
+    assert "90" in result["message"]
 
 
 def _fake_playwright(monkeypatch) -> None:  # type: ignore[no-untyped-def]
