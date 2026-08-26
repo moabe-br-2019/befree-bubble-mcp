@@ -510,6 +510,48 @@ def test_the_guard_leaves_the_expression_interior_alone() -> None:
     assert changes[0]["body"]["%p"]["to_change"]["type"] == "APIEventParameter"
 
 
+def test_the_guard_refuses_a_decoded_node_wrapped_inside_a_list() -> None:
+    """`_assert_encoded_container` used to recurse only when the immediate child was a dict, so
+
+    a list - and any decoded node inside it - was skipped entirely. The control case (the same
+    decoded node NOT wrapped in a list) was already correctly refused before this fix; both must
+    be refused.
+    """
+
+    bypassed = {
+        "%x": "CustomEvent",
+        "%p": {},
+        "actions": {"0": [{"type": "SetCustomState", "properties": {"value": 1}}]},
+    }
+    with pytest.raises(ValueError, match="decoded node root"):
+        build_patch_changes(["api", "wf"], bypassed, "sid")
+
+    control = {
+        "%x": "CustomEvent",
+        "%p": {},
+        "actions": {"0": {"type": "SetCustomState", "properties": {}}},
+    }
+    with pytest.raises(ValueError, match="decoded node root"):
+        build_patch_changes(["api", "wf"], control, "sid")
+
+
+def test_the_guard_refuses_a_list_found_directly_at_a_container_key() -> None:
+    """actions/%el/%wf are maps of nodes keyed by index or id, never a bare list; a list found
+
+    directly at one of those keys must be refused with a clear error rather than silently
+    walked (and therefore silently skipped, the same failure mode as the list-wrapped-node
+    bypass, just one level shallower).
+    """
+
+    node = {
+        "%x": "CustomEvent",
+        "%p": {},
+        "actions": [{"type": "SetCustomState", "properties": {"value": 1}}],
+    }
+    with pytest.raises(ValueError, match="list"):
+        build_patch_changes(["api", "wf"], node, "sid")
+
+
 def test_reorder_refuses_an_action_with_no_id_instead_of_skipping_its_index() -> None:
     reader = _Reader(
         {

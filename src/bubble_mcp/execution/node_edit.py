@@ -98,15 +98,41 @@ def _assert_encoded_node(node: dict[str, Any], path: tuple[str, ...]) -> None:
             "at a single action node instead of a container."
         )
     for key in _CONTAINER_KEYS:
-        child = node.get(key)
+        if key not in node:
+            continue
+        child = node[key]
+        if isinstance(child, list):
+            # actions/%el/%wf are maps of nodes keyed by index or id, never a bare list; a list
+            # here cannot be walked the way a map's items can, and silently skipping it is
+            # exactly how a decoded node smuggled in this shape bypassed the guard before.
+            where = ".".join((*path, key))
+            raise ValueError(
+                f"change body at '{where}' carries a list where a map of nodes was expected "
+                f"(container key '{key}'); actions/%el/%wf must be keyed maps, not lists."
+            )
         if isinstance(child, dict):
             _assert_encoded_container(child, (*path, key))
 
 
 def _assert_encoded_container(container: dict[str, Any], path: tuple[str, ...]) -> None:
     for key, child in container.items():
-        if isinstance(child, dict):
-            _assert_encoded_node(child, (*path, str(key)))
+        _assert_encoded_container_value(child, (*path, str(key)))
+
+
+def _assert_encoded_container_value(value: Any, path: tuple[str, ...]) -> None:
+    """Walk one container entry, which may be a node, or a list wrapping one or more nodes.
+
+    A decoded node root must be caught wherever it sits, not only when it is the immediate
+    dict value of a container key - `actions.0` on some action shapes is itself a list of
+    sub-actions, and a decoded node one level inside that list must not be able to hide behind
+    the list the way it used to (the guard only ever checked `isinstance(child, dict)`).
+    """
+
+    if isinstance(value, dict):
+        _assert_encoded_node(value, path)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _assert_encoded_container_value(item, (*path, str(index)))
 
 
 def _guard_changes(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:

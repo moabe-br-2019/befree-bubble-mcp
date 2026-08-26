@@ -144,14 +144,46 @@ def test_index_changes_are_skipped_and_not_counted() -> None:
     assert result["verified"] is True
 
 
-def test_null_body_change_is_skipped_unless_it_is_a_delete() -> None:
-    reader = FakeReader({})
+def test_null_body_setdata_is_verified_against_a_matching_null_reread() -> None:
+    """A None body on a non-delete intent (SetData writing a deliberate null - a real producer
 
-    changes = [_set_data(["api", "wf-1", "actions", "0", "%p", "%ei"], None)]
+    is scheduled_deploy.py:419) must remain comparable rather than skipped: classification as a
+    delete depends on the intent name alone, never on the body being None. Here the re-read
+    confirms the null landed, so the write verifies clean.
+    """
+
+    parent_pointer = ("api", "wf-1", "actions", "0", "%p")
+    reader = FakeReader({parent_pointer: _ok({"%ei": None})})
+
+    changes = [_set_data([*parent_pointer, "%ei"], None)]
     result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=reader)
 
-    assert result["checked"] == 0
-    assert reader.calls == []
+    assert result["checked"] == 1
+    assert reader.calls == [[parent_pointer]]
+    assert result["verified"] is True
+    assert result["divergences"] == []
+
+
+def test_null_setdata_body_catches_a_write_bubble_ignored() -> None:
+    """Before the fix, `_plan_change` returned None for any non-delete change whose body was
+
+    None, so a deliberate null write was invisible: nothing was read and the write was reported
+    verified even if Bubble ignored it entirely. Here the re-read shows the old value is still
+    there, so this must now be reported as a divergence, not silently verified.
+    """
+
+    parent_pointer = ("settings",)
+    reader = FakeReader({parent_pointer: _ok({"some_property": "still-here"})})
+
+    changes = [_set_data(["settings", "some_property"], None)]
+    result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=reader)
+
+    assert result["checked"] == 1
+    assert reader.calls == [[parent_pointer]]
+    assert result["verified"] is False
+    assert len(result["divergences"]) == 1
+    assert result["divergences"][0]["expected"] is None
+    assert result["divergences"][0]["actual"] == "still-here"
 
 
 def test_delete_whose_path_still_reads_back_is_a_divergence() -> None:
@@ -320,6 +352,47 @@ def test_a_later_write_at_the_same_pointer_wins_over_an_earlier_one() -> None:
     assert result["divergences"] == []
 
 
+# --- D1: a delete superseded by a later write in the same payload is not a false divergence ---
+
+
+def test_a_delete_superseded_by_a_later_write_in_the_same_payload_is_not_a_divergence() -> None:
+    """The replay already builds the right final state ({"child": {"value": 2}}), but the old
+
+    delete branch ignored it and unconditionally demanded absence. Whichever operation governs
+    a pointer at the END of the replay is what gets verified: here that is the SetData, not the
+    RemoveElement it superseded.
+    """
+
+    create_pointer = ("root", "node")
+    child_pointer = ("root", "node", "child")
+    final_child_state = {"value": 2}
+    reader = FakeReader(
+        {
+            create_pointer: _ok({"child": final_child_state}),
+            child_pointer: _ok(final_child_state),
+        }
+    )
+
+    changes = [
+        _create_action(list(create_pointer), {"child": {"old": 1}}),
+        {
+            "intent": {"name": "RemoveElement"},
+            "path_array": list(child_pointer),
+            "body": None,
+            "version_control_api_version": 4,
+            "changelog_data": [],
+            "session_id": "sess-1",
+        },
+        _set_data([*child_pointer, "value"], 2),
+    ]
+    result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=reader)
+
+    assert result["checked"] == 3
+    assert result["divergences"] == []
+    assert result["unverified"] == []
+    assert result["verified"] is True
+
+
 # --- I2: a missing node under a node-kind plan is a divergence, not "could not check" ---------
 
 
@@ -337,16 +410,25 @@ def test_pointer_not_found_for_a_node_kind_plan_is_a_divergence() -> None:
     assert result["verified"] is False
 
 
-def test_pointer_not_found_for_a_leaf_kind_plan_stays_unverified() -> None:
+def test_pointer_not_found_for_a_leaf_kind_plan_is_a_divergence() -> None:
+    """Measured against the live editor: %p and its children ARE addressable through appquery's
+
+    `_child()` walk (%p3.AAW.%wf.bTHDJ.actions.0.%p.new_password -> ok, dict), so
+    pointer_not_found on a leaf's parent proves genuine absence, not "cannot address" - it must
+    be a divergence, the same as it already is for a node-kind plan.
+    """
+
     parent_pointer = ("api", "wf-1", "actions", "0", "%p")
     reader = FakeReader({parent_pointer: _not_found(parent_pointer)})
 
     changes = [_set_data([*parent_pointer, "%ei"], "bS35G")]
     result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=reader)
 
-    assert result["divergences"] == []
-    assert len(result["unverified"]) == 1
-    assert result["unverified"][0]["error"] == "pointer_not_found"
+    assert result["unverified"] == []
+    assert len(result["divergences"]) == 1
+    assert result["divergences"][0]["expected"] == "bS35G"
+    assert result["divergences"][0]["actual"] == "absent"
+    assert result["verified"] is False
 
 
 # --- I1: a redacted body is reported unverified, never a divergence against "[REDACTED]" ------

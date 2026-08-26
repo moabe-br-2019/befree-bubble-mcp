@@ -102,10 +102,10 @@ def _plan_change(change: dict[str, Any]) -> dict[str, Any] | None:
 
     body = change.get("body")
     is_delete = _is_delete_intent(change)
-    if body is None and not is_delete:
-        # A null body outside a Delete intent carries nothing to compare against - skip it
-        # rather than manufacture a false divergence against "nothing was sent".
-        return None
+    # Classification is intent-name-only, never body-shape: a non-delete change whose body is
+    # None (a deliberate null write - scheduled_deploy.py:419, merge flows) must stay comparable
+    # so a re-read that finds the old value still there (Bubble ignored the write) is caught,
+    # not silently reported as verified against "nothing to compare".
 
     dotted = ".".join(segments)
     if is_delete:
@@ -293,46 +293,89 @@ def verify_changes(
             continue
 
         if kind == "delete":
-            if result.get("ok"):
+            # A later change in the SAME payload may write back under this pointer (e.g. a
+            # RemoveElement followed by a SetData that recreates the parent as a dict and fills
+            # a key under it) - the replay tree is what governs the pointer at the END of the
+            # payload, so check there first. When nothing later claims this pointer, the delete
+            # is still what governs it and absence is what verification demands.
+            found, expected = _lookup_expected(expected_tree, plan["pointer"])
+            if not found:
+                if result.get("ok"):
+                    divergences.append(
+                        {
+                            "path": plan["path"],
+                            "divergence": "<root>",
+                            "expected": "absent",
+                            "actual": result.get("node"),
+                        }
+                    )
+                elif result.get("error") == "pointer_not_found":
+                    pass  # exactly the pass condition for a Delete: the path is gone
+                else:
+                    unverified.append(
+                        {
+                            "path": plan["path"],
+                            "error": result.get("error") or "unverified",
+                            "message": result.get("message") or "",
+                        }
+                    )
+                continue
+            # Superseded: a later write in this payload governs this pointer now, so verify it
+            # the same way a node-kind plan would - against what SHOULD be there, not absence.
+            if not result.get("ok"):
+                error = str(result.get("error") or "unverified")
+                if error == "pointer_not_found":
+                    divergences.append(
+                        {
+                            "path": plan["path"],
+                            "divergence": "<root>",
+                            "expected": "present",
+                            "actual": "absent",
+                        }
+                    )
+                else:
+                    unverified.append(
+                        {
+                            "path": plan["path"],
+                            "error": error,
+                            "message": result.get("message") or "",
+                        }
+                    )
+                continue
+            actual = result.get("node")
+            divergence = first_divergence(expected, actual)
+            if divergence is not None:
                 divergences.append(
                     {
                         "path": plan["path"],
-                        "divergence": "<root>",
-                        "expected": "absent",
-                        "actual": result.get("node"),
-                    }
-                )
-            elif result.get("error") == "pointer_not_found":
-                pass  # exactly the pass condition for a Delete: the path is gone
-            else:
-                unverified.append(
-                    {
-                        "path": plan["path"],
-                        "error": result.get("error") or "unverified",
-                        "message": result.get("message") or "",
+                        "divergence": divergence,
+                        "expected": expected,
+                        "actual": actual,
                     }
                 )
             continue
 
         if not result.get("ok"):
             error = str(result.get("error") or "unverified")
-            if kind == "node" and error == "pointer_not_found":
+            if error == "pointer_not_found" and kind in ("node", "leaf"):
                 # For a node-kind plan the write was supposed to land AT this pointer, so a read
                 # that finds nothing here is exactly the orphan-node signal this layer exists to
                 # catch (docs/session-findings-2026-08-26.md section 8) - a divergence, not "we
-                # couldn't check".
+                # couldn't check". For a leaf-kind plan, pointer is the PARENT node; an absent
+                # parent proves the intended leaf does not exist either (measured against the
+                # live editor: %p and its children ARE addressable through appquery's `_child()`
+                # walk, so pointer_not_found means genuine absence, not "cannot address").
                 divergences.append(
                     {
                         "path": plan["path"],
                         "divergence": "<root>",
-                        "expected": "present",
+                        "expected": "present" if kind == "node" else plan["expected"],
                         "actual": "absent",
                     }
                 )
             else:
-                # For a leaf-kind plan, pointer is the PARENT node, not the leaf itself. A
-                # pointer_not_found here means the parent could not be read at all, which proves
-                # nothing about the leaf one way or the other - unverified stays correct.
+                # Reserved for failures that produced no semantic read at all - editor_unstable,
+                # not_logged_in, playwright_missing, wrong_app: "we don't know", not "it's wrong".
                 unverified.append(
                     {
                         "path": plan["path"],
