@@ -1,7 +1,13 @@
 # Live Node Read and In-Place Edit Design
 
 **Date:** 2026-08-26
-**Status:** Approved
+**Status:** SUPERSEDED — the encoding rule below is measured wrong. See
+`docs/session-findings-2026-08-26.md`. The design's load-bearing claim, that only the node ROOT
+is translated and the interior travels verbatim, was tested against the live editor and breaks
+the node: the editor also encodes `entries`->`%e`, `next`->`%n`, `name`->`%nm`, and property
+names such as `element_id`->`%ei`. Ground truth pair:
+`tests/fixtures/expressions/action-encoding-pair-golden.json`. Do not implement from this
+document until the encoding section is rewritten from captures.
 
 ## Context
 
