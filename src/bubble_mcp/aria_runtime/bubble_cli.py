@@ -50131,6 +50131,15 @@ class BubbleCLI:
                     if str(row.get("key")) == mapped_key:
                         return row
                 return {"key": mapped_key, "id": str(workflow_ref), "workflow": {}, "type": None, "name": None}
+        # Explicit key-only fallback (non-empty rows). `kind == "key"` means the
+        # caller is asserting the key, not asking discovery to find it — e.g. a
+        # composite create_event preview resolving its own just-previewed
+        # workflow on a context that already has other workflows, where the
+        # dry-run cache gate correctly keeps that preview out of `rows`. Mirrors
+        # the empty-rows fallback above. Deliberately excluded from "auto" so a
+        # genuine typo in an auto lookup still fails.
+        if kind == "key" and workflow_ref:
+            return {"key": str(workflow_ref), "id": str(workflow_ref), "workflow": {}, "type": None, "name": None}
         return None
 
     def _upsert_workflow_in_discovery(
