@@ -14,9 +14,11 @@ from bubble_mcp.execution.live_node_read import (
     EditorUnstable,
     NotLoggedIn,
     PointerNotReady,
+    WrongApp,
     build_appquery_script,
     build_pointer_ready_script,
     is_transient_editor_error,
+    parse_cookie_header,
     read_live_node,
 )
 
@@ -24,10 +26,26 @@ from bubble_mcp.execution.live_node_read import (
 def test_build_appquery_script_chains_one_child_per_pointer_segment() -> None:
     script = build_appquery_script(["api", "wf-1", "actions", "3"])
 
-    assert script == (
-        '() => window.appquery.app().json._child("api")._child("wf-1")'
-        '._child("actions")._child("3").raw()'
-    )
+    assert '._child("api")' in script
+    assert '._child("wf-1")' in script
+    assert '._child("actions")' in script
+    assert '._child("3")' in script
+    assert ".raw()" in script
+
+
+def test_build_appquery_script_requests_appname_and_app_version_alongside_the_node() -> None:
+    """Regression pin: identity must be read in the SAME evaluation as the node, to close the
+
+    redirect race (the editor loads the requested app, then redirects to https://bubble.io/ on
+    a timer, where window.appquery serves Bubble's own internal `meta` app instead). A separate
+    identity check, in a second page.evaluate call, would still straddle that redirect.
+    """
+
+    script = build_appquery_script(["api", "wf-1"])
+
+    assert script.count("=>") == 1
+    assert "root.appname()" in script
+    assert "root.app_version()" in script
 
 
 def test_build_appquery_script_refuses_an_empty_pointer() -> None:
@@ -63,7 +81,7 @@ def test_appquery_ready_script_is_a_functional_probe_not_a_typeof_race() -> None
 
 
 def test_build_pointer_ready_script_chains_one_child_per_segment_and_calls_raw() -> None:
-    script = build_pointer_ready_script(["api", "wf-1", "actions", "3"])
+    script = build_pointer_ready_script(["api", "wf-1", "actions", "3"], "mcp-test-app")
 
     assert '._child("api")' in script
     assert '._child("wf-1")' in script
@@ -72,8 +90,23 @@ def test_build_pointer_ready_script_chains_one_child_per_segment_and_calls_raw()
     assert "node.raw();" in script
 
 
+def test_build_pointer_ready_script_emits_the_appname_comparison() -> None:
+    """Regression pin: the readiness gate must be app-aware, not just tree-aware.
+
+    Otherwise the retry loop happily settles for a subtree that is ready in the WRONG app -
+    the editor's post-redirect `meta` app is perfectly "ready", just not the app that was
+    asked for.
+    """
+
+    script = build_pointer_ready_script(["api"], "mcp-test-app")
+
+    assert "root.appname()" in script
+    assert '"mcp-test-app"' in script
+    assert "return false" in script
+
+
 def test_build_pointer_ready_script_primes_the_walk_with_ensure_loading() -> None:
-    script = build_pointer_ready_script(["api", "wf-1"])
+    script = build_pointer_ready_script(["api", "wf-1"], "mcp-test-app")
 
     # Each segment's walk step both checks for and calls ensure_loading.
     assert script.count("ensure_loading") == 2 * 2
@@ -82,7 +115,7 @@ def test_build_pointer_ready_script_primes_the_walk_with_ensure_loading() -> Non
 def test_build_pointer_ready_script_returns_false_only_for_not_ready() -> None:
     """Regression pin: any other error must return true, or a broken pointer hangs to timeout."""
 
-    script = build_pointer_ready_script(["api"])
+    script = build_pointer_ready_script(["api"], "mcp-test-app")
 
     assert "NotReady" in script
     assert "isNotReady" in script
@@ -97,7 +130,7 @@ def test_build_pointer_ready_script_detects_not_ready_via_not_ready_key() -> Non
     stable data field rather than a class name a minifier could rename).
     """
 
-    script = build_pointer_ready_script(["api"])
+    script = build_pointer_ready_script(["api"], "mcp-test-app")
 
     assert "'not_ready_key' in error" in script
 
@@ -105,7 +138,7 @@ def test_build_pointer_ready_script_detects_not_ready_via_not_ready_key() -> Non
 def test_build_pointer_ready_script_detects_not_ready_via_constructor_name() -> None:
     """Regression pin: constructor.name === 'NotReadyError' is the fallback check."""
 
-    script = build_pointer_ready_script(["api"])
+    script = build_pointer_ready_script(["api"], "mcp-test-app")
 
     assert "error.constructor" in script
     assert "'NotReadyError'" in script
@@ -119,7 +152,7 @@ def test_build_pointer_ready_script_does_not_rely_on_name_message_or_string_matc
     form is entirely absent so this defect cannot come back via a "simplification".
     """
 
-    script = build_pointer_ready_script(["api"])
+    script = build_pointer_ready_script(["api"], "mcp-test-app")
 
     assert "error.name" not in script
     assert "error.message" not in script
@@ -129,12 +162,12 @@ def test_build_pointer_ready_script_does_not_rely_on_name_message_or_string_matc
 
 def test_build_pointer_ready_script_refuses_an_empty_pointer() -> None:
     with pytest.raises(ValueError, match="at least one child"):
-        build_pointer_ready_script([])
+        build_pointer_ready_script([], "mcp-test-app")
 
 
 def test_build_pointer_ready_script_refuses_an_empty_segment() -> None:
     with pytest.raises(ValueError, match="non-empty"):
-        build_pointer_ready_script(["api", ""])
+        build_pointer_ready_script(["api", ""], "mcp-test-app")
 
 
 def test_read_live_node_returns_the_node_the_page_produced() -> None:
@@ -142,7 +175,11 @@ def test_read_live_node_returns_the_node_the_page_produced() -> None:
 
     def fake_evaluator(script: str) -> Any:
         captured["script"] = script
-        return {"id": "act-1", "type": "ChangeThing", "properties": {}}
+        return {
+            "appname": "mcp-test-app",
+            "app_version": "test",
+            "node": {"id": "act-1", "type": "ChangeThing", "properties": {}},
+        }
 
     result = read_live_node(
         "mcp-test", ["api", "wf-1"], evaluator=fake_evaluator, app_id="mcp-test-app"
@@ -153,6 +190,77 @@ def test_read_live_node_returns_the_node_the_page_produced() -> None:
     assert result["pointer"] == ["api", "wf-1"]
     assert result["app_id"] == "mcp-test-app"
     assert captured["script"] == build_appquery_script(["api", "wf-1"])
+
+
+def test_read_live_node_reports_a_mismatched_appname_as_wrong_app() -> None:
+    """The editor page redirects to https://bubble.io/ on a timer after loading the requested
+
+    app; the tree then belongs to whatever app window.appquery serves there. A read whose
+    envelope names a different app than requested must be refused, not unwrapped.
+    """
+
+    def fake_evaluator(_script: str) -> Any:
+        return {
+            "appname": "some-other-app",
+            "app_version": "test",
+            "node": {"id": "act-1", "type": "ChangeThing", "properties": {}},
+        }
+
+    result = read_live_node(
+        "mcp-test", ["api", "wf-1"], evaluator=fake_evaluator, app_id="mcp-test-app"
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "wrong_app"
+    assert result["pointer"] == ["api", "wf-1"]
+    assert "mcp-test-app" in result["message"]
+    assert "some-other-app" in result["message"]
+
+
+def test_read_live_node_reports_a_mismatched_app_version_as_wrong_app() -> None:
+    def fake_evaluator(_script: str) -> Any:
+        return {
+            "appname": "mcp-test-app",
+            "app_version": "live",
+            "node": {"id": "act-1", "type": "ChangeThing", "properties": {}},
+        }
+
+    result = read_live_node(
+        "mcp-test",
+        ["api", "wf-1"],
+        evaluator=fake_evaluator,
+        app_id="mcp-test-app",
+        app_version="test",
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "wrong_app"
+    assert "test" in result["message"]
+    assert "live" in result["message"]
+
+
+def test_read_live_node_names_meta_as_the_observed_real_world_wrong_app() -> None:
+    """Regression pin: measured on the live editor, the app the editor redirects to is
+
+    Bubble's own internal `meta` app in `live` - not a made-up placeholder. This is just the
+    mismatch case, but pin the real value so a future reader recognizes it on sight.
+    """
+
+    def fake_evaluator(_script: str) -> Any:
+        return {
+            "appname": "meta",
+            "app_version": "live",
+            "node": {"id": "act-1", "type": "ChangeThing", "properties": {}},
+        }
+
+    result = read_live_node(
+        "mcp-test", ["api", "wf-1"], evaluator=fake_evaluator, app_id="mcp-test-app"
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "wrong_app"
+    assert "meta" in result["message"]
+    assert "mcp-test-app" in result["message"]
 
 
 def test_read_live_node_reports_a_pointer_that_did_not_resolve() -> None:
@@ -192,6 +300,31 @@ def test_read_live_node_reports_an_evaluator_failure_as_a_structured_result() ->
     assert result["error"] == "evaluator_failed"
     assert result["pointer"] == ["api", "nope", "x"]
     assert result["message"] == "RuntimeError: page closed"
+
+
+def test_read_live_node_reports_a_raised_wrong_app_as_a_structured_result() -> None:
+    """_playwright_evaluator raises WrongApp directly when the retry loop exhausts every
+
+    attempt still reading the wrong app's identity - this must surface as wrong_app, not get
+    folded into the generic evaluator_failed catch-all.
+    """
+
+    def raising_evaluator(_script: str) -> Any:
+        raise WrongApp(
+            expected_app_id="mcp-test-app",
+            expected_app_version="test",
+            actual_app_id="meta",
+            actual_app_version="live",
+        )
+
+    result = read_live_node(
+        "mcp-test", ["api", "wf-1"], evaluator=raising_evaluator, app_id="mcp-test-app"
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "wrong_app"
+    assert "mcp-test-app" in result["message"]
+    assert "meta" in result["message"]
 
 
 def test_read_live_node_reports_a_logged_out_profile_as_a_structured_result() -> None:
@@ -351,3 +484,73 @@ def test_read_live_node_reports_an_unstable_editor_as_a_structured_result() -> N
     assert result["pointer"] == ["api", "wf-1"]
     assert "kept reinitializing" in result["message"]
     assert "3" in result["message"]
+
+
+def test_is_transient_editor_error_matches_navigated_away() -> None:
+    """A wrong-app identity mismatch is treated as transient for retry purposes, so the
+
+    3-attempt loop gets another chance at the window before giving up.
+    """
+
+    assert is_transient_editor_error("WrongApp: ... the editor page had navigated away ...") is True
+
+
+def test_wrong_app_message_is_classified_as_a_transient_editor_error() -> None:
+    """Regression pin: WrongApp's own message text must match the transient marker used to
+
+    retry it, or the retry loop would never give it another chance.
+    """
+
+    exc = WrongApp(
+        expected_app_id="mcp-test-app",
+        expected_app_version="test",
+        actual_app_id="meta",
+        actual_app_version="live",
+    )
+
+    assert is_transient_editor_error(str(exc)) is True
+
+
+def test_parse_cookie_header_splits_and_trims_multiple_pairs() -> None:
+    cookies = parse_cookie_header(" a=1 ; b=2 ")
+
+    assert {"name": "a", "value": "1", "domain": ".bubble.io", "path": "/"} in cookies
+    assert {"name": "b", "value": "2", "domain": ".bubble.io", "path": "/"} in cookies
+    assert len(cookies) == 2
+
+
+def test_parse_cookie_header_ignores_a_fragment_without_equals() -> None:
+    cookies = parse_cookie_header("a=1; garbage; b=2")
+
+    names = [cookie["name"] for cookie in cookies]
+    assert names == ["a", "b"]
+
+
+def test_parse_cookie_header_splits_on_the_first_equals_only() -> None:
+    """Regression pin: signature cookies like `meta_live_u2main.sig` legitimately contain '='
+
+    inside the value, so splitting on every '=' would truncate them.
+    """
+
+    cookies = parse_cookie_header("meta_live_u2main.sig=abc=def==")
+
+    assert cookies == [
+        {
+            "name": "meta_live_u2main.sig",
+            "value": "abc=def==",
+            "domain": ".bubble.io",
+            "path": "/",
+        }
+    ]
+
+
+def test_parse_cookie_header_returns_bubble_io_domain_and_root_path() -> None:
+    cookies = parse_cookie_header("a=1")
+
+    assert cookies[0]["domain"] == ".bubble.io"
+    assert cookies[0]["path"] == "/"
+
+
+@pytest.mark.parametrize("raw", ["", "   "])
+def test_parse_cookie_header_returns_empty_list_for_blank_input(raw: str) -> None:
+    assert parse_cookie_header(raw) == []

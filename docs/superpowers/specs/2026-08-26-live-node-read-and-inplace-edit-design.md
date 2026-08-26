@@ -75,12 +75,18 @@ decoded form for exactly this reason.
 
 ### `live_node_read.py` — the read
 
-- `build_appquery_script(pointer)` is pure: `["api", "<wf_id>"]` becomes
-  `window.appquery.app().json._child('api')._child('<wf_id>').raw()`. An empty pointer
-  raises — `app.raw()` on the root is blocked by Bubble itself "for performance reasons".
-  Pointer segments are JSON-escaped into the script.
+- `build_appquery_script(pointer)` is pure: `["api", "<wf_id>"]` becomes a script that reads
+  `window.appquery.app().json._child('api')._child('<wf_id>')` AND the app it came from, in
+  one atomic evaluation: `() => { const root = window.appquery.app().json; const node =
+  root._child('api')._child('<wf_id>'); return {appname: root.appname(), app_version:
+  root.app_version(), node: node ? node.raw() : node}; }`. An empty pointer raises — `app.raw()`
+  on the root is blocked by Bubble itself "for performance reasons". Pointer segments are
+  JSON-escaped into the script. See "Identity is verified in the same evaluation as the read"
+  below for why the identity is folded into this one script instead of a second `page.evaluate`.
 - `read_live_node(profile, pointer, *, evaluator=None, app_id=None, headless=True,
-  timeout_sec=...)` returns `{"ok": True, "pointer": [...], "node": {...}}`.
+  timeout_sec=...)` returns `{"ok": True, "pointer": [...], "node": {...}, "app_id": ...}` once
+  it has confirmed the envelope's `appname`/`app_version` match what was requested; otherwise
+  `{"ok": False, "error": "wrong_app", ...}` (see the Error Taxonomy).
 - The default evaluator uses `playwright.sync_api.sync_playwright` with
   `launch_persistent_context(settings.config_dir / "browser-profiles" / profile)`, the same
   pattern already in production in `browser_automation/scheduled_deploy.py`. Readiness is
@@ -93,6 +99,28 @@ decoded form for exactly this reason.
   call all the way through to `.json` so it stays `false` until the editor can actually serve
   it, and the try/catch is load-bearing: without it, the getter's exception propagates out of
   `wait_for_function` and fails the wait instead of letting it keep polling.
+- **The context is seeded from the stored session's cookies, not from whatever the
+  browser-profile directory already holds.** Root cause of the wrong-app read documented below:
+  `_playwright_evaluator` used to trust the persistent-context directory's own cookies, and a
+  directory can be partially authenticated — logged in to Bubble's own `meta` app in `live`
+  without ever having a valid cookie for the requested app. Measured on this machine, the
+  profile directory's bubble.io cookies were `_ga`, `_ga_BFPVR2DEE2`, `_tt_enable_cookie`,
+  `ajs_user_id`, `meta-firebase_workflow`, `meta_live_u2main`, `meta_live_u2main.sig` — the
+  stored session's `Cookie` header carried all of those plus `meta_u1main` and 20 others. That
+  partial authentication is exactly why the editor served a *working* `meta` app instead of a
+  login page: the `page.url` app-id check (below) never fires, because nothing about the load
+  looks broken from that check's point of view. The fix: before `page.goto`, the evaluator
+  loads the session via `load_session(profile)` (already used for `_resolve_app_id`), reads its
+  `Cookie` header case-insensitively (`_session_cookie_header`), parses it with
+  `parse_cookie_header` — split on `;`, trim whitespace, skip any fragment without `=`, split
+  each fragment on the FIRST `=` only since signature cookies like `meta_live_u2main.sig`
+  legitimately contain `=` inside the value — and adds the results via `context.add_cookies(...)`
+  with `domain=".bubble.io"`, `path="/"`. Proof, same URL and profile, cookie injection the only
+  variable: without it, `appname="mcp-test-app"` at t=0s degrades to `appname="meta"` at t=3s
+  (`url` now `https://bubble.io/`); with it, `appname="mcp-test-app"`, `version="test"` holds
+  unchanged through t=21s. A missing session, or one with no cookie header, is not raised here —
+  navigation proceeds and the existing `not_logged_in` / `wrong_app` checks report it at the
+  layer that already owns that message, rather than adding a second, competing one.
 - After `page.goto`, the evaluator checks that the app id is still present in `page.url` before
   waiting on readiness. A profile directory that exists but never logged in (Chrome creates the
   directory shell on first launch, before any session cookie is written into it) gets
@@ -100,7 +128,47 @@ decoded form for exactly this reason.
   out of the URL; this is the reliable, cheap signal, since the alternative failures
   (`evaluator_failed` for "Execution context was destroyed, most likely because of a
   navigation", or the getter error above at `https://bubble.io/` instead of the editor URL)
-  read like unrelated bugs. A mismatch raises `NotLoggedIn`, reported as `not_logged_in`.
+  read like unrelated bugs. A mismatch raises `NotLoggedIn`, reported as `not_logged_in`. This
+  check is necessary but not sufficient: it only catches a profile with *no* valid cookie for
+  any app, not one (see above) with a valid cookie for the *wrong* app, which keeps `app_id` out
+  of the URL entirely and reads as a normal-looking load.
+- **Identity is verified in the same evaluation as the read, to close the redirect race.**
+  Measured on the live editor, the requested app is not stable: it loads correctly, then the
+  page redirects to `https://bubble.io/` on a timer.
+  ```
+  t= 0s  url=https://bubble.io/page?id=mcp-test-app&...   appname="mcp-test-app"  version="test"
+  t= 3s  url=https://bubble.io/                            appname="meta"          version="live"
+  ```
+  At `https://bubble.io/`, `window.appquery` serves Bubble's own internal `meta` app, not the
+  requested one. Both readiness gates can pass while the correct app is still loaded — they say
+  nothing about which app answers by the time the read script actually runs — so a check placed
+  before or after the read, as a second `page.evaluate`, would still leave a window for the
+  redirect to land in between the two calls; it narrows the race instead of closing it. This is
+  why `build_appquery_script` reads `root.appname()` and `root.app_version()` in the exact same
+  expression that produces `node.raw()`: one JS call is atomic with respect to the redirect, two
+  calls are not. `read_live_node` compares the envelope's `appname`/`app_version` against the
+  app and version it was asked for and only unwraps `node` when both match; a mismatch is
+  reported as `{"ok": False, "error": "wrong_app", ...}` (`WrongApp` in the raising path), naming
+  both the expected and the actual app/version, and calling out that `meta` specifically means
+  the editor navigated away to Bubble's own dashboard. **A false `verified: true` was actually
+  produced this way before this check existed:** an edit ran with the correct `appname` in the
+  write payload, but the pre-write read and the post-write re-read had both landed after the
+  redirect, so the comparison was decoded-`meta`-tree to decoded-`meta`-tree and reported
+  `verified: true` for a write that had never actually been checked against the target app —
+  the exact failure this design promises never to produce, so the check stays.
+- **The readiness gate is app-aware too, not just tree-aware.** `build_pointer_ready_script`
+  takes the expected `app_id` as a parameter and returns `false` (not ready) when
+  `root.appname()` does not match it, before even attempting to walk the pointer. Without this,
+  the retry loop would happily settle for a subtree that is perfectly "ready" — just in the
+  wrong app, since the `meta` app's own tree loads and answers normally once the redirect has
+  happened.
+- **A wrong-app identity mismatch is treated as transient for retry purposes.** `WrongApp`'s
+  message is matched by `is_transient_editor_error` (via the `"navigated away"` marker), so
+  the bounded 3-attempt loop in `_playwright_evaluator` gives the read another chance rather
+  than failing on the first mismatch. If every attempt still reads the wrong app, the evaluator
+  raises `WrongApp` itself rather than folding it into `EditorUnstable` — `read_live_node` must
+  still surface `wrong_app` specifically, because that names the real problem, and an
+  undifferentiated `editor_unstable` is not actionable in the same way.
 - The evaluator is a parameter so tests supply a fake and never launch a browser.
 - The editor's app tree loads lazily and progressively: `window.appquery` answering says
   nothing about whether any particular subtree has arrived. Measured on the live editor, the
@@ -277,6 +345,15 @@ Manual Validation clears it. Reporting `verified: true` alone would be exactly t
 success this design promised never to report. Destructive-ish: `readOnlyHint` false,
 `openWorldHint` true, and it joins the write-annotated set in `agent_catalog.py`.
 
+A false `verified: true` was not a hypothetical risk: before the same-evaluation identity
+check existed, an edit ran with the correct `appname` in the write payload while both the
+pre-write read and the post-write re-read had landed after the editor's redirect to
+`https://bubble.io/`, so the comparison was decoded-`meta`-tree to decoded-`meta`-tree and
+came back `verified: true` for a write that had never been checked against the target app at
+all — see "Identity is verified in the same evaluation as the read" above. That is the
+strongest argument for keeping the check: it is not a defense against a theoretical failure
+mode, it is a fix for one already observed.
+
 `app_version` is threaded through both reads and into the write payload. Without it the read
 would hard-default to `?version=test` while the write went to the session's version, so a
 branch-configured profile would read `test`, write the branch, and verify against `test`.
@@ -294,6 +371,7 @@ Every failure is a structured result, not a stack trace:
 | editor never becomes ready | `ok: false`, `error: "editor_not_ready"` |
 | pointer's subtree never finishes loading within the timeout (a valid pointer, but that part of the tree has not arrived — the editor loads lazily and progressively) | `ok: false`, `error: "pointer_not_ready"`, naming the pointer and the timeout, saying the subtree never finished loading |
 | the editor page kept reinitializing across every retry attempt (it reloads underneath the session — see above — and every attempt still hit a transient error such as `Missing Lib` or a destroyed execution context) | `ok: false`, `error: "editor_unstable"`, naming the attempt count and the last underlying message, saying the editor page kept reinitializing |
+| the tree read back belongs to a different app or version than requested (the editor page redirected away — most commonly to `https://bubble.io/`, where `window.appquery` serves Bubble's own internal `meta` app instead) | `ok: false`, `error: "wrong_app"`, naming both the expected and the actual app id/version and, when the actual app is `meta`, saying the editor navigated away to Bubble's own dashboard |
 | pointer does not resolve in the live tree | `ok: false`, `error: "pointer_not_found"`, naming the deepest segment that did resolve |
 | `leaf_pointer` addresses a missing key | `KeyError` from `patch_expression_leaf` — creating the key is how a node ends up rendering `[missing: null]` |
 | `order` drops or invents an action | `ValueError` from `reorder_actions` |
