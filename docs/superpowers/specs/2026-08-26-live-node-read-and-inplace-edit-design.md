@@ -95,11 +95,27 @@ decoded form for exactly this reason.
 2. apply exactly one operation, delegating to the untouched primitives in `raw_node_edit.py`
    — `patch_expression_leaf` for `patch`, `reorder_actions` for `reorder`;
 3. `encode_node_root` on each body about to be written;
-4. build the `changes` entries: `path_array` is the pointer plus the leaf address, intent
-   `SetData`, matching the shape `PayloadBuilder.add_change` already produces;
+4. build the `changes` entries, intent `SetData`, matching the shape
+   `PayloadBuilder.add_change` already produces;
 5. `BubbleEditorClient().write(payload, session, dry_run=not execute)`;
 6. when `execute` is true, re-read the same pointer and call `first_divergence(intended,
    actual)`.
+
+**The write granularity is the whole node at `pointer`, never the patched leaf.** Writing the
+leaf directly would put an expression interior in the body at a path containing `actions`,
+which `_is_node_position` classifies as a node position, so `lint_editor_write_changes` would
+reject the decoded interior — correctly by its own rules, and wrongly for this case. Sending
+the whole node keeps exactly one translation point (the root) and leaves the interior where
+the lint does not inspect it. For `patch`, `pointer` therefore addresses the action node
+(`["api", "<wf_id>", "actions", "3"]`) and `leaf_pointer` is relative to it. For `reorder`,
+`pointer` addresses the actions map (`["api", "<wf_id>", "actions"]`) and every action body
+in that map is encoded at its own root.
+
+**A reorder also rewrites the index.** Renumbering moves each action to a new path while
+`_index.id_to_path` still points at the old one. Alongside the `SetData` change, `reorder`
+emits one `Update index` change per action — `path_array` `["_index", "id_to_path",
+"<action_id>"]`, body the dotted new path (`"api.<wf_id>.actions.1"`) — the same pairing
+`bubble_cli` already uses when it writes an action.
 
 **The comparison lives in the decoded key space.** The write encodes the root because the
 endpoint demands it; the re-read comes back decoded, and the intent is compared as it stood
@@ -127,7 +143,7 @@ Returns `{ok, pointer, node, app_id, read_at}`. Read-only: `readOnlyHint` true,
 | arg | required | meaning |
 |---|---|---|
 | `profile` | yes | as above |
-| `pointer` | yes | node being edited |
+| `pointer` | yes | for `patch`, the action node; for `reorder`, the actions map holding it |
 | `op` | yes | `"patch"` or `"reorder"` |
 | `leaf_pointer` | for `patch` | address of the dict to patch, relative to the node |
 | `patch` | for `patch` | object merged into that dict; a value may be a whole subtree |
@@ -169,7 +185,8 @@ Automated, in CI, with no browser and no Bubble session:
   where the re-read matches (`verified: true`), and one where the fake write drops a byte,
   asserting the exact dotted path in `divergence` rather than merely that it failed;
   `execute=false` produces a preview and performs no re-read.
-- `reorder` through the tool, including the refusal that would drop a step.
+- `reorder` through the tool: the refusal that would drop a step, and the `Update index`
+  change emitted per action with its new dotted path.
 - Existing `tests/unit/test_raw_node_edit.py` is untouched.
 
 This machine has 14 unit tests that fail on Windows regardless of this change
