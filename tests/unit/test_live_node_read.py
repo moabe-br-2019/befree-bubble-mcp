@@ -78,3 +78,17 @@ def test_read_live_node_rejects_a_page_value_that_is_not_a_node() -> None:
 
     assert result["ok"] is False
     assert result["error"] == "unexpected_node_shape"
+
+
+def test_read_live_node_reports_an_evaluator_failure_as_a_structured_result() -> None:
+    def raising_evaluator(_script: str) -> Any:
+        raise RuntimeError("page closed")
+
+    result = read_live_node(
+        "mcp-test", ["api", "nope", "x"], evaluator=raising_evaluator, app_id="mcp-test-app"
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "evaluator_failed"
+    assert result["pointer"] == ["api", "nope", "x"]
+    assert result["message"] == "RuntimeError: page closed"

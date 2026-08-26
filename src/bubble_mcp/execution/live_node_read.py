@@ -123,6 +123,13 @@ def read_live_node(
         return {"ok": False, "error": "playwright_missing", "pointer": segments, "message": str(exc)}
     except EditorNotReady as exc:
         return {"ok": False, "error": "editor_not_ready", "pointer": segments, "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001 - any browser failure must reach the caller as a result
+        return {
+            "ok": False,
+            "error": "evaluator_failed",
+            "pointer": segments,
+            "message": f"{type(exc).__name__}: {exc}",
+        }
 
     if node is None:
         return {
