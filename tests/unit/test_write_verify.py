@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from bubble_mcp.execution import write_verify as write_verify_module
 from bubble_mcp.execution.write_verify import verify_changes
+from bubble_mcp.server.tools import _attach_write_verification
 
 
 def _set_data(path_array: list[str], body: Any) -> dict[str, Any]:
@@ -18,7 +20,7 @@ def _set_data(path_array: list[str], body: Any) -> dict[str, Any]:
     }
 
 
-def _create_action(path_array: list[str], body: dict[str, Any]) -> dict[str, Any]:
+def _create_action(path_array: list[str], body: Any) -> dict[str, Any]:
     return {
         "intent": {"name": "CreateAction"},
         "path_array": path_array,
@@ -264,3 +266,300 @@ def test_render_unverified_is_always_present() -> None:
     assert result["render_unverified"] is True
     assert result["checked"] == 0
     assert result["verified"] is True  # nothing to check, vacuously true
+
+
+# --- C1: cumulative-effect verification for two-step (CreateAction + SetData) writes ---------
+
+
+def test_two_step_create_action_then_set_data_verifies_clean_against_cumulative_state() -> None:
+    """Mirrors bubble_cli._build_full_create_action_map: a CreateAction writes the whole actions
+    map with the new action's "%p": None, and a same-payload SetData fills one property. Read
+    back, the FINAL tree has "%p" populated - comparing the CreateAction change against its own
+    stale ("%p": None) body would manufacture a divergence on every such write; this must not.
+    """
+
+    wf_path = ["%p3", "bVVl3", "%wf", "wf1", "actions"]
+    node_pointer = tuple(wf_path)
+    leaf_parent_pointer = (*node_pointer, "0", "%p")
+
+    create_action_body = {"0": {"%x": "ShowElement", "%p": None, "id": "act1"}}
+    final_action_node = {"0": {"%x": "ShowElement", "%p": {"%ei": "bTGyp0"}, "id": "act1"}}
+
+    reader = FakeReader(
+        {
+            node_pointer: _ok(final_action_node),
+            leaf_parent_pointer: _ok({"%ei": "bTGyp0"}),
+        }
+    )
+
+    changes = [
+        _create_action(wf_path, create_action_body),
+        _set_data([*leaf_parent_pointer, "%ei"], "bTGyp0"),
+    ]
+    result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=reader)
+
+    assert result["checked"] == 2
+    assert result["divergences"] == []
+    assert result["unverified"] == []
+    assert result["verified"] is True
+
+
+def test_a_later_write_at_the_same_pointer_wins_over_an_earlier_one() -> None:
+    pointer = ("api", "wf-1", "actions")
+    first_body = {"0": {"id": "act-1", "%x": "First"}}
+    second_body = {"0": {"id": "act-1", "%x": "Second"}}
+    reader = FakeReader({pointer: _ok(second_body)})
+
+    changes = [
+        _create_action(list(pointer), first_body),
+        _create_action(list(pointer), second_body),
+    ]
+    result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=reader)
+
+    assert result["verified"] is True
+    assert result["divergences"] == []
+
+
+# --- I2: a missing node under a node-kind plan is a divergence, not "could not check" ---------
+
+
+def test_pointer_not_found_for_a_node_kind_plan_is_a_divergence() -> None:
+    pointer = ("%p3", "bG4Jl")
+    reader = FakeReader({pointer: _not_found(pointer)})
+
+    changes = [_create_action(list(pointer), {"id": "bG4Jl", "%x": "PageElement"})]
+    result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=reader)
+
+    assert result["unverified"] == []
+    assert len(result["divergences"]) == 1
+    assert result["divergences"][0]["expected"] == "present"
+    assert result["divergences"][0]["actual"] == "absent"
+    assert result["verified"] is False
+
+
+def test_pointer_not_found_for_a_leaf_kind_plan_stays_unverified() -> None:
+    parent_pointer = ("api", "wf-1", "actions", "0", "%p")
+    reader = FakeReader({parent_pointer: _not_found(parent_pointer)})
+
+    changes = [_set_data([*parent_pointer, "%ei"], "bS35G")]
+    result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=reader)
+
+    assert result["divergences"] == []
+    assert len(result["unverified"]) == 1
+    assert result["unverified"][0]["error"] == "pointer_not_found"
+
+
+# --- I1: a redacted body is reported unverified, never a divergence against "[REDACTED]" ------
+
+
+def test_redacted_body_is_unverified_with_reason_redacted_and_never_read() -> None:
+    def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a redacted change has no pointer to read; the reader must not run")
+
+    changes = [_create_action(["settings", "api_tokens", "0"], "[REDACTED]")]
+    result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=_boom)
+
+    assert result["checked"] == 1
+    assert result["divergences"] == []
+    assert len(result["unverified"]) == 1
+    assert result["unverified"][0]["error"] == "redacted"
+    assert result["verified"] is False
+
+
+# --- I3: a RemoveElement/DeleteStyle-shaped intent is treated as a delete ----------------------
+
+
+def test_remove_prefixed_intent_is_treated_as_a_delete_and_counted() -> None:
+    pointer = ("%p3", "bVVl3", "%e", "bXXyy")
+    reader = FakeReader({pointer: _not_found(pointer)})
+
+    changes = [
+        {
+            "intent": {"name": "RemoveElement"},
+            "path_array": list(pointer),
+            "body": None,
+            "version_control_api_version": 4,
+            "changelog_data": [],
+            "session_id": "sess-1",
+        }
+    ]
+    result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=reader)
+
+    assert result["checked"] == 1
+    assert result["verified"] is True
+    assert result["divergences"] == []
+
+
+def test_delete_style_intent_is_treated_as_a_delete() -> None:
+    pointer = ("styles", "st-1")
+    reader = FakeReader({pointer: _ok({"id": "st-1"})})
+
+    changes = [
+        {
+            "intent": {"name": "DeleteStyle"},
+            "path_array": list(pointer),
+            "body": None,
+            "version_control_api_version": 4,
+            "changelog_data": [],
+            "session_id": "sess-1",
+        }
+    ]
+    result = verify_changes("mcp-test", changes, app_id="mcp-test-app", reader=reader)
+
+    assert result["checked"] == 1
+    assert result["verified"] is False
+    assert result["divergences"][0]["expected"] == "absent"
+
+
+# --- I7: the server/tools.py wiring seam ------------------------------------------------------
+
+
+def _write_item(changes: list[dict[str, Any]], *, ok: bool = True, executed: bool = True) -> dict[str, Any]:
+    return {
+        "index": 1,
+        "executed": executed,
+        "ok": ok,
+        "result": {"request": {"payload": {"changes": changes}}},
+    }
+
+
+def test_dry_run_result_attaches_no_verification(monkeypatch: Any) -> None:
+    def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a dry-run result must never trigger a read-back")
+
+    monkeypatch.setattr(write_verify_module, "read_live_nodes", _boom)
+
+    runtime_result = {
+        "executed": False,
+        "app_id": "mcp-test-app",
+        "app_version": "test",
+        "results": [_write_item([_create_action(["api", "wf-1", "actions"], {"0": {"id": "a"}})])],
+    }
+    out = _attach_write_verification(runtime_result, profile="mcp-test", args={})
+
+    assert "write_verification" not in out
+    assert "verification" not in out
+
+
+def test_verify_false_attaches_no_verification(monkeypatch: Any) -> None:
+    def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("verify=false must never trigger a read-back")
+
+    monkeypatch.setattr(write_verify_module, "read_live_nodes", _boom)
+
+    runtime_result = {
+        "executed": True,
+        "app_id": "mcp-test-app",
+        "app_version": "test",
+        "results": [_write_item([_create_action(["api", "wf-1", "actions"], {"0": {"id": "a"}})])],
+    }
+    out = _attach_write_verification(runtime_result, profile="mcp-test", args={"verify": False})
+
+    assert "write_verification" not in out
+    assert "verification" not in out
+
+
+def test_executed_result_attaches_write_verification_and_preserves_existing_verification_key(
+    monkeypatch: Any,
+) -> None:
+    pointer = ("api", "wf-1", "actions")
+    node = {"0": {"id": "a", "%x": "ChangeThing"}}
+    reader = FakeReader({pointer: _ok(node)})
+    monkeypatch.setattr(write_verify_module, "read_live_nodes", reader)
+
+    tool_specific_verification = {
+        "status": "verified",
+        "data_type_key": "custom.thing",
+        "absent_from_fresh_export": True,
+        "source": "fresh-export.json",
+    }
+    runtime_result = {
+        "executed": True,
+        "app_id": "mcp-test-app",
+        "app_version": "test",
+        "verification": tool_specific_verification,
+        "results": [_write_item([_create_action(list(pointer), node)])],
+    }
+    out = _attach_write_verification(runtime_result, profile="mcp-test", args={})
+
+    assert out["verification"] == tool_specific_verification  # untouched
+    assert out["write_verification"]["verified"] is True
+    assert out["write_verification"]["checked"] == 1
+
+
+def test_seam_two_step_create_action_then_set_data_verifies_clean(monkeypatch: Any) -> None:
+    wf_path = ["%p3", "bVVl3", "%wf", "wf1", "actions"]
+    node_pointer = tuple(wf_path)
+    leaf_parent_pointer = (*node_pointer, "0", "%p")
+    create_action_body = {"0": {"%x": "ShowElement", "%p": None, "id": "act1"}}
+    final_action_node = {"0": {"%x": "ShowElement", "%p": {"%ei": "bTGyp0"}, "id": "act1"}}
+
+    reader = FakeReader(
+        {
+            node_pointer: _ok(final_action_node),
+            leaf_parent_pointer: _ok({"%ei": "bTGyp0"}),
+        }
+    )
+    monkeypatch.setattr(write_verify_module, "read_live_nodes", reader)
+
+    changes = [
+        _create_action(wf_path, create_action_body),
+        _set_data([*leaf_parent_pointer, "%ei"], "bTGyp0"),
+    ]
+    runtime_result = {
+        "executed": True,
+        "app_id": "mcp-test-app",
+        "app_version": "test",
+        "results": [_write_item(changes)],
+    }
+    out = _attach_write_verification(runtime_result, profile="mcp-test", args={})
+
+    assert out["write_verification"]["verified"] is True
+    assert out["write_verification"]["divergences"] == []
+
+
+def test_seam_redacted_change_lands_in_unverified_with_reason_redacted(monkeypatch: Any) -> None:
+    def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a redacted change has no pointer to read; the reader must not run")
+
+    monkeypatch.setattr(write_verify_module, "read_live_nodes", _boom)
+
+    changes = [_create_action(["settings", "api_tokens", "0"], "[REDACTED]")]
+    runtime_result = {
+        "executed": True,
+        "app_id": "mcp-test-app",
+        "app_version": "test",
+        "results": [_write_item(changes)],
+    }
+    out = _attach_write_verification(runtime_result, profile="mcp-test", args={})
+
+    assert out["write_verification"]["verified"] is False
+    assert out["write_verification"]["unverified"][0]["error"] == "redacted"
+    assert out["write_verification"]["divergences"] == []
+
+
+def test_seam_remove_element_change_is_counted_and_its_absence_verified(monkeypatch: Any) -> None:
+    pointer = ("%p3", "bVVl3", "%e", "bXXyy")
+    reader = FakeReader({pointer: _not_found(pointer)})
+    monkeypatch.setattr(write_verify_module, "read_live_nodes", reader)
+
+    changes = [
+        {
+            "intent": {"name": "RemoveElement"},
+            "path_array": list(pointer),
+            "body": None,
+            "version_control_api_version": 4,
+            "changelog_data": [],
+            "session_id": "sess-1",
+        }
+    ]
+    runtime_result = {
+        "executed": True,
+        "app_id": "mcp-test-app",
+        "app_version": "test",
+        "results": [_write_item(changes)],
+    }
+    out = _attach_write_verification(runtime_result, profile="mcp-test", args={})
+
+    assert out["write_verification"]["checked"] == 1
+    assert out["write_verification"]["verified"] is True

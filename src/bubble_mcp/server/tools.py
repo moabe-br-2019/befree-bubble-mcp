@@ -721,8 +721,14 @@ def _attach_write_verification(
     Only runs when the tool actually executed (never on a dry run/preview) and when there is at
     least one successful write to verify. Opts out via ``verify=false``. A verification failure
     (including the verifier itself raising) must never turn a successful write into a reported
-    failure: it is attached as a report under ``verification``, and the caller decides what to
-    do with it.
+    failure: it is attached as a report under ``write_verification``, and the caller decides what
+    to do with it.
+
+    Attached under ``write_verification``, deliberately distinct from ``verification``: some
+    tools (``delete_data_type_permanently`` - see ``aria_dispatch.py``) already set their own
+    tool-specific ``verification`` key with evidence this generic pass cannot reproduce (a fresh
+    export confirming the data type is actually gone). Writing to that same key would silently
+    clobber that evidence with this generic re-read report every time such a tool executes.
     """
 
     if not runtime_result.get("executed") or args.get("verify") is False:
@@ -743,7 +749,7 @@ def _attach_write_verification(
             "error": "verification_failed",
             "message": f"{type(exc).__name__}: {exc}",
         }
-    runtime_result["verification"] = verification
+    runtime_result["write_verification"] = verification
     return runtime_result
 
 
