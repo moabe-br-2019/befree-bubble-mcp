@@ -83,3 +83,13 @@ def test_edit_tool_requires_a_profile() -> None:
         assert "profile" in str(error)
     else:
         raise AssertionError("a missing profile must not reach the editor")
+
+
+def test_the_workflow_guidance_routes_editing_to_the_new_tool() -> None:
+    from bubble_mcp.server.agent_guide import ROUTES
+
+    route = next(r for r in ROUTES if r["intent"] == "manage_workflows")
+
+    assert "bubble_node_edit" in route["notes"]
+    assert "bubble_node_edit" in route["tools"]
+    assert "bubble_live_node_read" in route["tools"]
