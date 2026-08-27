@@ -13,10 +13,14 @@ from typing import Any, Callable, Sequence
 from bubble_mcp.compiler.payload import bubble_session_id
 from bubble_mcp.execution.client import BubbleEditorClient
 from bubble_mcp.execution.live_node_read import read_live_node
+from bubble_mcp.aria_runtime.bubble_sdk import BubbleIDGenerator
 from bubble_mcp.execution.raw_node_edit import (
+    clone_workflow_changes,
     first_divergence,
     patch_expression_leaf,
+    remap_node_ids_with_report,
     reorder_actions,
+    workflow_id_mapping,
 )
 from bubble_mcp.sessions.store import load_session
 
@@ -331,3 +335,153 @@ def _check_op_arguments(
         return
     if not order:
         raise ValueError("reorder requires order")
+
+
+def _known_object_ids(
+    read: Reader,
+    profile: str,
+    segments: Sequence[str],
+    app_id: str | None,
+    version: str,
+) -> tuple[set[str], bool]:
+    """Every object id the app's index knows, and whether the index could be read at all.
+
+    A failed read must not stop a clone - it costs the collision check, not the work - so the
+    caller is told the check did not run rather than being left to assume it did.
+    """
+
+    index = read(profile, ["_index", "id_to_path"], app_id=app_id, app_version=version)
+    if not isinstance(index, dict) or not index.get("ok"):
+        return set(), False
+    node = index.get("node")
+    if not isinstance(node, dict):
+        return set(), False
+    return {str(key) for key in node}, True
+
+
+def _minter_avoiding(mint: Callable[[], str], taken: set[str]) -> Callable[[], str]:
+    """Draw ids until one is free, and never hand the same id out twice in one clone."""
+
+    used = set(taken)
+
+    def draw() -> str:
+        for _ in range(64):
+            candidate = mint()
+            if candidate not in used:
+                used.add(candidate)
+                return candidate
+        raise ValueError("could not mint an unused Bubble id after 64 attempts")
+
+    return draw
+
+
+def clone_live_workflow(
+    *,
+    profile: str,
+    pointer: Sequence[str],
+    new_slot: str | None = None,
+    wf_name: str | None = None,
+    id_counter: int | None = None,
+    execute: bool = False,
+    app_id: str | None = None,
+    app_version: str = DEFAULT_APP_VERSION,
+    reader: Reader | None = None,
+    writer: Writer | None = None,
+    mint_id: Callable[[], str] | None = None,
+) -> dict[str, Any]:
+    """Duplicate the workflow at `pointer` into a sibling slot, the way the editor does it.
+
+    The source node is read raw, its own ids (the event and each action) are reminted, and the
+    mapping is applied recursively over the whole body - expressions included, because an
+    APIEventParameter argument back-references the enclosing workflow's event id. Everything
+    outside the node keeps its references. See docs/capture-duplicate-workflow.md.
+
+    `wf_name` renames a backend workflow, whose name lives in the body; page workflows have no
+    name. `id_counter` is the app-wide counter the editor echoes back - omitted when unknown,
+    since inventing a value is worse than leaving it untouched.
+    """
+
+    segments = [str(part) for part in pointer]
+    version = str(app_version or DEFAULT_APP_VERSION)
+    read = reader or read_live_node
+    before = read(profile, segments, app_id=app_id, app_version=version)
+    if not before.get("ok"):
+        return before
+    source = before["node"]
+
+    mint = mint_id or BubbleIDGenerator.element_id
+    # element_id() is 'b' plus four random base62 characters - one in 14.8M per draw. Rare is not
+    # never, and a collision here does not fail loudly: it writes the clone over whatever already
+    # owns that id. Draw against the app's own id index instead of hoping.
+    taken, collision_checked = _known_object_ids(read, profile, segments, app_id, version)
+    minter = _minter_avoiding(mint, taken)
+    slot = new_slot or minter()
+    try:
+        mapping = workflow_id_mapping(source, minter)
+    except (ValueError, TypeError) as error:
+        return {"ok": False, "error": "invalid_clone", "message": str(error)}
+    _, unmapped_ids = remap_node_ids_with_report(source, mapping)
+
+    changes = clone_workflow_changes(
+        node=source,
+        node_path=segments,
+        new_slot=slot,
+        mapping=mapping,
+        wf_name=wf_name,
+        session_id=bubble_session_id(),
+        intent_id=random.randint(2, 999),
+        id_counter=id_counter,
+    )
+    created = next(
+        change for change in changes if change.get("intent", {}).get("name") == "CreateEvent"
+    )
+    intended = created["body"]
+    new_pointer = [str(part) for part in created["path_array"]]
+
+    payload: dict[str, Any] = {"changes": changes, "app_version": version}
+    if app_id or before.get("app_id"):
+        payload["appname"] = str(app_id or before.get("app_id"))
+
+    write = writer
+    session = None
+    if write is None:
+        session = load_session(profile)
+        if session is None:
+            raise ValueError(f"No Bubble session stored for profile '{profile}'.")
+        write = BubbleEditorClient().write
+
+    write_result = write(payload, session, dry_run=not execute)
+
+    result: dict[str, Any] = {
+        "ok": True,
+        "execute": execute,
+        "pointer": segments,
+        "new_pointer": new_pointer,
+        "id_mapping": mapping,
+        "unmapped_ids": unmapped_ids,
+        "id_collision_checked": collision_checked,
+        "source": source,
+        "intended": intended,
+        "write": write_result,
+    }
+    if not execute:
+        return result
+
+    result["render_unverified"] = True
+    result["verified_meaning"] = VERIFIED_MEANING
+    if not write_result.get("ok"):
+        return {**result, "ok": False, "verified": False, "divergence": None}
+
+    after_read = read(profile, new_pointer, app_id=app_id, app_version=version)
+    if not after_read.get("ok"):
+        return {
+            **result,
+            "ok": False,
+            "verified": False,
+            "divergence": None,
+            "after_read": after_read,
+        }
+    result["after"] = after_read["node"]
+    result["divergence"] = first_divergence(intended, after_read["node"])
+    result["verified"] = result["divergence"] is None
+    return result
