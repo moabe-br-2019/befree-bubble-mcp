@@ -1814,6 +1814,7 @@ def _call_tool(
             raise ValueError("bubble_node_edit requires a non-empty pointer array.")
         leaf_pointer = args.get("leaf_pointer")
         order = args.get("order")
+        remove_keys = args.get("keys")
         execute = bool(args.get("execute"))
         edit_result = edit_live_node(
             profile=profile,
@@ -1822,6 +1823,7 @@ def _call_tool(
             leaf_pointer=[str(part) for part in leaf_pointer] if isinstance(leaf_pointer, list) else None,
             patch=args.get("patch") if isinstance(args.get("patch"), dict) else None,
             order=[str(part) for part in order] if isinstance(order, list) else None,
+            keys=[str(part) for part in remove_keys] if isinstance(remove_keys, list) else None,
             execute=execute,
             app_id=str(args.get("app_id") or "") or None,
             app_version=str(args.get("app_version") or "test"),

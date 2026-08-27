@@ -19,7 +19,7 @@ def test_both_tools_are_exposed_with_their_required_arguments() -> None:
 
     assert read["inputSchema"]["required"] == ["profile", "pointer"]
     assert edit["inputSchema"]["required"] == ["profile", "pointer", "op"]
-    assert edit["inputSchema"]["properties"]["op"]["enum"] == ["patch", "reorder"]
+    assert edit["inputSchema"]["properties"]["op"]["enum"] == ["patch", "reorder", "remove"]
 
 
 def test_the_read_tool_is_annotated_read_only_and_the_edit_tool_is_not() -> None:
@@ -52,7 +52,14 @@ def test_read_tool_routes_to_read_live_node(monkeypatch) -> None:  # type: ignor
 
 
 def test_read_tool_rejects_a_non_positive_read_timeout(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """timeout_ms=0 reads as no timeout at all to Playwright, so page.goto never gives up."""
+    """timeout_ms=0 reads as no timeout at all to Playwright, so page.goto never gives up.
+
+    WHICH PATH THIS COVERS. The schema declares read_timeout_sec with minimum=10, so an MCP host
+    that validates arguments rejects 0 before the tool ever runs - a second app's session
+    confirmed this (DEV/Orana/ACHADOS-MCP-CAPTURA-2026-08-27.md, section 2.3). This exercises
+    call_tool directly, which is the path cli/main.py takes: no schema, no validation, and the
+    guard is the only thing standing between a typo and a page.goto that never returns.
+    """
 
     called: list[Any] = []
 
@@ -368,3 +375,34 @@ def test_deploy_preview_routes_with_the_overlay_and_the_http_reader(monkeypatch)
     assert seen["source"] == "full_scan"
     assert seen["overlay"]["entries"][0]["changes"][0]["path_array"] == ["api", "wf-1"]
     assert seen["reader"] is not None
+
+
+def test_the_edit_tool_offers_remove_alongside_patch_and_reorder() -> None:
+    edit = _schema("bubble_node_edit")
+
+    assert edit["inputSchema"]["properties"]["op"]["enum"] == ["patch", "reorder", "remove"]
+    assert "keys" in edit["inputSchema"]["properties"]
+
+
+def test_edit_tool_passes_keys_through_for_a_remove(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    seen: dict[str, Any] = {}
+
+    def fake_edit(**kwargs):  # type: ignore[no-untyped-def]
+        seen.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr("bubble_mcp.server.tools.edit_live_node", fake_edit)
+
+    call_tool(
+        "bubble_node_edit",
+        {
+            "profile": "mcp-test",
+            "pointer": ["api", "wf-1", "actions", "0"],
+            "op": "remove",
+            "leaf_pointer": ["%p", "%co"],
+            "keys": ["1"],
+        },
+    )
+
+    assert seen["op"] == "remove"
+    assert seen["keys"] == ["1"]

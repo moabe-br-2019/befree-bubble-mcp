@@ -19,13 +19,14 @@ from bubble_mcp.execution.raw_node_edit import (
     first_divergence,
     patch_expression_leaf,
     remap_node_ids_with_report,
+    remove_expression_keys,
     reorder_actions,
     workflow_id_mapping,
 )
 from bubble_mcp.sessions.store import load_session
 
 
-SUPPORTED_OPS = ("patch", "reorder")
+SUPPORTED_OPS = ("patch", "reorder", "remove")
 DEFAULT_APP_VERSION = "test"
 VERIFIED_MEANING = (
     "verified=true means the node was read back after the write and its bytes matched the "
@@ -204,6 +205,7 @@ def edit_live_node(
     leaf_pointer: Sequence[str] | None = None,
     patch: dict[str, Any] | None = None,
     order: Sequence[str] | None = None,
+    keys: Sequence[str] | None = None,
     execute: bool = False,
     app_id: str | None = None,
     app_version: str = DEFAULT_APP_VERSION,
@@ -220,7 +222,7 @@ def edit_live_node(
             "message": f"op must be one of {', '.join(SUPPORTED_OPS)}; got '{op}'",
         }
     try:
-        _check_op_arguments(op, leaf_pointer, patch, order)
+        _check_op_arguments(op, leaf_pointer, patch, order, keys)
     except (ValueError, TypeError) as error:
         # Checked before the read so a missing argument costs a typo, not a browser launch.
         return {"ok": False, "error": "invalid_edit", "message": str(error)}
@@ -234,7 +236,9 @@ def edit_live_node(
 
     session_id = bubble_session_id()
     try:
-        intended, changes = _apply(op, segments, current, leaf_pointer, patch, order, session_id)
+        intended, changes = _apply(
+            op, segments, current, leaf_pointer, patch, order, keys, session_id
+        )
     except KeyError as error:
         return {"ok": False, "error": "pointer_not_resolved", "message": str(error).strip("'\"")}
     except (ValueError, TypeError) as error:
@@ -300,11 +304,12 @@ def _apply(
     leaf_pointer: Sequence[str] | None,
     patch: dict[str, Any] | None,
     order: Sequence[str] | None,
+    keys: Sequence[str] | None,
     session_id: str,
 ) -> tuple[Any, list[dict[str, Any]]]:
     """Return (intended node in the encoded key space, changes to write)."""
 
-    _check_op_arguments(op, leaf_pointer, patch, order)
+    _check_op_arguments(op, leaf_pointer, patch, order, keys)
     if op == "patch":
         if not isinstance(current, dict) or not ("type" in current or "%x" in current):
             raise ValueError(
@@ -315,6 +320,17 @@ def _apply(
             )
         intended = patch_expression_leaf(current, [str(part) for part in leaf_pointer or []], patch or {})
         return intended, build_patch_changes(pointer, intended, session_id)
+    if op == "remove":
+        if not isinstance(current, dict) or not ("type" in current or "%x" in current):
+            raise ValueError(
+                "remove requires a pointer to a node, not a container: leaf_pointer resolves "
+                "against a single node's own fields. Point at one action, e.g. "
+                f"{[*[str(part) for part in pointer], '0']}."
+            )
+        intended = remove_expression_keys(
+            current, [str(part) for part in leaf_pointer or []], [str(key) for key in keys or []]
+        )
+        return intended, build_patch_changes(pointer, intended, session_id)
     intended = reorder_actions(current, [str(part) for part in order or []])
     return intended, build_reorder_changes(pointer, intended, session_id)
 
@@ -324,9 +340,16 @@ def _check_op_arguments(
     leaf_pointer: Sequence[str] | None,
     patch: dict[str, Any] | None,
     order: Sequence[str] | None,
+    keys: Sequence[str] | None = None,
 ) -> None:
     """Raise when the arguments the op needs are missing, before anything is read."""
 
+    if op == "remove":
+        if not leaf_pointer:
+            raise ValueError("remove requires leaf_pointer")
+        if not keys:
+            raise ValueError("remove requires keys: the key names to drop")
+        return
     if op == "patch":
         if not leaf_pointer:
             raise ValueError("patch requires leaf_pointer")

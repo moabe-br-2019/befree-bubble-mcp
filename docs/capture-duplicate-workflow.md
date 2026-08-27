@@ -217,3 +217,23 @@ both sides the same way, so the loss is symmetric.
 
 Unverified: whether `read_live_node` itself preserves the null-valued keys. The write payloads
 prove they exist on the server; nothing here proves how the browser read returns them.
+
+## Why the clone does not emit `id_counter`
+
+A second app's session measured the counter's behaviour precisely
+(`DEV/Orana/ACHADOS-MCP-CAPTURA-2026-08-27.md`, section 1.2): it is proposed by the client and
+echoed by the server without correction, and it advances six units per object created.
+
+That is a description of the EDITOR minting ids, and the editor mints them from the counter. This
+clone does not: `BubbleIDGenerator.element_id()` draws four random base62 characters, and the
+clone now checks each draw against the app's own `_index.id_to_path` so it cannot land on an id
+that already exists.
+
+The two id spaces therefore do not touch. Advancing the counter by six per cloned object would
+reserve room in a sequence the clone never draws from, protecting nothing - while writing a value
+the server accepts uncorrected into the field the editor uses for its own minting.
+
+The remaining exposure is a future editor-minted id colliding with a random one this clone wrote.
+Advancing the counter does not address it, because the counter does not describe where the random
+ids landed. Closing it properly would mean minting from the counter the way the editor does, and
+the mapping from counter value to id string was not derivable from eleven samples.

@@ -683,9 +683,16 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
     ),
     "op": _prop(
         "string",
-        "Which in-place edit to run: 'patch' replaces one leaf inside a node, 'reorder' "
-        "renumbers an actions map.",
-        enum=["patch", "reorder"],
+        "Which in-place edit to run: 'patch' replaces or adds values inside a node, 'reorder' "
+        "renumbers an actions map, 'remove' drops named keys - the only way to shorten a map "
+        "such as a search's %co constraints, which patch can only replace.",
+        enum=["patch", "reorder", "remove"],
+    ),
+    "keys": _prop(
+        "array",
+        "Key names to drop from the dict at leaf_pointer, for op='remove'. Every key must "
+        "already exist; the node's own %x/id/type are refused.",
+        items={"type": "string"},
     ),
     "new_slot": _prop(
         "string",
@@ -1706,6 +1713,7 @@ def planning_execution_tools() -> list[ToolSchema]:
                 "leaf_pointer",
                 "patch",
                 "order",
+                "keys",
                 "app_id",
                 "app_version",
                 "execute",

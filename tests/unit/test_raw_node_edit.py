@@ -9,6 +9,7 @@ from bubble_mcp.execution.raw_node_edit import (
     patch_expression_leaf,
     remap_node_ids,
     remap_node_ids_with_report,
+    remove_expression_keys,
     reorder_actions,
     workflow_id_mapping,
 )
@@ -392,3 +393,93 @@ def test_all_divergences_reports_keys_added_and_dropped_separately() -> None:
 
 def test_all_divergences_is_empty_for_identical_trees() -> None:
     assert all_divergences({"a": {"p": 1}}, {"a": {"p": 1}}) == []
+
+
+def test_clone_workflow_changes_writes_no_issues_index_entry() -> None:
+    """Duplication does not touch `issues_list`, even though creating an action does.
+
+    A second app's capture shows the editor writing `_index/issues_list/<action_id>` = "[]" on
+    every CreateAction (DEV/Orana/ACHADOS-MCP-CAPTURA-2026-08-27.md, section 1.1), and copying
+    that into the clone is the obvious generalisation. The captured duplications say otherwise:
+    cases A, C and D write no issues entry at all, and case B writes one keyed by the EVENT id
+    only because that copy carried a real cross_page issue.
+
+    So the two flows differ, and this follows the one that was actually captured for duplication.
+    Emitting "[]" per action here would write an index the editor did not ask for.
+    """
+
+    node = {
+        "%x": "APIEvent",
+        "%p": {"expose": False, "wf_name": "src"},
+        "id": "bOLD1",
+        "actions": {"0": {"%x": "ShowElement", "%p": {"%ei": "bEL01"}, "id": "bOLD2"}},
+    }
+
+    changes = clone_workflow_changes(
+        node=node,
+        node_path=["api", "bSLOT"],
+        new_slot="bNEW0",
+        mapping={"bOLD1": "bNEW1", "bOLD2": "bNEW2"},
+        wf_name="src_copy",
+        session_id="s1",
+        intent_id=7,
+        id_counter=None,
+    )
+
+    assert not any(
+        change.get("path_array", [None, None])[1] == "issues_list" for change in changes
+    )
+
+
+def test_remove_expression_keys_drops_the_named_keys_and_leaves_the_rest() -> None:
+    """`patch` merges, so it can replace a constraint but never delete one."""
+
+    node = {
+        "id": "act-1",
+        "%x": "Search",
+        "%p": {"%co": {"0": {"%k": "status"}, "1": {"%k": "owner"}}, "%t5": "custom.thing"},
+    }
+    original = copy.deepcopy(node)
+
+    trimmed = remove_expression_keys(node, ["%p", "%co"], ["1"])
+
+    assert trimmed["%p"]["%co"] == {"0": {"%k": "status"}}
+    assert trimmed["%p"]["%t5"] == "custom.thing"
+    assert node == original
+
+
+def test_remove_expression_keys_refuses_a_key_that_is_not_there() -> None:
+    """Silently succeeding would report a removal that never happened."""
+
+    node = {"id": "act-1", "%x": "Search", "%p": {"%co": {"0": {"%k": "status"}}}}
+
+    try:
+        remove_expression_keys(node, ["%p", "%co"], ["7"])
+    except KeyError as error:
+        assert "7" in str(error)
+    else:
+        raise AssertionError("removing a key that does not exist must not look like success")
+
+
+def test_remove_expression_keys_refuses_a_pointer_that_does_not_resolve() -> None:
+    node = {"id": "act-1", "%x": "Search", "%p": {}}
+
+    try:
+        remove_expression_keys(node, ["%p", "%co"], ["0"])
+    except KeyError as error:
+        assert "%co" in str(error)
+    else:
+        raise AssertionError("a pointer must never create the node it fails to find")
+
+
+def test_remove_expression_keys_refuses_to_empty_a_node_of_its_type() -> None:
+    """Dropping %x or id leaves a body the editor cannot render, and /write answers 200."""
+
+    node = {"id": "act-1", "%x": "Search", "%p": {"%t5": "custom.thing"}}
+
+    try:
+        remove_expression_keys(node, [], ["%x"])
+    except ValueError as error:
+        assert "%x" in str(error)
+    else:
+        raise AssertionError("removing the node's own type must be refused")

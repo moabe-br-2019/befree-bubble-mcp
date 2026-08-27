@@ -102,6 +102,49 @@ def patch_expression_leaf(
     return patched
 
 
+# A node without these is a body the editor cannot render - and /appeditor/write would accept it
+# with HTTP 200, so nothing downstream would notice.
+NODE_IDENTITY_KEYS = ("%x", "id", "type")
+
+
+def remove_expression_keys(
+    node: dict[str, Any], pointer: list[str], keys: list[str]
+) -> dict[str, Any]:
+    """Return a copy of `node` with `keys` dropped from the dict `pointer` addresses.
+
+    `patch_expression_leaf` merges, so it can replace a search constraint but never delete one:
+    the only way to shorten a `%co` map was to rewrite the whole thing, which means recomposing
+    an expression from the export - the exact move this module exists to avoid.
+
+    A key that is not there is refused rather than skipped. "Remove X" answering ok when X was
+    never present reports a change that did not happen.
+    """
+
+    trimmed = copy.deepcopy(node)
+    target: Any = trimmed
+    for index, key in enumerate(pointer):
+        if not isinstance(target, dict) or key not in target:
+            resolved = ".".join(pointer[:index]) or "<root>"
+            raise KeyError(f"pointer key '{key}' does not exist under {resolved}")
+        target = target[key]
+    if not isinstance(target, dict):
+        raise TypeError(f"pointer {'.'.join(pointer)} does not address a node")
+
+    doomed = [key for key in keys if key in NODE_IDENTITY_KEYS]
+    if doomed:
+        raise ValueError(
+            f"refusing to remove {', '.join(doomed)}: a node without its type or id is a body "
+            "the editor cannot render, and /appeditor/write would accept it with HTTP 200"
+        )
+    missing = [key for key in keys if key not in target]
+    if missing:
+        resolved = ".".join(pointer) or "<root>"
+        raise KeyError(f"key(s) {', '.join(missing)} do not exist under {resolved}")
+    for key in keys:
+        del target[key]
+    return trimmed
+
+
 def reorder_actions(
     actions: dict[str, Any], order: list[str]
 ) -> dict[str, Any]:
