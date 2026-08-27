@@ -221,7 +221,7 @@ prove they exist on the server; nothing here proves how the browser read returns
 ## Why the clone does not emit `id_counter`
 
 A second app's session measured the counter's behaviour precisely
-(`DEV/Orana/ACHADOS-MCP-CAPTURA-2026-08-27.md`, section 1.2): it is proposed by the client and
+(`a second app's capture report, 2026-08-27`, section 1.2): it is proposed by the client and
 echoed by the server without correction, and it advances six units per object created.
 
 That is a description of the EDITOR minting ids, and the editor mints them from the counter. This

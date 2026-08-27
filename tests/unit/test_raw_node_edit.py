@@ -399,7 +399,7 @@ def test_clone_workflow_changes_writes_no_issues_index_entry() -> None:
     """Duplication does not touch `issues_list`, even though creating an action does.
 
     A second app's capture shows the editor writing `_index/issues_list/<action_id>` = "[]" on
-    every CreateAction (DEV/Orana/ACHADOS-MCP-CAPTURA-2026-08-27.md, section 1.1), and copying
+    every CreateAction (a second app's capture report, 2026-08-27, section 1.1), and copying
     that into the clone is the obvious generalisation. The captured duplications say otherwise:
     cases A, C and D write no issues entry at all, and case B writes one keyed by the EVENT id
     only because that copy carried a real cross_page issue.

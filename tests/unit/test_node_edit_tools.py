@@ -56,7 +56,7 @@ def test_read_tool_rejects_a_non_positive_read_timeout(monkeypatch) -> None:  # 
 
     WHICH PATH THIS COVERS. The schema declares read_timeout_sec with minimum=10, so an MCP host
     that validates arguments rejects 0 before the tool ever runs - a second app's session
-    confirmed this (DEV/Orana/ACHADOS-MCP-CAPTURA-2026-08-27.md, section 2.3). This exercises
+    confirmed this (a second app's capture report, 2026-08-27, section 2.3). This exercises
     call_tool directly, which is the path cli/main.py takes: no schema, no validation, and the
     guard is the only thing standing between a typo and a page.goto that never returns.
     """
