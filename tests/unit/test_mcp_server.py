@@ -3111,7 +3111,7 @@ def test_sync_figma_tokens_schema_matches_import_and_option_discovery_runtime_si
     tools = {tool["name"]: tool for tool in listed_tools}
     schema = tools["sync_figma_tokens"]["inputSchema"]
 
-    assert len(listed_tools) == 329
+    assert len(listed_tools) == 333
     assert schema["required"] == ["profile", "tokens_path"]
     assert {
         "tokens_path",
@@ -4193,7 +4193,11 @@ def test_editor_write_records_mutation_overlay(tmp_path, monkeypatch) -> None:  
             "method": "tools/call",
             "params": {
                 "name": "bubble_editor_write",
-                "arguments": {"profile": "smoke", "execute": True, "payload": payload},
+                "arguments": {
+                        "profile": "smoke",
+                        "execute": True,
+                        "payload": payload,
+                    },
             },
         }
     )
@@ -4283,7 +4287,11 @@ def test_plugin_install_tool_records_mutation_overlay(tmp_path, monkeypatch) -> 
             "method": "tools/call",
             "params": {
                 "name": "bubble_plugin_install",
-                "arguments": {"profile": "cliente2", "plugin_key": "progressbar-ProgressBar", "execute": True},
+                "arguments": {
+                    "profile": "cliente2",
+                    "plugin_key": "progressbar-ProgressBar",
+                    "execute": True,
+                },
             },
         }
     )
