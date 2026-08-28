@@ -97,8 +97,7 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
     ),
     "plugin_value": _prop(
         ["boolean", "string", "number"],
-        "Value to write under settings.client_safe.plugins.<plugin_key>. Most plugins use true; some versioned plugins may use a version string.",
-        default=True,
+        "Value to write under settings.client_safe.plugins.<plugin_key>. Omit it: the plugin catalogue decides, giving a marketplace plugin its latest version and a Bubble-native one true. Pass it only to pin a specific version or to install a plugin the catalogue refuses.",
         examples=[True, "2.0.0"],
     ),
     "installed_version": _prop(
@@ -114,7 +113,7 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
     ),
     "include_installed_version": _prop(
         "boolean",
-        "Whether to also write settings.client_safe.<installed_version_key>. Omit for auto behavior: true when plugin_value is true, false when plugin_value is a version string/number. Set explicitly when reproducing a captured payload.",
+        "Whether to also write settings.client_safe.<installed_version_key>. Omit for auto behavior: the companion key belongs only to plugins stored as true, so a catalogue-resolved version omits it. Set explicitly when reproducing a captured payload.",
     ),
     "post_check_conflicts": _prop(
         "boolean",

@@ -1949,7 +1949,7 @@ def _call_tool(
             plugin_key=plugin_key,
             app_id=str(args.get("app_id") or "") or None,
             app_version=str(args.get("app_version") or "") or None,
-            plugin_value=args.get("plugin_value", True),
+            plugin_value=args.get("plugin_value"),
             installed_version=args.get("installed_version", 1),
             installed_version_key=str(args.get("installed_version_key") or "") or None,
             include_installed_version=(
