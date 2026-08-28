@@ -17,6 +17,11 @@ except ImportError:  # pragma: no cover - direct BubbleCLI execution compatibili
     from bubble_sdk import PayloadBuilder, logger
 
 
+#: Folders are not nodes. The editor stores them as one app setting whose value, per folder id,
+#: is the folder's name as a plain string - see docs/capture-global-expression.md.
+FOLDER_SETTING_PATH = ["settings", "client_safe", "global_expression_folder_list"]
+
+
 class GlobalExpressionService:
     """Author Bubble global expressions without owning SDK wire construction."""
 
@@ -144,6 +149,147 @@ class GlobalExpressionService:
             self._host.dispatch_global_expression_payload(payload)
         except Exception as exc:
             logger.error(f"Failed to set expression on '{expression}': {exc}")
+            return False
+        return True
+
+    def delete_global_expression(self, expression: str, dry_run: bool = False) -> bool:
+        expression_id = self._resolve_expression_id(expression)
+        if not expression_id:
+            logger.error(f"Global expression '{expression}' not found.")
+            return False
+
+        payload = PayloadBuilder(self._host.appname)
+        payload.add_change("DeleteGlobalExpression", ["global_expressions", expression_id], None)
+        # A bare IdToPathFixer, matching how style deletion drops its alias: the node goes away but
+        # the editor keeps resolving the id until the index entry is cleared too.
+        payload.add_change_raw(
+            {
+                "intent": {"name": "IdToPathFixer"},
+                "path_array": ["_index", "id_to_path", expression_id],
+                "body": None,
+                "version_control_api_version": 4,
+                "changelog_data": [],
+                "session_id": payload.session_id,
+            }
+        )
+        # Creation registers a pending-expression issue; leaving it behind would keep the editor
+        # reporting an issue against a node that no longer exists.
+        payload.add_update_index(["_index", "issues_list", expression_id], None)
+
+        return self._dispatch(payload, dry_run, f"delete global expression '{expression}'")
+
+    def create_global_expression_folder(self, name: str, dry_run: bool = False) -> bool:
+        folder_id = self._host.id_gen.element_id()
+        payload = PayloadBuilder(self._host.appname)
+        payload.add_change("ChangeAppSetting", [*FOLDER_SETTING_PATH, folder_id], name)
+        return self._dispatch(payload, dry_run, f"create global expression folder '{name}'")
+
+    def rename_global_expression_folder(self, folder: str, name: str, dry_run: bool = False) -> bool:
+        folder_id = self._resolve_folder_id(folder)
+        if not folder_id:
+            logger.error(f"Global expression folder '{folder}' not found.")
+            return False
+
+        payload = PayloadBuilder(self._host.appname)
+        payload.add_change("ChangeAppSetting", [*FOLDER_SETTING_PATH, folder_id], name)
+        return self._dispatch(payload, dry_run, f"rename global expression folder '{folder}'")
+
+    def delete_global_expression_folder(self, folder: str, dry_run: bool = False) -> bool:
+        folder_id = self._resolve_folder_id(folder)
+        if not folder_id:
+            logger.error(f"Global expression folder '{folder}' not found.")
+            return False
+
+        payload = PayloadBuilder(self._host.appname)
+        payload.add_change("ChangeAppSetting", [*FOLDER_SETTING_PATH, folder_id], None)
+        # The editor orphans members instead of clearing them, leaving a folder_id that resolves to
+        # nothing. Clear them here so the app never holds a dangling reference.
+        for expression_id in self._members_of(folder_id):
+            payload.add_change(
+                "ModifyGlobalExpression",
+                ["global_expressions", expression_id, "folder_id"],
+                None,
+            )
+
+        return self._dispatch(payload, dry_run, f"delete global expression folder '{folder}'")
+
+    def set_global_expression_folder(
+        self,
+        expression: str,
+        folder: str | None = None,
+        dry_run: bool = False,
+    ) -> bool:
+        expression_id = self._resolve_expression_id(expression)
+        if not expression_id:
+            logger.error(f"Global expression '{expression}' not found.")
+            return False
+
+        folder_id: str | None = None
+        if str(folder or "").strip():
+            folder_id = self._resolve_folder_id(str(folder))
+            if not folder_id:
+                logger.error(f"Global expression folder '{folder}' not found.")
+                return False
+
+        payload = PayloadBuilder(self._host.appname)
+        payload.add_change(
+            "ModifyGlobalExpression",
+            ["global_expressions", expression_id, "folder_id"],
+            folder_id,
+        )
+        return self._dispatch(payload, dry_run, f"move global expression '{expression}'")
+
+    def list_global_expression_folders(self) -> list[dict[str, Any]]:
+        """List folders with the expressions each one holds."""
+        snapshot = self._host.global_expression_folder_snapshot()
+        if not isinstance(snapshot, dict):
+            return []
+        return [
+            {
+                "id": folder_id,
+                "name": str(name or "") or folder_id,
+                "expression_ids": self._members_of(folder_id),
+            }
+            for folder_id, name in snapshot.items()
+        ]
+
+    def _members_of(self, folder_id: str) -> list[str]:
+        """Expression ids whose folder_id points at this folder."""
+        snapshot = self._host.global_expression_snapshot()
+        if not isinstance(snapshot, dict):
+            return []
+        return [
+            expression_id
+            for expression_id, definition in snapshot.items()
+            if isinstance(definition, dict) and definition.get("folder_id") == folder_id
+        ]
+
+    def _resolve_folder_id(self, folder: str) -> str | None:
+        """Accept either the folder id or its name, which is the stored value itself."""
+        target = str(folder or "").strip()
+        if not target:
+            return None
+        snapshot = self._host.global_expression_folder_snapshot()
+        if not isinstance(snapshot, dict):
+            return None
+        if target in snapshot:
+            return target
+        lowered = target.lower()
+        for folder_id, name in snapshot.items():
+            if str(name or "").strip().lower() == lowered:
+                return folder_id
+        return None
+
+    def _dispatch(self, payload: PayloadBuilder, dry_run: bool, description: str) -> bool:
+        if dry_run:
+            logger.info(f"\n DRY RUN - {description}:")
+            logger.log(payload.to_json())
+            return True
+
+        try:
+            self._host.dispatch_global_expression_payload(payload)
+        except Exception as exc:
+            logger.error(f"Failed to {description}: {exc}")
             return False
         return True
 

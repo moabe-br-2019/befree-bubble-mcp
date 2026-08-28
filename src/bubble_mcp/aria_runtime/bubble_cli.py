@@ -1161,6 +1161,47 @@ class BubbleCLI:
             dry_run=dry_run,
         )
 
+    def global_expression_folder_snapshot(self) -> Dict[str, Any]:
+        """Expose the folder list, which the editor keeps as one app setting."""
+        data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
+        settings = data.get("settings")
+        client_safe = settings.get("client_safe") if isinstance(settings, dict) else None
+        folders = client_safe.get("global_expression_folder_list") if isinstance(client_safe, dict) else None
+        return folders if isinstance(folders, dict) else {}
+
+    def list_global_expression_folders(self) -> List[Dict[str, Any]]:
+        """List global expression folders with the expressions each one holds."""
+        return self._global_expressions.list_global_expression_folders()
+
+    def delete_global_expression(self, expression: str, dry_run: bool = False) -> bool:
+        """Remove a global expression and the index entries its creation registered."""
+        return self._global_expressions.delete_global_expression(expression, dry_run=dry_run)
+
+    def create_global_expression_folder(self, name: str, dry_run: bool = False) -> bool:
+        """Create a folder for grouping global expressions."""
+        return self._global_expressions.create_global_expression_folder(name, dry_run=dry_run)
+
+    def rename_global_expression_folder(self, folder: str, name: str, dry_run: bool = False) -> bool:
+        """Rename a global expression folder."""
+        return self._global_expressions.rename_global_expression_folder(folder, name, dry_run=dry_run)
+
+    def delete_global_expression_folder(self, folder: str, dry_run: bool = False) -> bool:
+        """Delete a folder and clear the folder_id of every expression it held."""
+        return self._global_expressions.delete_global_expression_folder(folder, dry_run=dry_run)
+
+    def set_global_expression_folder(
+        self,
+        expression: str,
+        folder: Optional[str] = None,
+        dry_run: bool = False,
+    ) -> bool:
+        """Move a global expression into a folder, or out of every folder when folder is empty."""
+        return self._global_expressions.set_global_expression_folder(
+            expression,
+            folder=folder,
+            dry_run=dry_run,
+        )
+
     def put_style_definition_cache(self, name: str, data: Dict[str, Any]) -> None:
         """Stage one style cache value; the service controls persistence ordering."""
         styles = self._cli_cache.setdefault("styles", {})

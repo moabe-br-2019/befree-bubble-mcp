@@ -17,13 +17,23 @@ class _FixedIds:
 class _Host:
     appname = "global-expression-test"
 
-    def __init__(self, expressions: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        expressions: dict[str, Any] | None = None,
+        folders: dict[str, Any] | None = None,
+    ) -> None:
         self.id_gen = _FixedIds()
-        self.discovery: dict[str, Any] = {"global_expressions": expressions or {}}
+        self.discovery: dict[str, Any] = {
+            "global_expressions": expressions or {},
+            "global_expression_folders": folders or {},
+        }
         self.dispatched: list[dict[str, Any]] = []
 
     def global_expression_snapshot(self) -> dict[str, Any]:
         return self.discovery["global_expressions"]
+
+    def global_expression_folder_snapshot(self) -> dict[str, Any]:
+        return self.discovery["global_expression_folders"]
 
     def dispatch_global_expression_payload(self, payload: Any) -> None:
         self.dispatched.append(payload.build())
@@ -168,3 +178,126 @@ def test_expression_resolves_by_its_decoded_export_name() -> None:
 
     changes = _changes_by_path(host.dispatched[0])
     assert "global_expressions/bTGOu0/parameters/bGEX0" in changes
+
+
+FOLDER_PATH = "settings/client_safe/global_expression_folder_list"
+
+
+def _named_expression(folder_id: str | None = None) -> _Host:
+    definition: dict[str, Any] = {
+        "id": "bTGOw0",
+        "%nm": "User email",
+        "btype_id": "text",
+        "is_list": False,
+    }
+    if folder_id is not None:
+        definition["folder_id"] = folder_id
+    return _Host({"bTGOw0": definition})
+
+
+def test_delete_global_expression_clears_the_node_and_both_index_entries() -> None:
+    host = _named_expression()
+    service = GlobalExpressionService(host)
+
+    assert service.delete_global_expression("User email") is True
+
+    changes = _changes_by_path(host.dispatched[0])
+    assert changes["global_expressions/bTGOw0"]["intent"]["name"] == "DeleteGlobalExpression"
+    assert changes["global_expressions/bTGOw0"]["body"] is None
+    assert changes["_index/id_to_path/bTGOw0"]["intent"]["name"] == "IdToPathFixer"
+    assert changes["_index/id_to_path/bTGOw0"]["body"] is None
+    assert changes["_index/issues_list/bTGOw0"]["body"] is None
+
+
+def test_delete_refuses_an_unknown_expression() -> None:
+    host = _Host()
+    service = GlobalExpressionService(host)
+
+    assert service.delete_global_expression("Missing") is False
+    assert host.dispatched == []
+
+
+def test_create_folder_stores_the_folder_name_as_the_setting_value() -> None:
+    host = _Host()
+    service = GlobalExpressionService(host)
+
+    assert service.create_global_expression_folder("probe folder") is True
+
+    change = _changes_by_path(host.dispatched[0])[f"{FOLDER_PATH}/bGEX0"]
+    assert change["intent"]["name"] == "ChangeAppSetting"
+    assert change["body"] == "probe folder"
+
+
+def test_rename_folder_resolves_the_folder_by_its_current_name() -> None:
+    host = _Host(folders={"bTGPN": "folder test"})
+    service = GlobalExpressionService(host)
+
+    assert service.rename_global_expression_folder("folder test", "renamed folder") is True
+
+    change = _changes_by_path(host.dispatched[0])[f"{FOLDER_PATH}/bTGPN"]
+    assert change["body"] == "renamed folder"
+
+
+def test_delete_folder_also_clears_folder_id_on_its_members() -> None:
+    host = _named_expression(folder_id="bTGPN")
+    host.discovery["global_expression_folders"] = {"bTGPN": "folder test"}
+    service = GlobalExpressionService(host)
+
+    assert service.delete_global_expression_folder("folder test") is True
+
+    changes = _changes_by_path(host.dispatched[0])
+    assert changes[f"{FOLDER_PATH}/bTGPN"]["body"] is None
+    orphan = changes["global_expressions/bTGOw0/folder_id"]
+    assert orphan["intent"]["name"] == "ModifyGlobalExpression"
+    assert orphan["body"] is None
+
+
+def test_delete_folder_leaves_expressions_in_other_folders_alone() -> None:
+    host = _named_expression(folder_id="bOTHER")
+    host.discovery["global_expression_folders"] = {"bTGPN": "folder test", "bOTHER": "other"}
+    service = GlobalExpressionService(host)
+
+    assert service.delete_global_expression_folder("folder test") is True
+
+    assert "global_expressions/bTGOw0/folder_id" not in _changes_by_path(host.dispatched[0])
+
+
+def test_move_expression_into_a_folder_writes_only_folder_id() -> None:
+    host = _named_expression()
+    host.discovery["global_expression_folders"] = {"bTGPN": "folder test"}
+    service = GlobalExpressionService(host)
+
+    assert service.set_global_expression_folder("User email", "folder test") is True
+
+    changes = _changes_by_path(host.dispatched[0])
+    assert list(changes) == ["global_expressions/bTGOw0/folder_id"]
+    assert changes["global_expressions/bTGOw0/folder_id"]["body"] == "bTGPN"
+
+
+def test_move_expression_out_of_every_folder_clears_folder_id() -> None:
+    host = _named_expression(folder_id="bTGPN")
+    host.discovery["global_expression_folders"] = {"bTGPN": "folder test"}
+    service = GlobalExpressionService(host)
+
+    assert service.set_global_expression_folder("User email", None) is True
+
+    assert _changes_by_path(host.dispatched[0])["global_expressions/bTGOw0/folder_id"]["body"] is None
+
+
+def test_move_refuses_an_unknown_folder() -> None:
+    host = _named_expression()
+    service = GlobalExpressionService(host)
+
+    assert service.set_global_expression_folder("User email", "no such folder") is False
+    assert host.dispatched == []
+
+
+def test_folder_listing_reports_each_folder_with_its_members() -> None:
+    host = _named_expression(folder_id="bTGPN")
+    host.discovery["global_expression_folders"] = {"bTGPN": "folder test", "bEMPTY": "empty one"}
+    service = GlobalExpressionService(host)
+
+    assert service.list_global_expression_folders() == [
+        {"id": "bTGPN", "name": "folder test", "expression_ids": ["bTGOw0"]},
+        {"id": "bEMPTY", "name": "empty one", "expression_ids": []},
+    ]
