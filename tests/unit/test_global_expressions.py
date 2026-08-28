@@ -304,7 +304,7 @@ def test_folder_listing_reports_each_folder_with_its_members() -> None:
 
 
 def test_a_deleted_folder_is_neither_listed_nor_resolvable() -> None:
-    """Deletion stores a null at the folder's path; the folder is gone, not renamed to its id."""
+    """The overlay keeps the null a delete wrote; that folder is gone, not renamed to its id."""
     host = _named_expression()
     host.discovery["global_expression_folders"] = {"bALIVE": "still here", "bDEAD": None}
     service = GlobalExpressionService(host)

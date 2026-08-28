@@ -273,8 +273,9 @@ class GlobalExpressionService:
         snapshot = self._host.global_expression_folder_snapshot()
         if not isinstance(snapshot, dict):
             return None
-        # Deletion stores a null at the folder's path rather than dropping the key, so a folder id
-        # that is still present but null names a folder that no longer exists.
+        # Deleting a folder writes a null, and Bubble drops the key entirely - but the local
+        # mutation overlay keeps the null it wrote. So a folder id present with a null value names
+        # a folder that no longer exists, and must not resolve.
         if snapshot.get(target) is not None:
             return target
         lowered = target.lower()

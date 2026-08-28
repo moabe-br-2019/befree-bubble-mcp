@@ -143,3 +143,13 @@ Every change the SDK builds carries `changelog_data: []`, so none of the writes 
 `fetch_changelog_entries` - the newest entry there is still the last hand-made edit. This is not
 specific to global expressions; it holds for the whole toolchain. It means the changelog is a record
 of what a human did in the editor, and cannot be used to audit what the tools did.
+
+### Deleting writes a null, but Bubble drops the key
+
+Verifying the folder deletion reported `expected: null, actual: "absent"`. The write sends a null
+body; Bubble removes the path rather than storing the null. Two consequences:
+
+- `write_verify` reports `verified: false` on any null-body delete, because reading the path back
+  gives "absent" instead of the null it expected. The delete still succeeded.
+- The local mutation overlay *does* keep the null it wrote, so a reader working from the overlay
+  sees folder ids whose value is null. Those name folders that no longer exist and must be skipped.
