@@ -124,3 +124,22 @@ which the tools omit and which the editor renders fine without.
 ### A description is a separate node
 
 Adding a description writes `comments.<expression_id>`, outside `global_expressions` entirely.
+
+## What the capture could not answer, and how it was settled
+
+The changelog records `operation: "deleted"`, never the write intent behind it, so the delete
+payload was the one piece with no capture behind it. It was resolved by trying the shape the SDK
+already uses for style deletion - `DeleteGlobalExpression` with a null body, plus a bare
+`IdToPathFixer` clearing the id alias - against the real app. The write returned 200, and a
+`bubble_live_node_read` afterwards shows the node gone.
+
+The same run validated the folder tools end to end: the folder was created, an expression moved into
+it, the folder deleted with the member's `folder_id` cleared in the same payload, and the expression
+deleted. Each step was confirmed by reading the live tree back, not by the write's own status.
+
+### These writes do not appear in the editor changelog
+
+Every change the SDK builds carries `changelog_data: []`, so none of the writes above show up in
+`fetch_changelog_entries` - the newest entry there is still the last hand-made edit. This is not
+specific to global expressions; it holds for the whole toolchain. It means the changelog is a record
+of what a human did in the editor, and cannot be used to audit what the tools did.
