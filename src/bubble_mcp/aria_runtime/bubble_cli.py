@@ -80,9 +80,11 @@ from visual_mutations import VisualMutationService
 try:
     from .style_lifecycle import StyleLifecycleService, StyleReferenceResolver
     from .schema_lifecycle import PROJECT_SETTING_ALIASES, SchemaLifecycleService  # noqa: F401
+    from .global_expressions import GlobalExpressionService
 except ImportError:  # pragma: no cover - direct BubbleCLI execution compatibility
     from style_lifecycle import StyleLifecycleService, StyleReferenceResolver
     from schema_lifecycle import PROJECT_SETTING_ALIASES, SchemaLifecycleService  # noqa: F401
+    from global_expressions import GlobalExpressionService
 
 # ==========================================
 # EVENT MAPPER - CORREÇÃO CRÍTICA
@@ -397,6 +399,7 @@ class BubbleCLI:
         self._visual_mutations = VisualMutationService(self)
         self._style_lifecycle = StyleLifecycleService(self)
         self._schema_lifecycle = SchemaLifecycleService(self)
+        self._global_expressions = GlobalExpressionService(self)
 
         self.color_mapper = ColorMapper(self.discovery.data)
         # Seed with cached colors
@@ -1069,6 +1072,94 @@ class BubbleCLI:
     def dispatch_style_definition_payload(self, payload: PayloadBuilder) -> None:
         """Dispatch a completed definition/state plan through the mutation boundary."""
         self._dispatch_payload(payload)
+
+    def global_expression_snapshot(self) -> Dict[str, Any]:
+        """Expose app-level global expressions for name/id resolution."""
+        data = self.discovery.data if isinstance(self.discovery.data, dict) else {}
+        expressions = data.get("global_expressions")
+        return expressions if isinstance(expressions, dict) else {}
+
+    def dispatch_global_expression_payload(self, payload: PayloadBuilder) -> None:
+        """Dispatch a global expression plan through the mutation boundary."""
+        self._dispatch_payload(payload)
+
+    def list_global_expressions(self) -> List[Dict[str, Any]]:
+        """List app-level global expressions with their parameters."""
+        rows: List[Dict[str, Any]] = []
+        for expression_id, definition in self.global_expression_snapshot().items():
+            if not isinstance(definition, dict):
+                continue
+            parameters = definition.get("parameters")
+            rows.append(
+                {
+                    "id": expression_id,
+                    "name": definition.get("%nm") or expression_id,
+                    "type": definition.get("btype_id"),
+                    "is_list": bool(definition.get("is_list")),
+                    "has_expression": definition.get("expression") is not None,
+                    "parameters": [
+                        {
+                            "param_id": param_id,
+                            "name": param.get("param_name") if isinstance(param, dict) else None,
+                            "type": param.get("btype_id") if isinstance(param, dict) else None,
+                            "is_list": bool(param.get("is_list")) if isinstance(param, dict) else False,
+                        }
+                        for param_id, param in (parameters or {}).items()
+                    ]
+                    if isinstance(parameters, dict)
+                    else [],
+                }
+            )
+        return rows
+
+    def create_global_expression(
+        self,
+        name: str,
+        expression_type: str = "text",
+        is_list: bool = False,
+        dry_run: bool = False,
+    ) -> bool:
+        """Create an app-level global expression."""
+        return self._global_expressions.create_global_expression(
+            name,
+            expression_type=expression_type,
+            is_list=is_list,
+            dry_run=dry_run,
+        )
+
+    def set_global_expression_parameter(
+        self,
+        expression: str,
+        parameter_name: str,
+        parameter_type: str = "text",
+        is_list: bool = False,
+        parameter_id: Optional[str] = None,
+        dry_run: bool = False,
+    ) -> bool:
+        """Add or retype a parameter on a global expression."""
+        return self._global_expressions.set_global_expression_parameter(
+            expression,
+            parameter_name,
+            parameter_type=parameter_type,
+            is_list=is_list,
+            parameter_id=parameter_id,
+            dry_run=dry_run,
+        )
+
+    def set_global_expression_expression(
+        self,
+        expression: str,
+        parameter: str,
+        field: Optional[str] = None,
+        dry_run: bool = False,
+    ) -> bool:
+        """Point a global expression's body at one of its parameters."""
+        return self._global_expressions.set_global_expression_expression(
+            expression,
+            parameter,
+            field=field,
+            dry_run=dry_run,
+        )
 
     def put_style_definition_cache(self, name: str, data: Dict[str, Any]) -> None:
         """Stage one style cache value; the service controls persistence ordering."""

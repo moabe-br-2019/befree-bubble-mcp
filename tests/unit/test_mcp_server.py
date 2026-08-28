@@ -3111,7 +3111,7 @@ def test_sync_figma_tokens_schema_matches_import_and_option_discovery_runtime_si
     tools = {tool["name"]: tool for tool in listed_tools}
     schema = tools["sync_figma_tokens"]["inputSchema"]
 
-    assert len(listed_tools) == 333
+    assert len(listed_tools) == 337
     assert schema["required"] == ["profile", "tokens_path"]
     assert {
         "tokens_path",
@@ -4317,7 +4317,7 @@ def test_tools_list_includes_full_aria_catalog() -> None:
 
     assert response is not None
     names = {tool["name"] for tool in response["result"]["tools"]}
-    assert len(ARIA_BUBBLE_TOOL_NAMES) == 216
+    assert len(ARIA_BUBBLE_TOOL_NAMES) == 220
     assert set(ARIA_BUBBLE_TOOL_NAMES).issubset(names)
     assert "delete_data_field" in names
     assert "delete_data_type_permanently" in names
