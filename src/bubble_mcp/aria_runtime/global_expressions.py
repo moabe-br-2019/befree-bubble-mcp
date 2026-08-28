@@ -247,10 +247,11 @@ class GlobalExpressionService:
         return [
             {
                 "id": folder_id,
-                "name": str(name or "") or folder_id,
+                "name": str(name),
                 "expression_ids": self._members_of(folder_id),
             }
             for folder_id, name in snapshot.items()
+            if name is not None
         ]
 
     def _members_of(self, folder_id: str) -> list[str]:
@@ -272,11 +273,15 @@ class GlobalExpressionService:
         snapshot = self._host.global_expression_folder_snapshot()
         if not isinstance(snapshot, dict):
             return None
-        if target in snapshot:
+        # Deletion stores a null at the folder's path rather than dropping the key, so a folder id
+        # that is still present but null names a folder that no longer exists.
+        if snapshot.get(target) is not None:
             return target
         lowered = target.lower()
         for folder_id, name in snapshot.items():
-            if str(name or "").strip().lower() == lowered:
+            if name is None:
+                continue
+            if str(name).strip().lower() == lowered:
                 return folder_id
         return None
 

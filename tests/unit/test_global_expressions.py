@@ -301,3 +301,16 @@ def test_folder_listing_reports_each_folder_with_its_members() -> None:
         {"id": "bTGPN", "name": "folder test", "expression_ids": ["bTGOw0"]},
         {"id": "bEMPTY", "name": "empty one", "expression_ids": []},
     ]
+
+
+def test_a_deleted_folder_is_neither_listed_nor_resolvable() -> None:
+    """Deletion stores a null at the folder's path; the folder is gone, not renamed to its id."""
+    host = _named_expression()
+    host.discovery["global_expression_folders"] = {"bALIVE": "still here", "bDEAD": None}
+    service = GlobalExpressionService(host)
+
+    assert service.list_global_expression_folders() == [
+        {"id": "bALIVE", "name": "still here", "expression_ids": []}
+    ]
+    assert service.set_global_expression_folder("User email", "bDEAD") is False
+    assert host.dispatched == []
