@@ -181,7 +181,7 @@ class GlobalExpressionService:
         for expression_id, definition in snapshot.items():
             if not isinstance(definition, dict):
                 continue
-            name = str(definition.get("%nm") or "").strip().lower()
+            name = str(definition.get("name") or definition.get("%nm") or "").strip().lower()
             if name == lowered:
                 return expression_id
         return None

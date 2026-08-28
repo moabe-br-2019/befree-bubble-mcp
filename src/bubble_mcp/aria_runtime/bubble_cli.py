@@ -1093,7 +1093,7 @@ class BubbleCLI:
             rows.append(
                 {
                     "id": expression_id,
-                    "name": definition.get("%nm") or expression_id,
+                    "name": definition.get("name") or definition.get("%nm") or expression_id,
                     "type": definition.get("btype_id"),
                     "is_list": bool(definition.get("is_list")),
                     "has_expression": definition.get("expression") is not None,

@@ -148,3 +148,23 @@ def test_set_expression_refuses_unknown_parameter() -> None:
 
     assert service.set_global_expression_expression("User email", parameter="missing") is False
     assert host.dispatched == []
+
+
+def test_expression_resolves_by_its_decoded_export_name() -> None:
+    """The .bubble export decodes ``%nm`` to ``name``; both forms must resolve."""
+    host = _Host(
+        {
+            "bTGOu0": {
+                "id": "bTGOu0",
+                "name": "zz-expr-1",
+                "btype_id": "text",
+                "is_list": False,
+            }
+        }
+    )
+    service = GlobalExpressionService(host)
+
+    assert service.set_global_expression_parameter("zz-expr-1", "user") is True
+
+    changes = _changes_by_path(host.dispatched[0])
+    assert "global_expressions/bTGOu0/parameters/bGEX0" in changes
