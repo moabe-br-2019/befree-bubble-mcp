@@ -74,3 +74,53 @@ written expression was also opened in the editor, under the `Expressions` tab ne
 - expression body displayed as `user's email`, not as a raw node
 
 It sits in the `Uncategorized` folder, which is what an absent `folder_id` means.
+
+## Folders, deletion, and the editor's own creation order
+
+`capture-global-expression-changelog.json` holds hand-made editor actions read back from
+`/appeditor/fetch_changelog_entries`. The changelog reports the **decoded** key space
+(`next`/`type`/`properties`/`name`), which maps to the wire keys `%n`/`%x`/`%p`/`%nm`.
+
+### Folders are an app setting, not a node
+
+```
+settings.client_safe.global_expression_folder_list.<folder_id>
+```
+
+That is why they are absent from `_index.id_to_path` and from any top-level
+`global_expression_folders` key - both were probed and returned nothing.
+
+The value stored at that path is the folder's **name as a plain string**: creating one writes
+`"New folder"`, and renaming it reports `before_value: "New folder"` / `after_value: "folder test"`
+at the same path. There is no member list; membership lives on the expression instead, as
+`global_expressions.<id>.folder_id`. Moving an expression into a folder is a single write of that
+one field.
+
+### Deleting a folder orphans its children
+
+The capture pins this by ordering. Folder `bTGPN` was deleted at `…108795`; its only member,
+`bTGPM`, was still there and got deleted separately six seconds later at `…115187`. No entry ever
+clears `bTGPM.folder_id`, so a child keeps a dangling reference to a folder that no longer exists.
+Anything that deletes a folder has to decide what to do about that; the editor does nothing.
+
+### The editor creates, then renames
+
+An editor-made expression is `added` under the default display name `Global expression`, and only a
+separate `%nm` change gives it its real name. Parameters behave the same way: they appear as
+`{is_list: false, btype_id: "text", param_id, param_name: "Parameter 1"}` and are then renamed and
+retyped by further writes.
+
+The tools do not reproduce that two-step - they set the final name in the create body - and the
+result renders correctly, so the intermediate default is an editor UI artifact, not a requirement.
+
+### `%n: null` is real
+
+The body's first write is recorded as `{next: null, type: "GlobalExpressionParameter", properties:
+{...}, is_slidable: false}`. The explicit `next: null` matches what `set_global_expression_expression`
+writes when no field is chained. Chaining `email` then replaces it with
+`{args: null, name: "email", next: null, type: "Message", is_slidable: false}` - note `args: null`,
+which the tools omit and which the editor renders fine without.
+
+### A description is a separate node
+
+Adding a description writes `comments.<expression_id>`, outside `global_expressions` entirely.
