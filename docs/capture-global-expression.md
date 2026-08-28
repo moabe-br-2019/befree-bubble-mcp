@@ -62,8 +62,15 @@ Parameters and the body are separate `ModifyGlobalExpression` writes against
 `global_expressions.<id>.parameters.<param_id>` and `global_expressions.<id>.expression`. So an
 expression is only usable after its body is set - creation alone leaves it flagged.
 
-## Still unverified
+## Confirmed in the editor
 
 `write_verify` reads every written path back and compares bytes, and all three writes passed. That is
-not a render check: `render_unverified` stays true until a human opens the editor and confirms the
-expression displays as `user's email`.
+not a render check on its own - a wrongly assembled interior can round-trip byte-identically. So the
+written expression was also opened in the editor, under the `Expressions` tab next to `Styles` and
+`Variables`, and it renders as intended:
+
+- return type `text`, `List?` unchecked
+- one parameter, `user`, of type `User`, `List?` unchecked
+- expression body displayed as `user's email`, not as a raw node
+
+It sits in the `Uncategorized` folder, which is what an absent `folder_id` means.
