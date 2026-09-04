@@ -86,6 +86,86 @@ Ciclo read-patch-write-verify sobre um node vivo.
 - **3.5 `verify_write` direto** — chamar a tool isolada sobre uma escrita conhecida boa e
   uma conhecida ruim.
 
+## 3B. Elementos dentro de reusables (`%ed`)
+
+O plano original só exercitava nodes sob `api`, e por isso não pegou que
+`bubble_live_node_read` abria o editor sempre em `page?name=index`. A hipótese por trás da
+correção é que a página do editor decide quais subárvores carregam, e que a subárvore de um
+reusable nunca começa a carregar na `index`. A página passou a ser derivada do próprio pointer
+(`%ed.<key>` abre a página daquele reusable, `%p3.<key>` abre aquela página).
+
+Diagnóstico original: app `orana-digital-system`, branch `test`, reusable **New Client Form**
+(key `bTZyj`, id `bTZyf`). Execução de 2026-09-04: app `mcp-test-app`, branch `test`, perfil
+`mcp-test`, com fixtures criados para o teste — reusable `MCP Reusable Form` (key `bp5R4`),
+input `in_mandatory_probe` (key `bsHMF`, id `beghi`) e style `MCP Probe Style`
+(`Button_mcp_probe_style_`).
+
+**A hipótese da causa raiz não se reproduziu no `mcp-test-app`.** Forçando a URL antiga, fixa
+em `name=index`, tanto `["%p3","bICcQ"]` (página `test_mcp_new`) quanto `["%ed","bp5R4"]`
+leram normalmente. Nesse app a `index` prime as duas subárvores, então a correção não muda
+resultado nenhum aqui e continua sem evidência contra o bug que ela mira. O caso da Orana
+segue sendo o único onde a falha foi observada, e é nele que 3B.1/3B.2 precisam rodar. A
+afirmação do docstring de `editor_page.py` de que uma página fora da `index` também nunca
+chega está contrariada pela medição.
+
+- **3B.1 leitura rasa do reusable** — `bubble_live_node_read` com `pointer=["%ed","<key>"]`.
+  Esperado: o node, não `pointer_not_ready`. Passou no `mcp-test-app` (`bp5R4`), mas também
+  passava com a URL antiga; só tem valor diagnóstico rodando na Orana (`bTZyj`).
+- **3B.2 leitura profunda** — na Orana,
+  `pointer=["%ed","bTZyj","%el","bTaCn","%el","bTZse0","%el","bTTWc"]`. Este é o pointer que
+  falhava três vezes seguidas, inclusive com `read_timeout_sec=120`. **Não executado.**
+- **3B.3 nome do reusable não resolvido** — apagar/renomear o cache do perfil e repetir 3B.1.
+  Esperado: falhar citando a página `name=<key>` que não existe, e não expirar 90s em
+  `pointer_not_ready`. O cache correto é o índice em
+  `contexts/<perfil>/bubble_modules/<app>/element_definitions/__index.json`. Executado com o
+  índice sem a entrada: a leitura caiu no fallback `name=bp5R4` e **mesmo assim leu**, o que
+  confirma que nesse app a página escolhida é irrelevante. Fica em aberto se, num app onde a
+  página importa, esse fallback piora o resultado — ele troca uma página que funcionava
+  (`index`) por uma que não existe.
+- **3B.4 página que não é a index** — pointer `["%p3","<key de outra página>", ...]`. Leu, e
+  leu também com a URL antiga forçada: **não distingue nada**.
+- **3B.5 lote com páginas diferentes** — ler, na mesma chamada, um pointer de reusable, um de
+  outra página e um de `api`. Esperado: um único browser aberto, uma navegação por página
+  distinta, e um resultado por pointer. **Não executado.**
+- **3B.6 sessão expirada** — com o perfil deslogado, qualquer pointer deve reportar
+  `not_logged_in` apontando `bubble_session_login`, e **não** `pointer_not_ready`. O editor
+  serve o app pedido por ~1s e então é jogado para `https://bubble.io/`, onde `appquery`
+  responde pelo app `meta` da própria Bubble. Passou.
+- **3B.7 `bubble_node_edit` em elemento de reusable** — `op="patch"` em
+  `["%ed","<key>","%el","<key>"]` com `leaf_pointer=["%p"]` levando `mandatory` e `%1m` a
+  `false`. Passou: `verified: true`, `divergence: null`. A outra metade — `op="remove"` na
+  chave de `states` cuja condição religa `mandatory` — **não foi executada**, porque o fixture
+  do `mcp-test-app` não tem condição de elemento; na Orana os dois lugares precisam ser
+  mexidos, já que só a propriedade base não resolve.
+- **3B.8 `mandatory` nas tools de alto nível** — `update_input`/`update_dropdown` com
+  `mandatory` (alias de `required`). Passou: escreveu `%p.mandatory` e `%p.%1m`, verificado.
+  Um argumento que a tool não declara e que não produziu nenhuma escrita volta em
+  `unrecognized_arguments` — testado com `obrigatorio=true`, que retornou a lista e o aviso em
+  vez de sumir dentro de "No update fields were provided". Passou.
+- **3B.9 `delete_style_condition`** — remover uma condição de um style e reler o style.
+  Executado contra o editor real: a remoção escreve `%s` inteiro e a releitura confirma que a
+  condição sumiu e que o resto do style ficou intacto. Ressalva: removendo a **última**
+  condição, o Bubble descarta o mapa vazio em vez de guardar `{}`, e o `write_verification`
+  reporta `verified: false` com `expected present / actual absent` em `styles.<id>.%s`. A
+  escrita está certa; o verificador é que não espera o mapa sumir.
+
+### Achados colaterais da execução de 2026-09-04
+
+- `create_reusable` cria um reusable **sem nome, sem id e sem tipo**. O `CreateElement` manda
+  `%x`, `id` e `%nm` no body, mas só os `SetData` seguintes persistem: o export mostra
+  `element_definitions.bp5R4` apenas com `elements` e `properties`. É por isso que o índice
+  gravou `"bp5R4": "CustomDefinition:bp5R4"`, com o nome igual à key, e que
+  `editor_page.resolve_context_name` não tem nome para resolver. Comportamento pré-existente,
+  mas derruba na prática a resolução de nome introduzida aqui.
+- `refresh_profile_cache` está quebrado: `Refresh script not found:
+  src/bubble_mcp/aria_runtime/scripts/refresh_profile.py`. O arquivo não existe no
+  repositório, nem neste branch nem na `main`. O caminho que funciona é
+  `bubble_profile_cache_refresh`. Isso importa para 3B.3, que depende de reconstruir o índice
+  do perfil.
+- `editor_page` lê só o `__index.json` e o export `.bubble`, e ignora o mutation overlay. Um
+  reusable criado pelo próprio MCP fica invisível para a resolução de nome até um refresh
+  completo do cache.
+
 ## 4. Resolução de contexto (key vs id)
 
 - **4.1 resolver de contexto** — deve preferir path/key real do node ao `bubble_id`.

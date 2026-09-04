@@ -1189,3 +1189,101 @@ def test_style_candidate_and_cache_cleanup_ignore_malformed_and_blank_aliases() 
     )
     assert _service(host).delete_style("Body") is True
     assert "" in host.cache["styles"]
+
+
+# --- Removing a condition ------------------------------------------------------------------
+#
+# add_style_condition both adds and edits (it reuses the id of a condition whose trigger chain
+# already matches), so the missing half of the pair was only removal: once a condition existed
+# there was no way to take it off a style through the tools.
+
+
+def _hover_state(properties: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "%x": "State",
+        "%c": {"%x": "ThisElement", "%n": {"%nm": "is_hovered"}},
+        "%p": dict(properties or {"%fc": "red"}),
+    }
+
+
+def _focus_state() -> dict[str, Any]:
+    return {
+        "%x": "State",
+        "%c": {"%x": "ThisElement", "%n": {"%nm": "is_focused"}},
+        "%p": {"%bc": "blue"},
+    }
+
+
+def test_delete_style_condition_rewrites_the_state_map_without_that_condition() -> None:
+    host = _Host({"Button_primary_": _style("Primary", "Button", states={"bAAAA": _hover_state(), "bBBBB": _focus_state()})})
+
+    assert _service(host).delete_style_condition("Primary", "hover") is True
+
+    intent, path, body = host.dispatches[0][0]
+    assert intent == "SetStyleData"
+    assert path == ["styles", "Button_primary_", "%s"]
+    assert set(body) == {"bBBBB"}
+    assert body["bBBBB"]["%c"]["%n"]["%nm"] == "is_focused"
+
+
+def test_delete_style_condition_accepts_the_condition_id_directly() -> None:
+    """The trigger chain is not always expressible as a name - an id always addresses one state."""
+
+    host = _Host({"Button_primary_": _style("Primary", "Button", states={"bAAAA": _hover_state(), "bBBBB": _focus_state()})})
+
+    assert _service(host).delete_style_condition("Primary", condition_id="bBBBB") is True
+
+    _, _, body = host.dispatches[0][0]
+    assert set(body) == {"bAAAA"}
+
+
+def test_delete_style_condition_refuses_a_condition_the_style_does_not_have() -> None:
+    host = _Host({"Button_primary_": _style("Primary", "Button", states={"bAAAA": _hover_state()})})
+
+    assert _service(host).delete_style_condition("Primary", "focus") is False
+    assert host.dispatches == []
+
+
+def test_delete_style_condition_refuses_a_style_with_no_states_at_all() -> None:
+    host = _Host({"Button_primary_": _style("Primary", "Button")})
+
+    assert _service(host).delete_style_condition("Primary", "hover") is False
+    assert host.dispatches == []
+
+
+def test_delete_style_condition_refuses_an_unknown_style() -> None:
+    host = _Host({})
+
+    assert _service(host).delete_style_condition("Nope", "hover") is False
+    assert host.dispatches == []
+
+
+def test_delete_style_condition_needs_a_condition_or_an_id() -> None:
+    host = _Host({"Button_primary_": _style("Primary", "Button", states={"bAAAA": _hover_state()})})
+
+    assert _service(host).delete_style_condition("Primary") is False
+    assert host.dispatches == []
+
+
+def test_delete_style_condition_writes_nothing_on_a_dry_run() -> None:
+    host = _Host({"Button_primary_": _style("Primary", "Button", states={"bAAAA": _hover_state()})})
+
+    assert _service(host).delete_style_condition("Primary", "hover", dry_run=True) is True
+    assert host.dispatches == []
+
+
+def test_delete_style_condition_drops_the_condition_from_the_style_cache() -> None:
+    """A stale `conditions` entry would let the next add reuse the id of a deleted state."""
+
+    host = _Host({"Button_primary_": _style("Primary", "Button", states={"bAAAA": _hover_state(), "bBBBB": _focus_state()})})
+    host.cache["styles"]["Primary"] = {
+        "id": "Button_primary_",
+        "type": "Button",
+        "conditions": {"hover": "bAAAA", "focus": "bBBBB"},
+    }
+
+    assert _service(host).delete_style_condition("Primary", "hover") is True
+
+    cached = host.cache["styles"]["Primary"]
+    assert cached["conditions"] == {"focus": "bBBBB"}
+    assert set(cached["%s"]) == {"bBBBB"}
