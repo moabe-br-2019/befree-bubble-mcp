@@ -61,6 +61,7 @@ from bubble_mcp.execution.editor_api import (
 )
 from bubble_mcp.execution.executor import execute_plan
 from bubble_mcp.execution.live_node_read import read_live_node
+from bubble_mcp.execution.run_as import run_as_user
 from bubble_mcp.execution.node_edit import clone_live_workflow, edit_live_node
 from bubble_mcp.execution.deploy_preview import preview_deploy, read_nodes_over_http
 from bubble_mcp.execution.session_savepoint import (
@@ -1771,6 +1772,28 @@ def _call_tool(
         if expression_warnings:
             write_result = {**write_result, "warnings": expression_warnings}
         return write_result
+    if name == "bubble_run_as":
+        args = arguments or {}
+        profile = str(args.get("profile") or "").strip()
+        if not profile:
+            raise ValueError("bubble_run_as requires a profile.")
+        user_id = str(args.get("user_id") or "").strip()
+        email = str(args.get("email") or "").strip()
+        if not user_id and not email:
+            raise ValueError(
+                "bubble_run_as requires user_id (the Bubble unique id of the row in the app's "
+                "User type) or email, which is resolved through the app's Data API."
+            )
+        return run_as_user(
+            profile,
+            user_id,
+            email=email or None,
+            data_api_dir=str(args.get("data_api_dir") or "").strip() or None,
+            page=str(args.get("page") or "index").strip() or "index",
+            app_id=str(args.get("app_id") or "").strip() or None,
+            app_version=str(args.get("app_version") or "test").strip() or "test",
+            write_storage_state=args.get("write_storage_state", True) is not False,
+        )
     if name == "bubble_live_node_read":
         args = arguments or {}
         profile = str(args.get("profile") or "").strip()
