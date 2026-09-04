@@ -82,6 +82,11 @@ ARG_ALIASES = {
     "action_param": ("param",),
     "to_email": ("to",),
     "reusable_name": ("source", "reusable"),
+    # `mandatory` is what this property is called everywhere the agent can see it: in the node
+    # the live read returns, in the element's own %p, and in the style condition that overrides
+    # it. `required` is only what this runtime named the parameter. Accepting both means the
+    # obvious call lands instead of being swallowed by additionalProperties.
+    "required": ("mandatory",),
 }
 
 OPERATION_ARG_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
@@ -106,6 +111,37 @@ def public_aliases_for_runtime_parameter(
     if parameter_name in operation_aliases:
         return operation_aliases[parameter_name]
     return ARG_ALIASES.get(parameter_name, ())
+
+
+def undeclared_arguments(tool_name: str, args: dict[str, Any]) -> list[str]:
+    """Return the argument names this tool's schema does not declare, in call order.
+
+    Every ported tool's schema sets ``additionalProperties: true``, which is deliberate - the
+    runtime takes far more arguments than the schema enumerates - but it also means a typo, or
+    a right-idea-wrong-name argument, is accepted and then silently dropped. ``mandatory=false``
+    on ``update_input`` did exactly that: no parameter matched, nothing was written, and the
+    call reported "No update fields were provided", which reads as "nothing to change".
+
+    Naming the undeclared arguments does not make them work; it makes the drop visible. The
+    caller decides when to report them (see ``dispatch_aria_runtime_tool``, which only does so
+    when the call produced no write at all, so an ordinary successful call stays quiet).
+    """
+
+    from bubble_mcp.server.agent_catalog import _legacy_fields_for_name
+
+    fields = _legacy_fields_for_name(tool_name)
+    if not fields:
+        return []
+    declared = set(fields[0]) | set(fields[1]) | set(CONTROL_ARG_KEYS)
+    declared.update(
+        alias
+        for parameter in declared.copy()
+        for alias in public_aliases_for_runtime_parameter(tool_name, parameter)
+    )
+    declared.update(
+        ("profile", "app_id", "app_version", "context_file", "execute", "write_payload", "payload")
+    )
+    return [str(key) for key in args if str(key) not in declared]
 
 RUNTIME_TOOL_ALIASES = {
     "sync_cache": "refresh_profile_cache",
@@ -295,6 +331,11 @@ class _FakeInquirer:
 
 
 def _load_aria_runtime_modules() -> tuple[Any, Any]:
+    # The bare top-level names are load-bearing, not sloppiness: aria_runtime/bubble_cli.py
+    # itself does `from bubble_sdk import ...` in a dozen places, so the runtime resolves its
+    # sibling as a TOP-LEVEL module. Importing it here as bubble_mcp.aria_runtime.bubble_sdk
+    # instead produces a second module object, and a caller patching one does not affect the
+    # other - which silently breaks the Figma sync. See docs note on the bubble_cli name clash.
     runtime_dir = Path(__file__).resolve().parent / "aria_runtime"
     runtime_path = str(runtime_dir)
     if runtime_path not in sys.path:
@@ -869,6 +910,22 @@ def dispatch_aria_runtime_tool(name: str, args: dict[str, Any]) -> dict[str, Any
         for item in captured_results
         if item.get("local_state_warning")
     ]
+    if not captured_payloads:
+        # A call that changed nothing AND carried arguments this tool never declared is the
+        # shape of an argument that was accepted by additionalProperties and then dropped -
+        # `mandatory` on update_input wrote nothing and said only "No update fields were
+        # provided". Naming the arguments turns that into something the caller can act on. Kept
+        # to the no-write case on purpose: a call that did write clearly understood its
+        # arguments, and warning there would be noise on every working call.
+        undeclared = undeclared_arguments(name, args)
+        if undeclared:
+            response["unrecognized_arguments"] = undeclared
+            local_state_warnings.append(
+                f"{name} wrote nothing and does not declare these arguments: "
+                f"{', '.join(undeclared)}. They were accepted (every ported tool allows extra "
+                f"properties) but matched no parameter, so they had no effect. Check the tool's "
+                f"schema for the name it expects."
+            )
     if local_state_warnings:
         response["warnings"] = local_state_warnings
     follow_up = _delete_data_type_follow_up(

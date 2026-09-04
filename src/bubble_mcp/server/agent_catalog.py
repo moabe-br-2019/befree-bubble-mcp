@@ -135,7 +135,8 @@ COMMON_PROPERTY_DESCRIPTIONS: dict[str, str] = {
     "dynamic_type": "Bubble data type used for dynamic option sources.",
     "option_caption_field": "Field used as the visible caption for dynamic dropdown options.",
     "checked": "Initial checked state for checkbox-like controls.",
-    "required": "Whether the Bubble input/control is required.",
+    "required": "Whether the Bubble input/control is required (writes the element's `mandatory` property).",
+    "mandatory": "Same switch as `required`: the element's `mandatory` property (\"this input should not be empty\"). A style condition can still override it at runtime.",
     "selected": "Initial selected value.",
     "min": "Minimum numeric value.",
     "max": "Maximum numeric value.",
@@ -773,6 +774,12 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "the stored session. The only source of the raw expression encoding; the .bubble export is "
         "decoded and cannot be inverted."
     ),
+    "bubble_run_as": (
+        "Log in to the app as one of its users, the way the editor's Run as button does, and return a "
+        "Playwright storage_state that drives the app as that user. Two GETs, no browser. user_id is the "
+        "Bubble unique id of the row in the app's User type. Cookie values are never returned; the "
+        "storage_state file path is."
+    ),
     "bubble_node_edit": (
         "Edit a live Bubble node in place - patch one leaf or reorder an actions map - re-encoding only "
         "the node root, then re-read the node and report where it diverged from the intent. "
@@ -1118,6 +1125,7 @@ EXACT_TOOL_FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
     "edit_style": (("profile", "name", "element_type"), ("dry_run", "settings_path", "map_type", "map_style", "custom_style", *VISUAL_STYLE_FIELDS)),
     "add_style_condition": (("profile", "name", "condition"), ("dry_run", "settings_path", *VISUAL_STYLE_FIELDS)),
+    "delete_style_condition": (("profile", "name"), ("dry_run", "settings_path", "condition", "condition_id")),
     "reorder_style_states": (("profile", "name", "order"), ("dry_run", "settings_path")),
     "rename_style": (("profile", "style_id", "new_name"), ("dry_run", "settings_path")),
     "create_button_style": (("profile", "name", "theme_json"), ("dry_run", "settings_path")),
@@ -1174,6 +1182,7 @@ FIELD_TYPES: dict[str, dict[str, Any]] = {
     "include_styles": {"type": "boolean"},
     "checked": {"type": "boolean"},
     "required": {"type": "boolean"},
+    "mandatory": {"type": "boolean"},
     "fixed_width": {"type": "boolean"},
     "fit_width": {"type": "boolean"},
     "fixed_height": {"type": "boolean"},
@@ -1775,6 +1784,14 @@ def _property_schema(field: str) -> dict[str, Any]:
     return schema
 
 
+# Every element that can be filled in can also be marked "should not be empty". The runtime
+# has always written that property, under the parameter name `required`; `mandatory` is what
+# the property itself is called in the app tree, and is the name an agent reads off a node and
+# then tries to pass back. Declaring both is what stops the second one from being swallowed by
+# additionalProperties and dropped (see aria_dispatch.ARG_ALIASES).
+FORM_MANDATORY_FIELDS: tuple[str, ...] = ("required", "mandatory")
+
+
 def _visual_fields_for_name(name: str) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
     create_fields: dict[str, tuple[str, ...]] = {
         "group": ("name", "layout", *VISUAL_STYLE_FIELDS, "data_class", "data_source", *QUERY_FIELDS),
@@ -1784,16 +1801,16 @@ def _visual_fields_for_name(name: str) -> tuple[tuple[str, ...], tuple[str, ...]
         "popup": ("name", "layout", *VISUAL_STYLE_FIELDS, "data_class", "data_source"),
         "text": ("content", "name", "style", *VISUAL_STYLE_FIELDS),
         "button": ("label", "name", "style", "icon", *VISUAL_STYLE_FIELDS),
-        "input": ("name", "placeholder", "content_format", "style", *VISUAL_STYLE_FIELDS),
-        "multiline_input": ("name", "placeholder", "style", *VISUAL_STYLE_FIELDS),
-        "dropdown": ("name", "placeholder", "choices", "dynamic_type", "option_caption_field", "style", *QUERY_FIELDS, *VISUAL_STYLE_FIELDS),
-        "searchbox": ("name", "placeholder", "data_type", "style", *QUERY_FIELDS, *VISUAL_STYLE_FIELDS),
-        "checkbox": ("name", "label", "checked", "required", "style", *VISUAL_STYLE_FIELDS),
-        "datepicker": ("name", "placeholder", "show_time", "style", *VISUAL_STYLE_FIELDS),
-        "radio": ("name", "label", "group_name", "choices", "selected", "style", *VISUAL_STYLE_FIELDS),
+        "input": ("name", "placeholder", "content_format", *FORM_MANDATORY_FIELDS, "style", *VISUAL_STYLE_FIELDS),
+        "multiline_input": ("name", "placeholder", *FORM_MANDATORY_FIELDS, "style", *VISUAL_STYLE_FIELDS),
+        "dropdown": ("name", "placeholder", "choices", "dynamic_type", "option_caption_field", *FORM_MANDATORY_FIELDS, "style", *QUERY_FIELDS, *VISUAL_STYLE_FIELDS),
+        "searchbox": ("name", "placeholder", "data_type", *FORM_MANDATORY_FIELDS, "style", *QUERY_FIELDS, *VISUAL_STYLE_FIELDS),
+        "checkbox": ("name", "label", "checked", *FORM_MANDATORY_FIELDS, "style", *VISUAL_STYLE_FIELDS),
+        "datepicker": ("name", "placeholder", "show_time", *FORM_MANDATORY_FIELDS, "style", *VISUAL_STYLE_FIELDS),
+        "radio": ("name", "label", "group_name", "choices", "selected", *FORM_MANDATORY_FIELDS, "style", *VISUAL_STYLE_FIELDS),
         "slider": ("name", "min", "max", "val", "step", "style", *VISUAL_STYLE_FIELDS),
-        "file_uploader": ("name", "label", "style", *VISUAL_STYLE_FIELDS),
-        "picture_uploader": ("name", "label", "style", "limit_image_size_before_upload", *VISUAL_STYLE_FIELDS),
+        "file_uploader": ("name", "label", *FORM_MANDATORY_FIELDS, "style", *VISUAL_STYLE_FIELDS),
+        "picture_uploader": ("name", "label", *FORM_MANDATORY_FIELDS, "style", "limit_image_size_before_upload", *VISUAL_STYLE_FIELDS),
         "shape": ("name", "style", "color", *VISUAL_STYLE_FIELDS),
         "video": ("name", "url", "video_id", "origin", "autoplay", "style", *VISUAL_STYLE_FIELDS),
         "image": ("name", "source", "style", *VISUAL_STYLE_FIELDS),
@@ -2012,6 +2029,7 @@ def tool_annotations(name: str) -> dict[str, bool]:
             "bubble_execute_plan",
             "bubble_live_node_read",
             "bubble_node_edit",
+            "bubble_run_as",
             "bubble_clone_workflow",
             "bubble_visual_capture",
         "bubble_visual_capture_actual",
