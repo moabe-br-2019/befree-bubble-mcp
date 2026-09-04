@@ -31,6 +31,17 @@ server = [
 browser = [
   "playwright>=1.45.0"
 ]
+# Bulk data work: mirroring an app's tables, exporting, exploring with SQL. This server does a
+# single Data API lookup of its own (execution/data_api.py) and deliberately nothing more, so
+# anything volume-shaped belongs here instead. Optional on purpose - the server never imports
+# it, and every feature works without it.
+#
+# A direct URL because bubble-cli is not on PyPI; neither is this package, so nothing is lost.
+# Pinned to a branch rather than a tag because the project has no tags yet - once it does,
+# pin one here so an install is reproducible.
+data = [
+  "bubble-cli @ git+https://github.com/moabe-br-2019/bubble_cli.git@main"
+]
 
 [project.scripts]
 bubble-mcp = "bubble_mcp.cli.main:main"

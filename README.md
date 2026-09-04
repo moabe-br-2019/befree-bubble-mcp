@@ -30,7 +30,7 @@ Replace both with your real values.
 ### 1. Clone The Repository
 
 ```bash
-git clone https://github.com/pedrobefree/befree-bubble-mcp.git
+git clone https://github.com/moabe-br-2019/befree-bubble-mcp.git
 cd befree-bubble-mcp
 ```
 
@@ -55,6 +55,27 @@ python scripts\install_local.py --extras browser,dev
 python -m playwright install chromium
 bubble-mcp --help
 ```
+
+#### Optional Extras
+
+| extra | what it adds |
+|---|---|
+| `browser` | Playwright, for the live editor reads, visual capture and the UI tests |
+| `dev` | pytest, ruff, mypy, coverage |
+| `server` | FastAPI and uvicorn, for the HTTP transport |
+| `data` | [bubble-cli](https://github.com/moabe-br-2019/bubble_cli), for bulk data work |
+
+Add them to the same command, for example `--extras browser,dev,data`.
+
+`data` is worth a word. This server does exactly one Data API read of its own - resolving an
+email to a user id, so `bubble_run_as` can impersonate somebody by email. Anything
+volume-shaped (mirroring an app's tables into SQLite, exporting, exploring with SQL) is what
+`bubble-cli` is for, and it exposes its own MCP server for that. Nothing here imports it and
+every feature works without it, so install the extra only if you want that side.
+
+It installs from git because `bubble-cli` is not published on PyPI, and it tracks the `main`
+branch because that project has no tags yet - so an install is not reproducible until one
+exists.
 
 If PowerShell blocks virtualenv activation in the current terminal session:
 
