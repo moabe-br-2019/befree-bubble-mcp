@@ -906,6 +906,90 @@ class StyleDefinitionService:
         cache_entry["conditions"] = conditions
         return self._put_cache(style_name, cache_entry)
 
+    def delete_style_condition(
+        self,
+        style_name: str,
+        condition: str | None = None,
+        *,
+        condition_id: str | None = None,
+        dry_run: bool = False,
+    ) -> bool:
+        """Remove one condition (state) from a style.
+
+        ``add_style_condition`` already covers both halves of adding: given a trigger chain the
+        style already carries, it reuses that condition's id and rewrites its properties. What
+        had no counterpart was removal - once a condition existed, nothing could take it off.
+
+        The removal is written the way ``reorder_style_states`` writes its result: one
+        ``SetStyleData`` replacing the whole ``%s`` map, here with the surviving states. The
+        alternative - a null body at the single state's path - does delete a path in Bubble
+        (see docs/capture-global-expression.md), but it has not been measured on the styles
+        tree, and replacing the map is the shape the editor's own traffic is known to take.
+
+        ``condition`` names the trigger ("hover", "focus", "disabled", or a chain like
+        "hover+focus"); ``condition_id`` addresses the state directly, for a condition whose
+        chain no name expresses.
+        """
+
+        style_id = self._references.find_style_id(style_name)
+        if not style_id:
+            logger.error(f"Style '{style_name}' not found.")
+            return False
+        raw_condition = str(condition or "").strip()
+        target_id = str(condition_id or "").strip()
+        if not raw_condition and not target_id:
+            logger.error("Missing condition: pass the trigger name or an explicit condition_id.")
+            return False
+
+        style = self._style_snapshot(style_id)
+        states = style.get("%s") if isinstance(style, dict) else None
+        if not isinstance(states, dict) or not states:
+            logger.error(f"No states found for style '{style_name}'.")
+            return False
+
+        if not target_id:
+            chain = self._parse_condition_chain(raw_condition)
+            if not chain:
+                logger.error(f"Could not parse condition '{condition}'.")
+                return False
+            found = self.find_style_condition_id(style_id, chain)
+            if not found:
+                logger.error(f"Style '{style_name}' has no condition '{raw_condition}'.")
+                return False
+            target_id = str(found)
+        if target_id not in states:
+            logger.error(f"Style '{style_name}' has no condition '{target_id}'.")
+            return False
+
+        remaining = {
+            str(key): self._ensure_state_type(state)
+            for key, state in states.items()
+            if str(key) != target_id and isinstance(state, dict)
+        }
+        payload = PayloadBuilder(self._host.appname)
+        payload.add_intent(
+            {"intent": "SetStyleData", "path": ["styles", style_id, "%s"], "body": remaining}
+        )
+        if dry_run:
+            logger.info(
+                f" DRY RUN - delete condition '{raw_condition or target_id}' from style '{style_name}'"
+            )
+            logger.log(json.dumps(payload.changes, indent=2))
+            return True
+        if not self._dispatch(payload, "Failed to delete style condition"):
+            return False
+
+        cache_entry = self._cache_entry_for_style(style_name, style_id)
+        cache_entry["%s"] = copy.deepcopy(remaining)
+        conditions = cache_entry.get("conditions")
+        if isinstance(conditions, dict):
+            # An entry still pointing at the deleted id would make the next add_style_condition
+            # reuse a state that no longer exists.
+            cache_entry["conditions"] = {
+                name: value for name, value in conditions.items() if str(value) != target_id
+            }
+        return self._put_cache(style_name, cache_entry)
+
     def apply_state_definitions(
         self,
         style_name: str,

@@ -10229,6 +10229,20 @@ class BubbleCLI:
             **props,
         )
 
+    def delete_style_condition(
+        self,
+        style_name: str,
+        condition: Optional[str] = None,
+        dry_run: bool = False,
+        condition_id: Optional[str] = None,
+    ) -> bool:
+        return self._style_lifecycle.definitions.delete_style_condition(
+            style_name,
+            condition,
+            condition_id=condition_id,
+            dry_run=dry_run,
+        )
+
     def find_style_id(self, style_name: str, element_type: Optional[str] = None) -> Optional[str]:
         """Find a style ID by normalized name or explicit ID."""
         return self._style_lifecycle.references.find_style_id(style_name, element_type)

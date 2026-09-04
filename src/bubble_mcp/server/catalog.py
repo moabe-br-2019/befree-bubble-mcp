@@ -136,6 +136,7 @@ ARIA_BUBBLE_TOOL_NAMES: tuple[str, ...] = (
     "create_style",
     "edit_style",
     "add_style_condition",
+    "delete_style_condition",
     "reorder_style_states",
     "create_workflow",
     "log_the_user_in",
