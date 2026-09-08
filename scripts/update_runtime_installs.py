@@ -25,19 +25,24 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-FORK_URL = "https://github.com/moabe-br-2019/befree-bubble-mcp.git"
-DEFAULT_REVISION = "main"
+SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
 
-# Path files that must not survive a reinstall. The first is pip's own and it cleans that one
-# up; the second it does not know about.
-STALE_PTH_NAMES = ("befree_bubble_mcp_local.pth",)
-STALE_PTH_GLOBS = ("__editable__.befree_bubble_mcp-*.pth",)
+# Shared with the launcher that does this same reinstall unattended
+# (bubble_mcp.server.autoupdate). It lives in the package rather than here because the launcher
+# runs from an installed venv, where scripts/ does not exist.
+from bubble_mcp.server.autoupdate import (
+    DEFAULT_REVISION,
+    FORK_URL,
+    installed_revision,
+    stale_path_files,
+)
 
 
 @dataclass(frozen=True)
@@ -64,47 +69,16 @@ def default_projects(dev_root: Path) -> list[RuntimeProject]:
     ]
 
 
-def stale_path_files(project: RuntimeProject) -> list[Path]:
-    found = [
-        project.site_packages / name
-        for name in STALE_PTH_NAMES
-        if (project.site_packages / name).exists()
-    ]
-    for pattern in STALE_PTH_GLOBS:
-        found.extend(sorted(project.site_packages.glob(pattern)))
-    return found
-
-
-def installed_revision(project: RuntimeProject) -> dict[str, object] | None:
-    """What the venv actually holds, straight from pip's own record."""
-
-    for dist_info in sorted(project.site_packages.glob("befree_bubble_mcp-*.dist-info")):
-        record = dist_info / "direct_url.json"
-        if not record.exists():
-            continue
-        try:
-            payload = json.loads(record.read_text(encoding="utf-8"))
-        except ValueError:
-            continue
-        info = payload.get("vcs_info") or {}
-        return {
-            "url": payload.get("url"),
-            "requested": info.get("requested_revision"),
-            "commit": info.get("commit_id"),
-        }
-    return None
-
-
 def update(project: RuntimeProject, revision: str, *, execute: bool) -> bool:
     print(f"\n=== {project.name}")
     if not project.python.exists():
         print(f"  SKIPPED: no interpreter at {project.python}")
         return False
 
-    before = installed_revision(project)
+    before = installed_revision(project.site_packages)
     print(f"  before: {before or 'nothing recorded'}")
 
-    for path in stale_path_files(project):
+    for path in stale_path_files(project.site_packages):
         print(f"  remove: {path.name}")
         if execute:
             path.unlink()
@@ -120,7 +94,7 @@ def update(project: RuntimeProject, revision: str, *, execute: bool) -> bool:
         print(f"  FAILED ({result.returncode}):\n{result.stdout[-2000:]}{result.stderr[-2000:]}")
         return False
 
-    after = installed_revision(project)
+    after = installed_revision(project.site_packages)
     print(f"  after : {after or 'nothing recorded'}")
     if not after or not after.get("commit"):
         print("  WARNING: pip reported success but recorded no commit; verify by hand.")
