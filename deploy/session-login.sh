@@ -7,15 +7,18 @@
 # between machines leaves one more copy on one more disk every few days. Captured here, the
 # cookies are created where they are used and never travel.
 #
-# The screen is an Xvfb display with x11vnc bound to 127.0.0.1. Nothing listens on a public
-# interface - the operator reaches it by forwarding the port over SSH, which is already
-# authenticated by key:
+# The screen is an Xvfb display with x11vnc bound to 127.0.0.1, and websockify serving noVNC
+# in front of it - also on 127.0.0.1. Nothing listens on a public interface: the operator
+# reaches it by forwarding the port over SSH, which is already authenticated by key:
 #
-#     ssh -L 5901:localhost:5901 bubblemcp@<host>
+#     ssh -L 6080:localhost:6080 bubblemcp@<host>
 #
-# then points any VNC client at localhost:5901. Everything started here is torn down when this
-# script exits, however it exits: the display, the window manager and the VNC server exist for
-# the duration of one login and no longer.
+# then opens http://localhost:6080/vnc.html in any browser. noVNC rather than a native client
+# so the operator installs nothing, on any machine they happen to be at - and because the same
+# piece is what a public re-login page would be built on, the day one is worth having.
+#
+# Everything started here is torn down when this script exits, however it exits: the display,
+# the window manager, the VNC server and the proxy exist for one login and no longer.
 #
 #     bash session-login.sh --profile kaimia --app-id kaimia-app
 #
@@ -28,6 +31,8 @@ set -Eeuo pipefail
 VENV="${VENV:-/opt/bubble-mcp/venv}"
 DISPLAY_NUM="${DISPLAY_NUM:-:99}"
 VNC_PORT="${VNC_PORT:-5901}"
+WEB_PORT="${WEB_PORT:-6080}"
+NOVNC_ROOT="${NOVNC_ROOT:-/usr/share/novnc}"
 GEOMETRY="${GEOMETRY:-1440x900x24}"
 WAIT_SECONDS="${WAIT_SECONDS:-600}"
 
@@ -42,9 +47,9 @@ usage: $0 --profile NAME --app-id APP [--app-version VERSION] [--wait-seconds N]
 Starts a private screen, opens the Bubble editor on it, and captures the session once you
 have logged in. Reach the screen with:
 
-    ssh -L ${VNC_PORT}:localhost:${VNC_PORT} $(whoami)@<host>
+    ssh -L ${WEB_PORT}:localhost:${WEB_PORT} $(whoami)@<host>
 
-and connect a VNC client to localhost:${VNC_PORT}.
+then open http://localhost:${WEB_PORT}/vnc.html in a browser.
 EOF
     exit 2
 }
@@ -64,12 +69,13 @@ done
 XVFB_PID=""
 OPENBOX_PID=""
 X11VNC_PID=""
+WEBSOCKIFY_PID=""
 
 cleanup() {
     # A screen holding a logged-in Bubble editor must not outlive the capture, so this runs on
     # success, on failure and on Ctrl-C alike.
     local pid
-    for pid in "${X11VNC_PID}" "${OPENBOX_PID}" "${XVFB_PID}"; do
+    for pid in "${WEBSOCKIFY_PID}" "${X11VNC_PID}" "${OPENBOX_PID}" "${XVFB_PID}"; do
         [[ -n "${pid}" ]] && kill "${pid}" 2>/dev/null || true
     done
     rm -f "/tmp/.X${DISPLAY_NUM#:}-lock" 2>/dev/null || true
@@ -112,13 +118,20 @@ x11vnc -display "${DISPLAY_NUM}" -rfbport "${VNC_PORT}" -localhost \
 X11VNC_PID=$!
 sleep 1
 
+# websockify turns the RFB stream into something a browser can speak, and serves noVNC's own
+# page beside it. Bound to 127.0.0.1 for the same reason x11vnc is.
+websockify --web="${NOVNC_ROOT}" "127.0.0.1:${WEB_PORT}" "127.0.0.1:${VNC_PORT}" >/dev/null 2>&1 &
+WEBSOCKIFY_PID=$!
+sleep 1
+kill -0 "${WEBSOCKIFY_PID}" 2>/dev/null || { echo "websockify failed to start." >&2; exit 1; }
+
 cat >&2 <<EOF
 
 [session-login] The screen is up. From your own machine:
 
-    ssh -L ${VNC_PORT}:localhost:${VNC_PORT} $(whoami)@$(hostname -f 2>/dev/null || hostname)
+    ssh -L ${WEB_PORT}:localhost:${WEB_PORT} $(whoami)@$(hostname -f 2>/dev/null || hostname)
 
-  then connect a VNC client to  localhost:${VNC_PORT}
+  then open   http://localhost:${WEB_PORT}/vnc.html
   password: ${VNC_PASS}    (valid only for this capture)
 
   You have ${WAIT_SECONDS}s to log in, including any two-factor step. The capture ends by
