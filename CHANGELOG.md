@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- The run-as storage state is written 0600. It holds live session cookies for an impersonated
+  app user, exactly like the editor session file that `sessions/store.py` already protects, but
+  it was written with the process umask - 0644 on a stock Ubuntu. Best effort, since the mode is
+  meaningless on Windows; the config directory should still be 0700.
+- A confirmed scheduled deploy in `test_cli_browser_scheduled_deploy_flow` no longer drives a
+  real browser. The test scheduled a deploy for a fixed past timestamp, which arms a
+  threading.Timer with a ~0s delay against the module-level Playwright executor. That timer
+  fires asynchronously, after the test returns and monkeypatch has restored
+  BUBBLE_MCP_CONFIG_DIR: the record was isolated to tmp_path but the DEPLOY WAS NOT, so a plain
+  `pytest tests/unit` opened a browser at bubble.io and wrote its history into the developer's
+  real config directory. On a machine whose profile names a real app with a live session it
+  would have attempted a real deploy. The test now stubs the executor and schedules into the
+  future, which is what the equivalent flow in test_mcp_server.py already did.
+
 - End-to-end browser suites are a first-class MCP capability: `bubble_e2e_list`,
   `bubble_e2e_run`, `bubble_e2e_report` and `bubble_e2e_scaffold`. A suite is declared per
   profile under `BUBBLE_MCP_CONFIG_DIR/e2e/<profile>/` and carries environment only - app,
