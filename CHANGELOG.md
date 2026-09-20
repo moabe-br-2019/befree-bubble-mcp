@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- End-to-end browser suites are a first-class MCP capability: `bubble_e2e_list`,
+  `bubble_e2e_run`, `bubble_e2e_report` and `bubble_e2e_scaffold`. A suite is declared per
+  profile under `BUBBLE_MCP_CONFIG_DIR/e2e/<profile>/` and carries environment only - app,
+  branch, the `bubble_run_as` user it impersonates, viewport, video and cursor flags; its steps
+  are Python case modules written against a stable `ctx` API, because the assertions being
+  replaced check computed font weight, the relative order of three strings inside one card and
+  a conditional date picker. `bubble_e2e_run` previews with `execute=false`: it resolves branch
+  and base URL, verifies the session and the case modules, and reports every blocker with the
+  tool that fixes it, without opening a browser. Each case runs in its own browser, so one
+  failure does not end the suite, and the structured result names the failing step and points
+  at its screenshot and video. `bubble_e2e_report` reads a finished run back by `run_id`
+  instead of re-creating its records. A suite may set `cases_root` to a checkout, so an app's
+  tests stay in the app's repository rather than being copied into the config directory. The
+  three Kaimia cases (KS1-T22, KS1-T23, KS1-T29) were ported to this path and pass through it;
+  `kaimia/e2e/` now points at the new route instead of holding standalone scripts. Readiness
+  reports Playwright availability and run-as session validity for a profile's suites.
+
 - Canonical raw form of APIEventParameter expressions recovered from live editor memory
   (Playwright + appquery child-node raw()): the parameter only resolves with btype_id +
   event_id + param_id (the parameter KEY, not the internal id) + param_name together, with

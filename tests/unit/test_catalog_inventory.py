@@ -11,12 +11,12 @@ def test_current_catalog_inventory_is_complete_and_explicit() -> None:
     records = build_catalog_inventory(list_tool_schemas())
     mcp_records = [record for record in records if record.mcp_tool is not None]
 
-    assert len(mcp_records) == 346
-    assert len({record.mcp_tool for record in mcp_records}) == 345
+    assert len(mcp_records) == 350
+    assert len({record.mcp_tool for record in mcp_records}) == 349
     assert sum(record.relationship == "direct" for record in records) == 205
     assert sum(record.relationship == "alias" for record in records) == 1
     assert sum(record.relationship == "excluded" for record in records) == 1
-    assert sum(record.relationship == "mcp_only" for record in records) == 140
+    assert sum(record.relationship == "mcp_only" for record in records) == 144
     assert (
         next(
             record

@@ -13,11 +13,11 @@ def test_every_mcp_tool_has_passing_deterministic_selection_evidence() -> None:
 
     assert report["ok"] is True
     assert report["summary"] == {
-        "tool_count": 345,
-        "case_count": 345,
-        "canonical_ok": 345,
-        "reordered_ok": 345,
-        "order_independent": 345,
+        "tool_count": 349,
+        "case_count": 349,
+        "canonical_ok": 349,
+        "reordered_ok": 349,
+        "order_independent": 349,
         "missing_cases": 0,
         "failed_cases": 0,
     }
@@ -37,8 +37,8 @@ def test_selection_report_rejects_a_missing_candidate_schema() -> None:
     report = catalog_selection_report(schemas)
 
     assert report["ok"] is False
-    assert report["summary"]["tool_count"] == 345
-    assert report["summary"]["case_count"] == 345
+    assert report["summary"]["tool_count"] == 349
+    assert report["summary"]["case_count"] == 349
     failure = next(
         failure
         for failure in report["failures"]
@@ -156,4 +156,4 @@ def test_selection_audit_runs_from_checkout_without_pythonpath() -> None:
     )
     report = json.loads(result.stdout)
     assert report["ok"] is True
-    assert report["summary"]["case_count"] == 345
+    assert report["summary"]["case_count"] == 349
