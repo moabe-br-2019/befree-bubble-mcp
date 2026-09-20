@@ -54,6 +54,11 @@ DIST_NAME = "befree_bubble_mcp"
 # its own feet.
 DISABLE_ENV = "BUBBLE_MCP_NO_AUTOUPDATE"
 
+# Setting this to anything non-empty re-downloads Chromium when a dependency refresh moved
+# Playwright. Off by default: the download is large, and only an install that actually runs
+# browser automation needs the binaries to keep matching.
+BROWSER_SYNC_ENV = "BUBBLE_MCP_SYNC_BROWSERS"
+
 # The remote lookup happens on every single start, so it gets a short leash. Losing it costs an
 # update; waiting on it costs the session its tools.
 REMOTE_TIMEOUT_SEC = 5.0
@@ -190,6 +195,40 @@ def _append_log(log_path: Path, outcome: UpdateOutcome) -> None:
         pass
 
 
+def playwright_version(python: Path, runner: Runner) -> str:
+    """The Playwright the venv currently holds, or "" when it holds none."""
+
+    result = runner(
+        [str(python), "-c", "import importlib.metadata as m; print(m.version('playwright'))"],
+        timeout=REMOTE_TIMEOUT_SEC * 4,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def sync_browsers(python: Path, runner: Runner, *, before: str, after: str) -> UpdateOutcome | None:
+    """Re-download Chromium when a dependency refresh moved Playwright under it.
+
+    The browser binaries are not a pip dependency - ``playwright install`` fetches them, keyed
+    to the Playwright version. ``playwright>=1.45.0`` is an open range, so a full resolve can
+    raise the version and leave the venv driving binaries it no longer matches. Nothing fails
+    loudly when that happens: the e2e suite simply stops working.
+
+    Off unless BROWSER_SYNC_ENV is set, because a download of this size is not something to
+    spend a laptop's session-startup budget on. A VPS that runs e2e unattended wants it.
+    """
+
+    if not after or before == after:
+        return None
+    result = runner(
+        [str(python), "-m", "playwright", "install", "chromium"], timeout=INSTALL_TIMEOUT_SEC
+    )
+    if result.returncode != 0:
+        return UpdateOutcome(
+            "browser_sync_failed", (result.stderr or result.stdout)[-300:].strip()
+        )
+    return UpdateOutcome("browsers_synced", f"playwright {before or 'none'} -> {after}")
+
+
 def _install(
     python: Path, site_packages: Path, runner: Runner, *, url: str, commit: str
 ) -> UpdateOutcome:
@@ -266,8 +305,19 @@ def update_before_launch(
         _append_log(log_path, outcome)
         return outcome
 
+    before = (
+        playwright_version(python, runner)
+        if str(environment.get(BROWSER_SYNC_ENV, "")).strip()
+        else ""
+    )
     outcome = _install(python, site_packages, runner, url=url, commit=head)
     _append_log(log_path, outcome)
+    if outcome.action == "installed" and str(environment.get(BROWSER_SYNC_ENV, "")).strip():
+        synced = sync_browsers(
+            python, runner, before=before, after=playwright_version(python, runner)
+        )
+        if synced is not None:
+            _append_log(log_path, synced)
     return outcome
 
 

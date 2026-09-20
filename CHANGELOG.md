@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The autoupdate launcher can keep Chromium in step with Playwright. The browser binaries are
+  not a pip dependency and `playwright>=1.45.0` is an open range, so a dependency refresh can
+  raise the version and leave the venv driving binaries it no longer matches - with no error,
+  until an e2e run stops working. Set `BUBBLE_MCP_SYNC_BROWSERS=1` and the launcher compares the
+  Playwright version across an install and runs `playwright install chromium` when it moved.
+  Off by default: the download is large, and a laptop that never drives a browser should not
+  spend its session-startup budget on it. A failed download is logged and never stops the
+  launch, like every other outcome here.
+
 - The run-as storage state is written 0600. It holds live session cookies for an impersonated
   app user, exactly like the editor session file that `sessions/store.py` already protects, but
   it was written with the process umask - 0644 on a stock Ubuntu. Best effort, since the mode is
