@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- The autoupdate launcher can keep Chromium in step with Playwright. The browser binaries are
+  not a pip dependency and `playwright>=1.45.0` is an open range, so a dependency refresh can
+  raise the version and leave the venv driving binaries it no longer matches - with no error,
+  until an e2e run stops working. Set `BUBBLE_MCP_SYNC_BROWSERS=1` and the launcher compares the
+  Playwright version across an install and runs `playwright install chromium` when it moved.
+  Off by default: the download is large, and a laptop that never drives a browser should not
+  spend its session-startup budget on it. A failed download is logged and never stops the
+  launch, like every other outcome here.
+
+- The run-as storage state is written 0600. It holds live session cookies for an impersonated
+  app user, exactly like the editor session file that `sessions/store.py` already protects, but
+  it was written with the process umask - 0644 on a stock Ubuntu. Best effort, since the mode is
+  meaningless on Windows; the config directory should still be 0700.
+- A confirmed scheduled deploy in `test_cli_browser_scheduled_deploy_flow` no longer drives a
+  real browser. The test scheduled a deploy for a fixed past timestamp, which arms a
+  threading.Timer with a ~0s delay against the module-level Playwright executor. That timer
+  fires asynchronously, after the test returns and monkeypatch has restored
+  BUBBLE_MCP_CONFIG_DIR: the record was isolated to tmp_path but the DEPLOY WAS NOT, so a plain
+  `pytest tests/unit` opened a browser at bubble.io and wrote its history into the developer's
+  real config directory. On a machine whose profile names a real app with a live session it
+  would have attempted a real deploy. The test now stubs the executor and schedules into the
+  future, which is what the equivalent flow in test_mcp_server.py already did.
+
+- End-to-end browser suites are a first-class MCP capability: `bubble_e2e_list`,
+  `bubble_e2e_run`, `bubble_e2e_report` and `bubble_e2e_scaffold`. A suite is declared per
+  profile under `BUBBLE_MCP_CONFIG_DIR/e2e/<profile>/` and carries environment only - app,
+  branch, the `bubble_run_as` user it impersonates, viewport, video and cursor flags; its steps
+  are Python case modules written against a stable `ctx` API, because the assertions being
+  replaced check computed font weight, the relative order of three strings inside one card and
+  a conditional date picker. `bubble_e2e_run` previews with `execute=false`: it resolves branch
+  and base URL, verifies the session and the case modules, and reports every blocker with the
+  tool that fixes it, without opening a browser. Each case runs in its own browser, so one
+  failure does not end the suite, and the structured result names the failing step and points
+  at its screenshot and video. `bubble_e2e_report` reads a finished run back by `run_id`
+  instead of re-creating its records. A suite may set `cases_root` to a checkout, so an app's
+  tests stay in the app's repository rather than being copied into the config directory. The
+  three Kaimia cases (KS1-T22, KS1-T23, KS1-T29) were ported to this path and pass through it;
+  `kaimia/e2e/` now points at the new route instead of holding standalone scripts. Readiness
+  reports Playwright availability and run-as session validity for a profile's suites.
+
 - Canonical raw form of APIEventParameter expressions recovered from live editor memory
   (Playwright + appquery child-node raw()): the parameter only resolves with btype_id +
   event_id + param_id (the parameter KEY, not the internal id) + param_name together, with

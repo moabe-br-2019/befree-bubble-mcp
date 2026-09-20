@@ -233,3 +233,108 @@ def test_the_server_is_launched_whatever_the_update_did(
 
     assert autoupdate.main([]) == 0
     assert launched and launched[0][1:] == ["-m", "bubble_mcp.server.stdio"]
+
+
+@dataclass
+class VersionRunner(FakeRunner):
+    """A FakeRunner whose Playwright version reads can change between calls."""
+
+    versions: list[str] = field(default_factory=list)
+
+    def __call__(self, command: list[str], timeout: float | None = None) -> CommandResult:
+        if any("importlib.metadata" in part for part in command):
+            self.calls.append(list(command))
+            value = self.versions.pop(0) if self.versions else ""
+            return CommandResult(returncode=0, stdout=f"{value}\n")
+        return super().__call__(command, timeout)
+
+
+def test_browsers_are_left_alone_unless_the_sync_is_asked_for(tmp_path: Path) -> None:
+    # A laptop pays the session-startup budget for every download, and most installs never
+    # drive a browser. The default has to be silence.
+    runner = VersionRunner(replies={"ls-remote": _ls_remote(REMOTE_SHA)}, versions=["1.45.0", "1.62.0"])
+
+    outcome = update_before_launch(
+        Path("python"), _site_packages(tmp_path), runner=runner, env={}, log_path=tmp_path / "log"
+    )
+
+    assert outcome.action == "installed"
+    assert not runner.ran("chromium")
+    assert not runner.ran("importlib.metadata")
+
+
+def test_a_moved_playwright_redownloads_chromium_when_the_sync_is_on(tmp_path: Path) -> None:
+    # The binaries are not a pip dependency, so a dependency refresh can raise Playwright and
+    # leave the venv driving browsers it no longer matches - silently, until e2e stops working.
+    log = tmp_path / "log"
+    runner = VersionRunner(
+        replies={"ls-remote": _ls_remote(REMOTE_SHA)}, versions=["1.45.0", "1.62.0"]
+    )
+
+    outcome = update_before_launch(
+        Path("python"),
+        _site_packages(tmp_path),
+        runner=runner,
+        env={autoupdate.BROWSER_SYNC_ENV: "1"},
+        log_path=log,
+    )
+
+    assert outcome.action == "installed"
+    assert runner.ran("chromium")
+    assert "browsers_synced" in log.read_text(encoding="utf-8")
+    assert "1.45.0 -> 1.62.0" in log.read_text(encoding="utf-8")
+
+
+def test_an_unchanged_playwright_downloads_nothing(tmp_path: Path) -> None:
+    runner = VersionRunner(
+        replies={"ls-remote": _ls_remote(REMOTE_SHA)}, versions=["1.62.0", "1.62.0"]
+    )
+
+    update_before_launch(
+        Path("python"),
+        _site_packages(tmp_path),
+        runner=runner,
+        env={autoupdate.BROWSER_SYNC_ENV: "1"},
+        log_path=tmp_path / "log",
+    )
+
+    assert not runner.ran("chromium")
+
+
+def test_a_failed_browser_download_is_logged_and_never_stops_the_launch(tmp_path: Path) -> None:
+    log = tmp_path / "log"
+    runner = VersionRunner(
+        replies={
+            "ls-remote": _ls_remote(REMOTE_SHA),
+            "chromium": CommandResult(returncode=1, stderr="no space left on device"),
+        },
+        versions=["1.45.0", "1.62.0"],
+    )
+
+    outcome = update_before_launch(
+        Path("python"),
+        _site_packages(tmp_path),
+        runner=runner,
+        env={autoupdate.BROWSER_SYNC_ENV: "1"},
+        log_path=log,
+    )
+
+    # The package update itself succeeded; only the download did not.
+    assert outcome.action == "installed"
+    assert "browser_sync_failed" in log.read_text(encoding="utf-8")
+
+
+def test_nothing_is_downloaded_when_the_commit_already_matches(tmp_path: Path) -> None:
+    runner = VersionRunner(
+        replies={"ls-remote": _ls_remote(INSTALLED_SHA)}, versions=["1.45.0", "1.62.0"]
+    )
+
+    update_before_launch(
+        Path("python"),
+        _site_packages(tmp_path),
+        runner=runner,
+        env={autoupdate.BROWSER_SYNC_ENV: "1"},
+        log_path=tmp_path / "log",
+    )
+
+    assert not runner.ran("chromium")

@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -2310,6 +2310,27 @@ def test_cli_extension_companion_serve_passes_listener_config(monkeypatch) -> No
 
 def test_cli_browser_scheduled_deploy_flow(tmp_path, monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    # Confirming a schedule arms a real threading.Timer against the module-level default
+    # executor, which drives Playwright against bubble.io. The scheduled_at below is in the
+    # past, so that timer fires with ~0 delay - and it fires asynchronously, after this test
+    # has returned and monkeypatch has restored BUBBLE_MCP_CONFIG_DIR. The record is written
+    # to tmp_path but the DEPLOY IS NOT ISOLATED: it opens a browser and writes its history to
+    # the developer's real config directory. On a machine where the "client" profile names a
+    # real app with a live session, a plain `pytest tests/unit` would attempt a real deploy.
+    # The sibling flow in test_mcp_server.py already guards this; so does this one now.
+    monkeypatch.setattr(
+        "bubble_mcp.browser_automation.scheduled_deploy.execute_scheduled_deploy",
+        lambda record: {"ok": True},
+    )
+    # And keep scheduled_at in the future. A past timestamp gives the timer a ~0s delay, so
+    # even the mocked executor finishes - deleting the record and moving it to history -
+    # before the assertions below can see the deploy as still scheduled.
+    scheduled_at = (
+        (datetime.now(timezone.utc) + timedelta(days=30))
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     save_settings(
         BubbleMcpSettings(
             config_dir=tmp_path,
@@ -2333,7 +2354,7 @@ def test_cli_browser_scheduled_deploy_flow(tmp_path, monkeypatch, capsys) -> Non
                 "--profile",
                 "client",
                 "--scheduled-at",
-                "2026-07-09T10:30:00Z",
+                scheduled_at,
                 "--message",
                 "Main branch release",
             ]
@@ -2351,7 +2372,7 @@ def test_cli_browser_scheduled_deploy_flow(tmp_path, monkeypatch, capsys) -> Non
                 "--profile",
                 "client",
                 "--scheduled-at",
-                "2026-07-09T10:30:00Z",
+                scheduled_at,
                 "--message",
                 "Main branch release",
                 "--execute",
