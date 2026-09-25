@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Main is read-only. No executed write reaches `test` or `live`: `call_tool` refuses any
+  mutating tool whose resolved version is main with `main_is_read_only` (before a savepoint is
+  taken or a context loaded), and `BubbleEditorClient.write` refuses it again before sending, so
+  paths that skip `call_tool` (plan execution, transfers, the HTML and Figma importers) are
+  covered too. There is no override. Previews still run. Changes reach main through a branch
+  merge.
+- `bubble_editor_write` writes to the version it is asked to. The profile's version was
+  injected into the arguments and then written over the payload body, so on the team server a
+  write whose body said branch `93k8b` went to main. The target is now the top-level
+  `app_version` (newly in the schema), else the body's `app_version`/`appVersion`, else the
+  profile's; a top-level version that disagrees with the body is an error. `referer` and
+  `x-bubble-r` are rebuilt with `version=<target>` instead of copying the URL the session was
+  captured on. An executed write is read back from the target version: a divergence returns
+  `ok: false` with `write_not_verified`, and the response names `app_version` (sent) and
+  `confirmed_app_version` (confirmed by the read-back, or null). `verify=false` skips it.
+
 - The autoupdate launcher can keep Chromium in step with Playwright. The browser binaries are
   not a pip dependency and `playwright>=1.45.0` is an open range, so a dependency refresh can
   raise the version and leave the venv driving binaries it no longer matches - with no error,

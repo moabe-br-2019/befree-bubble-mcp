@@ -109,7 +109,7 @@ def test_the_report_is_attached_to_the_tool_result(monkeypatch) -> None:  # type
     )
 
     result = call_tool(
-        "create_text", {"profile": "mcp-test", "app_id": "mcp-test-app", "execute": True}
+        "create_text", {"profile": "mcp-test", "app_version": "dev01", "app_id": "mcp-test-app", "execute": True}
     )
 
     assert result["session_savepoint"]["created"] is True
@@ -163,7 +163,7 @@ def test_a_write_still_runs_when_its_savepoint_could_not_be_taken(monkeypatch) -
     )
 
     result = call_tool(
-        "create_text", {"profile": "mcp-test", "app_id": "mcp-test-app", "execute": True}
+        "create_text", {"profile": "mcp-test", "app_version": "dev01", "app_id": "mcp-test-app", "execute": True}
     )
 
     assert ran == ["create_text"]
@@ -182,7 +182,7 @@ def test_an_existing_session_savepoint_is_not_a_failure(monkeypatch) -> None:  #
     )
 
     result = call_tool(
-        "create_text", {"profile": "mcp-test", "app_id": "mcp-test-app", "execute": True}
+        "create_text", {"profile": "mcp-test", "app_version": "dev01", "app_id": "mcp-test-app", "execute": True}
     )
 
     assert ran == ["create_text"]
