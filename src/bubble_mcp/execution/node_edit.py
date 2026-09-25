@@ -233,6 +233,8 @@ def edit_live_node(
     if not before.get("ok"):
         return before
     current = before["node"]
+    if not isinstance(current, dict):
+        return _not_a_node(segments, current)
 
     session_id = bubble_session_id()
     try:
@@ -360,6 +362,18 @@ def _check_op_arguments(
         raise ValueError("reorder requires order")
 
 
+def _not_a_node(segments: Sequence[str], value: Any) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": "unexpected_node_shape",
+        "pointer": list(segments),
+        "message": (
+            f"'{'.'.join(segments)}' holds a {type(value).__name__}, not a node. Edit or clone the "
+            "node that contains it."
+        ),
+    }
+
+
 def _known_object_ids(
     read: Reader,
     profile: str,
@@ -431,6 +445,8 @@ def clone_live_workflow(
     if not before.get("ok"):
         return before
     source = before["node"]
+    if not isinstance(source, dict):
+        return _not_a_node(segments, source)
 
     mint = mint_id or BubbleIDGenerator.element_id
     # element_id() is 'b' plus four random base62 characters - one in 14.8M per draw. Rare is not

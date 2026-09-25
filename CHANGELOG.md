@@ -30,6 +30,10 @@
   `clone_reusable`, `update_reusable_type`, `delete_reusable`, the API token and app text
   tools, `upload_asset`), were fixed. `bubble_catalog_quality` has a
   `runtime_signature_parity` check that keeps them in step.
+- `bubble_live_node_read` returns leaf values (`node_kind: "scalar"`): an
+  `_index.id_to_path` entry is a string and an `_index.issues_sub` entry a list, and reading
+  them failed with `unexpected_node_shape`. `bubble_node_edit` and `bubble_clone_workflow`
+  still require a node and say so.
 
 - The autoupdate launcher can keep Chromium in step with Playwright. The browser binaries are
   not a pip dependency and `playwright>=1.45.0` is an open range, so a dependency refresh can

@@ -174,6 +174,35 @@ chega está contrariada pela medição.
   sobrescrita pelo discovery.
 - **4.4 contexto do perfil** — quando nenhum contexto é passado, carrega o do perfil.
 
+## 5. Versão alvo e main somente leitura (regressão do servidor do time, 2026-09-25)
+
+Incidente: `bubble_editor_write` com `"app_version": "93k8b"` no corpo do payload, num perfil
+cuja versão era `test`, escreveu em main. O default do perfil era injetado nos argumentos e
+sobrescrevia o corpo. Main (`test` e `live`) agora é somente leitura para o MCP, sem override.
+Os testes de escrita deste plano em `mcp-test` precisam de uma branch: criar com
+`bubble_branch_create` e passar o id dela como `app_version`.
+
+- **5.1 versão do corpo vale** — sessão capturada com o editor em `version=test`, perfil em
+  `test`. `bubble_editor_write` com `execute=true` e `"app_version": "<branch>"` só no corpo.
+  Esperado: `app_version` e `confirmed_app_version` iguais a `<branch>`; `bubble_live_node_read`
+  do mesmo pointer em `test` não mostra a mudança, em `<branch>` mostra.
+- **5.2 versão no topo** — mesma escrita com `app_version` no topo e sem versão no corpo.
+  Mesmo resultado de 5.1.
+- **5.3 versões divergentes** — `app_version` no topo diferente da do corpo. Esperado: erro
+  "disagrees", nada enviado.
+- **5.4 sem versão em perfil de main** — sem `app_version` em lugar nenhum, perfil em `test`.
+  Esperado: `{"ok": false, "error": "main_is_read_only"}`, nenhum savepoint criado.
+- **5.5 main explícita** — corpo com `test` ou `live`, com ou sem `allow_main=true`. Esperado:
+  `main_is_read_only` nos dois casos. Preview (`execute=false`) continua funcionando.
+- **5.6 tools do catálogo** — `delete_event` com `execute=true` em perfil de main: recusado
+  com `main_is_read_only`. Com `app_version="<branch>"`: resolve o workflow no export da
+  branch (o cache de outra versão é baixado de novo; o `.meta.json` passa a dizer `<branch>`).
+- **5.7 headers** — no preview de 5.1, `request.headers.referer` e `x-bubble-r` terminam em
+  `version=<branch>`, não em `version=test`.
+- **5.8 leitura escalar** — `bubble_live_node_read` em `["_index","id_to_path","<id>"]` e
+  `["_index","issues_sub","<id>"]` devolve `ok: true`, `node_kind: "scalar"` e o valor, em vez
+  de `unexpected_node_shape`.
+
 ## Como reportar
 
 Para cada item: id do teste, tool chamada, argumentos, resultado (ok/erro), e se bateu com o
