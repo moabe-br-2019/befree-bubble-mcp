@@ -34,6 +34,7 @@ from bubble_mcp.context.source import load_context, save_context
 from bubble_mcp.core.config import BubbleProfile, load_settings, resolve_profile, save_settings, with_profile
 from bubble_mcp.core.redaction import redact_sensitive
 from bubble_mcp.core.versions import MainVersionReadOnlyError, is_main_version
+from bubble_mcp.server.toolset import META_TOOL_NAMES, TOOL_SCHEMA_TOOL, tool_schema_payload
 from bubble_mcp.execution.client import BubbleEditorClient, build_editor_write_headers
 from bubble_mcp.execution.write_lint import (
     lint_editor_write_changes,
@@ -970,6 +971,34 @@ def _verify_raw_write(
     return result
 
 
+def _call_meta_tool(
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    cancelled: Callable[[], bool] | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """bubble_tool_schema and bubble_call: reach the whole catalog from the core toolset."""
+
+    from bubble_mcp.server.schemas import list_tool_schemas
+
+    if name == TOOL_SCHEMA_TOOL:
+        return tool_schema_payload(arguments, list_tool_schemas())
+    target = str(arguments.get("name") or "").strip()
+    if not target:
+        raise ValueError("bubble_call needs name, the catalog tool to call.")
+    if target in META_TOOL_NAMES:
+        raise ValueError(f"bubble_call cannot call {target}; call it directly.")
+    if target not in {str(tool.get("name")) for tool in list_tool_schemas()}:
+        raise ValueError(f"Unknown tool '{target}'. Find it with bubble_tool_schema(query=...).")
+    inner = arguments.get("arguments")
+    if inner is not None and not isinstance(inner, dict):
+        raise ValueError("bubble_call arguments must be an object.")
+    # Through call_tool, so the inner call gets the main guard and the session savepoint exactly
+    # as a direct call would.
+    return call_tool(target, inner or {}, cancelled=cancelled, progress=progress)
+
+
 def call_tool(
     name: str,
     arguments: dict[str, Any] | None = None,
@@ -979,6 +1008,8 @@ def call_tool(
 ) -> dict[str, Any]:
     """Call a supported tool, taking this session's savepoint first if the call will write."""
 
+    if name in META_TOOL_NAMES:
+        return _call_meta_tool(name, arguments or {}, cancelled=cancelled, progress=progress)
     refusal = main_write_refusal(name, _arguments_with_profile_defaults(arguments))
     if refusal is not None:
         return refusal

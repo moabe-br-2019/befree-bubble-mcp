@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `BUBBLE_MCP_TOOLSET=core` makes `tools/list` return about 15 core tools (~8k tokens) plus
+  `bubble_tool_schema` (search the catalog, or fetch full schemas by name) and `bubble_call`
+  (call any catalog tool by name, through the same checks as a direct call). The full list is
+  ~350 tools and ~300k tokens: through OpenRouter, without deferred tool loading, Opus received
+  ~432k tokens per request and a 262k-context model could not start. This replaces the external
+  gateway the team server ran. `BUBBLE_MCP_CORE_TOOLS` overrides the core set; `full` stays the
+  default.
+
 - Main is read-only. No executed write reaches `test` or `live`: `call_tool` refuses any
   mutating tool whose resolved version is main with `main_is_read_only` (before a savepoint is
   taken or a context loaded), and `BubbleEditorClient.write` refuses it again before sending, so
