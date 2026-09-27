@@ -34,6 +34,7 @@ DEFAULT_CORE_TOOLS: tuple[str, ...] = (
     "bubble_live_node_read",
     "bubble_node_edit",
     "bubble_clone_workflow",
+    "bubble_duplicate_element",
     "bubble_editor_write",
     "bubble_savepoint_list",
     "bubble_e2e_run",

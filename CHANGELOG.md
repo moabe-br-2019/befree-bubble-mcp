@@ -2,7 +2,18 @@
 
 ## Unreleased
 
-- `BUBBLE_MCP_TOOLSET=core` makes `tools/list` return about 15 core tools (~8k tokens) plus
+- `bubble_duplicate_element` copies live elements with their whole subtree and the workflows
+  they trigger. Every element id, slot key, event id and action id is reminted against the
+  app's whole `_index.id_to_path`, one mapping covers elements and workflows (a copied "show
+  popup" step opens the copied popup, a copied GetElement reads the copied input), and the tool
+  writes the index itself: `id_to_path` for every new id, `issues_list` for every new element,
+  `issues_sub` read-modify-written for the parents and mirrored for nested containers. Pass a
+  button and the popup it opens together in `element_ids`; a workflow outside the copy that
+  points at a copied element is reported, not copied. Preview by default; an executed copy goes
+  to a branch only and every copied node and index entry is read back from it. On the team
+  server an agent spent ~20 minutes and ~US$4 rebuilding this by hand, with a hand-made
+  `_index` payload. The source is read from the live editor, never from the export.
+- `BUBBLE_MCP_TOOLSET=core` makes `tools/list` return about 16 core tools (~8k tokens) plus
   `bubble_tool_schema` (search the catalog, or fetch full schemas by name) and `bubble_call`
   (call any catalog tool by name, through the same checks as a direct call). The full list is
   ~350 tools and ~300k tokens: through OpenRouter, without deferred tool loading, Opus received
