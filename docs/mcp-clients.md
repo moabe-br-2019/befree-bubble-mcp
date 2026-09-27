@@ -104,7 +104,7 @@ The full `tools/list` is about 350 tools and 300k tokens of schemas. Claude Code
 tool search; a client that sends every schema with every request (Claude Code or OpenCode
 through OpenRouter, most OpenAI-compatible gateways) either pays for all of it on each turn or
 fails outright on a model with a smaller context. Add `"BUBBLE_MCP_TOOLSET": "core"` to the
-server's `env` and `tools/list` returns about 16 core tools (~8k tokens) plus two meta tools:
+server's `env` and `tools/list` returns about 17 core tools (~8k tokens) plus two meta tools:
 
 - `bubble_tool_schema` searches the whole catalog (`query`) or returns full input schemas
   (`names`).

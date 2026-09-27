@@ -30,6 +30,7 @@ DEFAULT_CORE_TOOLS: tuple[str, ...] = (
     "bubble_session_login",
     "bubble_branch_list",
     "bubble_context_find",
+    "bubble_context_query",
     "bubble_context_summary",
     "bubble_live_node_read",
     "bubble_node_edit",

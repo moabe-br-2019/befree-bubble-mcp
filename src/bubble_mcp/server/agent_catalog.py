@@ -713,7 +713,15 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "Search a compact Bubble project context file for pages, containers, elements, styles, data types, workflows, "
         "or ids. Use exact=true and include_metadata=false for compact validation checks that must not accept fuzzy "
         "matches; inspect count/truncated and match_field to distinguish direct node matches from context references. "
-        "Read-only."
+        "For an element's children and workflows, a reusable's workflows, or what writes a field, use "
+        "bubble_context_query instead of reading the export by hand. Read-only."
+    ),
+    "bubble_context_query": (
+        "Answer structural questions from the .bubble export of the version being worked on, so the "
+        "export never has to be parsed by hand: an element's subtree with the workflows tied to it "
+        "(kind='element_subtree'), every workflow of a page, reusable or the backend (kind='workflows'), "
+        "and every action that sets field Y of type Z plus the database triggers on Z "
+        "(kind='field_writers'). Read-only."
     ),
     "bubble_context_import": (
         "Convert a Bubble project artifact into compact context. Supports .bubble exports, console.log(app) JSON, "
@@ -2234,6 +2242,7 @@ def _is_read_only(name: str) -> bool:
         "bubble_e2e_report",
         "bubble_context_summary",
         "bubble_context_find",
+        "bubble_context_query",
         "bubble_session_list",
         "bubble_session_inspect",
         "bubble_eval_run",

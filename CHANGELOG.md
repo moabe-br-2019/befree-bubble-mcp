@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `bubble_context_query` answers the structural questions agents were parsing the `.bubble`
+  export for with `python3 -c` (19 times in one session on the team server, 28 in another):
+  `kind='element_subtree'` gives an element's children, the workflows it and its children
+  trigger and the workflows of the same page or reusable that point at them;
+  `kind='workflows'` lists every workflow of a page, a reusable or the backend with trigger,
+  actions, touched elements and fields set; `kind='field_writers'` lists every action that
+  creates or changes field Y of type Z anywhere in the app, with the target type worked out from
+  the expression where it can be (`type_confirmed`), plus the database triggers on Z and whether
+  their condition reads the field. It reads the export of the version asked for and downloads it
+  first when the cached one is another version's. The context graph that `bubble_context_find`
+  searches still has page workflows as bare ids and no reusable workflows.
+
 - `bubble_duplicate_element` copies live elements with their whole subtree and the workflows
   they trigger. Every element id, slot key, event id and action id is reminted against the
   app's whole `_index.id_to_path`, one mapping covers elements and workflows (a copied "show
@@ -13,7 +25,7 @@
   to a branch only and every copied node and index entry is read back from it. On the team
   server an agent spent ~20 minutes and ~US$4 rebuilding this by hand, with a hand-made
   `_index` payload. The source is read from the live editor, never from the export.
-- `BUBBLE_MCP_TOOLSET=core` makes `tools/list` return about 16 core tools (~8k tokens) plus
+- `BUBBLE_MCP_TOOLSET=core` makes `tools/list` return about 17 core tools (~8k tokens) plus
   `bubble_tool_schema` (search the catalog, or fetch full schemas by name) and `bubble_call`
   (call any catalog tool by name, through the same checks as a direct call). The full list is
   ~350 tools and ~300k tokens: through OpenRouter, without deferred tool loading, Opus received

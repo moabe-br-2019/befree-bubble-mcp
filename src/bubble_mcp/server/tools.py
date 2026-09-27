@@ -66,6 +66,7 @@ from bubble_mcp.execution.live_node_read import read_live_node
 from bubble_mcp.execution.run_as import run_as_user
 from bubble_mcp.execution.node_edit import clone_live_workflow, edit_live_node
 from bubble_mcp.execution.duplicate_element import duplicate_live_element
+from bubble_mcp.context.export_queries import run_context_query
 from bubble_mcp.execution.deploy_preview import preview_deploy, read_nodes_over_http
 from bubble_mcp.execution.session_savepoint import (
     ensure_session_savepoint,
@@ -1659,6 +1660,21 @@ def _call_tool(
             "summary": context.summary(),
             "freshness": context_freshness(context, path=summary_path),
         }
+    if name == "bubble_context_query":
+        args = arguments or {}
+        depth = args.get("depth")
+        return run_context_query(
+            kind=str(args.get("kind") or ""),
+            profile=str(args.get("profile") or "").strip() or None,
+            app_id=str(args.get("app_id") or "").strip() or None,
+            app_version=str(args.get("app_version") or "").strip() or None,
+            file=str(args.get("file") or "").strip() or None,
+            element=args.get("element"),
+            container=args.get("container"),
+            data_type=args.get("data_type"),
+            field=args.get("field"),
+            depth=int(depth) if depth is not None else None,
+        )
     if name == "bubble_context_find":
         args = arguments or {}
         profile_name = str(args.get("profile") or "").strip()

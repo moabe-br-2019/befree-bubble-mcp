@@ -1545,6 +1545,55 @@ def profile_session_context_tools() -> list[ToolSchema]:
             required=["query"],
         ),
         tool_schema(
+            "bubble_context_query",
+            "Answer structural questions about a Bubble app from its .bubble export, for the version "
+            "being worked on - no need to open or parse the export by hand. kind='element_subtree': "
+            "an element (id or name) with its children, the workflows it and its children trigger, and "
+            "the other workflows of the same page or reusable that point at them. kind='workflows': "
+            "every workflow of a page, a reusable, or the backend (container='backend'), each with its "
+            "trigger element, actions, the elements they touch and the fields they set. "
+            "kind='field_writers': every action anywhere (pages, reusables, backend) that creates or "
+            "changes field Y of data type Z, and the database triggers on Z that can react to it - "
+            "the side effects of changing that field. When the cached export is another version's, "
+            "the target version's is downloaded first. Read-only.",
+            ["profile", "file", "app_id", "app_version"],
+            required=["kind"],
+            field_overrides={
+                "kind": {
+                    "type": "string",
+                    "enum": ["element_subtree", "workflows", "field_writers"],
+                    "description": "Which question to answer.",
+                },
+                "element": {
+                    "type": "string",
+                    "description": "element_subtree: the element's id, or its exact name.",
+                },
+                "container": {
+                    "type": "string",
+                    "description": (
+                        "workflows: the page or reusable (id or exact name), or 'backend'. "
+                        "element_subtree: optional, narrows an element name to one page or reusable."
+                    ),
+                },
+                "data_type": {
+                    "type": "string",
+                    "description": "field_writers: the data type's key (client) or display name (Client).",
+                },
+                "field": {
+                    "type": "string",
+                    "description": (
+                        "field_writers: the field's key (client_status_option_o_compliance_status) or "
+                        "display name (Client Status)."
+                    ),
+                },
+                "depth": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "element_subtree: levels of children to include; omitted means all.",
+                },
+            },
+        ),
+        tool_schema(
             "bubble_context_import",
             "Import a Bubble .bubble/consolelog JSON or crawler-index JSON into compact context.",
             ["file", "kind", "output"],

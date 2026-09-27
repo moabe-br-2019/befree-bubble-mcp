@@ -50,6 +50,12 @@ ROUTES: tuple[dict[str, Any], ...] = (
         "notes": "Use bubble_profile_cache_refresh directly when the user asks to refresh/update/reload/sync a profile cache or download the .bubble again. Use bubble_project_bootstrap when profile/app setup is needed. Call bubble_profile_status first only when the user asks for readiness/status rather than refresh.",
     },
     {
+        "intent": "inspect_app_structure",
+        "when": "The user or the task needs an element's children and the workflows tied to it, the workflows of a page, reusable or the backend, or which workflows and database triggers change a field of a data type.",
+        "tools": ["bubble_context_query", "bubble_context_find", "bubble_live_node_read"],
+        "notes": "Use bubble_context_query with kind='element_subtree' (element id or name), kind='workflows' (container = page, reusable or 'backend') or kind='field_writers' (data_type and field, by key or display name). It reads the .bubble export of the version passed as app_version and downloads it when the cached one is another version's, so never open or parse the export with python or jq. field_writers also lists the database triggers on the type: check them for side effects before changing a field. Use bubble_live_node_read only when the raw expression encoding is needed for a write.",
+    },
+    {
         "intent": "create_or_update_visual_editor_elements",
         "when": "The user asks to create, update, rename, move, or delete Bubble visual elements.",
         "tools": ["create_group", "create_text", "create_button", "create_input", "update_text", "delete_group"],
@@ -1727,6 +1733,21 @@ def _semantic_tool_bonus(name: str, raw_query: str) -> int:
 
     def has_any(*values: str) -> bool:
         return bool(terms.intersection(values))
+
+    if name == "bubble_context_query":
+        # Structural questions agents answered by parsing the export by hand (team server,
+        # 2026-09-25): what writes a field, an element's subtree, a reusable's workflows.
+        about_workflows = has_any("workflow", "workflows", "trigger", "triggers")
+        if has_any("subtree", "writers") or _has_keyword(normalized_query, "side effects"):
+            return 40
+        if about_workflows and has_any("field", "fields") and has_any(
+            "change", "changes", "set", "sets", "write", "writes", "modify", "modifies", "update", "updates"
+        ):
+            return 40
+        if about_workflows and has_any("which", "what", "list", "show", "find", "quais", "listar") and has_any(
+            "reusable", "reusables", "element", "page", "backend"
+        ):
+            return 30
 
     if has_any("cache", "cached"):
         if name == "sync_element_ref_cache" and has_any("element") and has_any(

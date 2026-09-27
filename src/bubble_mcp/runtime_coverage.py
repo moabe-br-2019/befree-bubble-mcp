@@ -36,6 +36,7 @@ NATIVE_SPECIAL_TOOLS = {
     "bubble_e2e_scaffold",
     "bubble_context_summary",
     "bubble_context_find",
+    "bubble_context_query",
     "bubble_context_import",
     "bubble_context_detect",
     "bubble_plan",
