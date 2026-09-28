@@ -70,6 +70,7 @@ from bubble_mcp.execution.duplicate_element import duplicate_live_element
 from bubble_mcp.context.export_queries import run_context_query
 from bubble_mcp.e2e.flow import run_e2e_flow
 from bubble_mcp.sessions.health import check_session, forget as forget_session_check
+from bubble_mcp.execution.version_policy import forget as forget_branches, main_write_allowed, write_policy
 from bubble_mcp.execution.deploy_preview import preview_deploy, read_nodes_over_http
 from bubble_mcp.execution.session_savepoint import (
     ensure_session_savepoint,
@@ -1064,11 +1065,13 @@ def _add_or_update_profile(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def main_write_refusal(name: str, args: dict[str, Any]) -> dict[str, Any] | None:
-    """Refuse an executed write aimed at main (test or live), before anything else runs.
+    """Refuse an executed write aimed at main, before anything else runs, unless the app has
+    no branch (``execution/version_policy``): then test is where development happens. live is
+    always refused.
 
-    Main is read-only for this MCP (see ``bubble_mcp.core.versions``). Previews still run, so an
-    agent can see what it would send. ``BubbleEditorClient.write`` refuses main as well; this
-    check answers earlier and cleanly, before a savepoint is taken or a context is loaded.
+    Previews still run, so an agent can see what it would send. ``BubbleEditorClient.write``
+    applies the same rule; this check answers earlier and cleanly, before a savepoint is taken
+    or a context is loaded.
     """
 
     if not args.get("execute") or args.get("dry_run") is True:
@@ -1080,13 +1083,26 @@ def main_write_refusal(name: str, args: dict[str, Any]) -> dict[str, Any] | None
     version = _resolved_write_version(args)
     if not is_main_version(version):
         return None
+    profile = str(args.get("profile") or "").strip()
+    session = load_session(profile) if profile else None
+    app_id = str(args.get("app_id") or args.get("appname") or getattr(session, "app_id", "") or "").strip()
+    allowed, advice = main_write_allowed(version, session, app_id)
+    if allowed:
+        return None
     return {
         "ok": False,
         "tool_name": name,
         "executed": False,
         "error": "main_is_read_only",
         "app_version": version,
-        "message": str(MainVersionReadOnlyError(version, tool=name)),
+        "message": str(MainVersionReadOnlyError(version, tool=name, advice=advice)),
+        "next_action": {
+            "tool": "bubble_branch_create",
+            "arguments": {"profile": profile, "name": "<dev branch name>", "from_app_version": "test"},
+            "why": "Work goes to a branch in an app that has branches; pass the new branch id as app_version.",
+        }
+        if str(version).lower() != "live"
+        else None,
     }
 
 
@@ -1821,7 +1837,15 @@ def _call_tool(
         profile = str(args.get("profile") or "").strip()
         if not profile:
             raise ValueError("bubble_session_check requires a profile.")
-        return check_session(profile, use_cache=bool(args.get("use_cache")))
+        checked = check_session(profile, use_cache=bool(args.get("use_cache")))
+        if checked.get("logged_in"):
+            # Where writes may go belongs in the first answer an agent reads, not in a refusal
+            # after it has built a change.
+            policy_session = load_session(profile)
+            checked["write_policy"] = write_policy(
+                policy_session, str(checked.get("app_id") or getattr(policy_session, "app_id", "") or "")
+            )
+        return checked
     if name == "bubble_context_query":
         args = arguments or {}
         depth = args.get("depth")
@@ -2608,6 +2632,7 @@ def _call_tool(
         )
     if name == "bubble_branch_create":
         args = arguments or {}
+        forget_branches()
         return create_bubble_branch(
             profile=str(args.get("profile") or ""),
             app_id=str(args.get("app_id") or "") or None,
@@ -2619,6 +2644,7 @@ def _call_tool(
         )
     if name == "bubble_branch_delete":
         args = arguments or {}
+        forget_branches()
         return delete_bubble_branch(
             profile=str(args.get("profile") or ""),
             app_id=str(args.get("app_id") or "") or None,
