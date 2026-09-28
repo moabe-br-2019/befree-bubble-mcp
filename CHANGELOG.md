@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Main takes writes in an app that has no branch. Main (`test`) had been made read-only
+  everywhere, which left apps on plans without branches - only `test` and `live` - with nowhere
+  to write. The rule now follows the app, read from `/appeditor/get_versions` and cached for five
+  minutes (dropped when a branch is created or deleted): an app with at least one live branch
+  keeps main read-only and the refusal suggests `bubble_branch_create` for new work; an app with
+  none develops on `test`; `live` is never written; versions that cannot be read keep main
+  read-only. Deleted branches and Bubble's read-only copies of live do not count as branches.
+  `bubble_session_check` returns this as `write_policy`, so an agent learns where it may write
+  before it builds a change.
+
 - `bubble_tool_search` finds the event tools from the words agents use. "delete a workflow
   event" returned every workflow-named tool except `delete_event`: a Bubble workflow is an
   `event` in tool names, "delete" is pruned as a generic verb, and neither "workflow" nor "event"
