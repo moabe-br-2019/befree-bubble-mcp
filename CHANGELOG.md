@@ -12,18 +12,22 @@
   noticing; on a metered API with a weaker model that was a loop of paid calls. A logged-in
   answer is cached for five minutes per stored session; a logged-out one never is. The server
   instructions tell agents to call the check before Bubble work.
-- Session login no longer trusts a stale login cookie. An expired login keeps `ajs_user_id`, so
-  the profile looked logged in and the login page was skipped. A profile with the cookie is now
-  sent to the editor first and counts as logged in only when the editor serves the app; when the
-  editor sends the page away, the expired Bubble cookies are cleared and the login page opens.
-
+- Session login detects a login by asking Bubble for the app, not by a cookie. The
+  `ajs_user_id` cookie proved nothing: Bubble's analytics keep the user id in localStorage and
+  write the cookie back on every page load, so an expired login kept it, the login page was
+  skipped, and the editor loaded the app for a few seconds before sending the page to bubble.io's
+  home (kaimia-app). The login page now runs `/appeditor/get_versions` for the app from inside
+  the page (200 with access, 401 without), goes on to the editor when it passes and waits on the
+  login page until it does. While the editor session is being validated, a page sent away from
+  the app goes back to the login page once, then fails naming login or editor access, instead of
+  waiting out the whole budget.
 - Session login opens Bubble's login page first. A browser profile that is not logged in used
   to be sent straight to the editor, which shows a signed-out person no login screen, so on the
   team server nobody could sign in without a terminal. Now `bubble_session_login` (and
-  `session login`) opens `https://bubble.io/login?mode=login`, detects the login by the
-  `ajs_user_id` cookie (Bubble stays on the login URL after signing in, so the URL cannot tell),
+  `session login`) opens `https://bubble.io/login?mode=login`, detects the login there (Bubble
+  stays on the login URL after signing in, so the URL cannot tell; the entry above says how),
   and then opens the editor on the profile's version (`version=<branch>`, omitted for main). A
-  profile that is already logged in goes straight to the editor. One `wait_seconds` budget
+  profile that is already logged in goes straight on to the editor. One `wait_seconds` budget
   covers both. `login_first=false` (CLI: `--no-login-first`) keeps the old behavior.
 
 - `bubble_context_query` answers the structural questions agents were parsing the `.bubble`
