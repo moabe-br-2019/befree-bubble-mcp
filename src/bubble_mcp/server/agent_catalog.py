@@ -716,6 +716,11 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "For an element's children and workflows, a reusable's workflows, or what writes a field, use "
         "bubble_context_query instead of reading the export by hand. Read-only."
     ),
+    "bubble_session_check": (
+        "Check whether a profile's stored Bubble editor session is still logged in, with one HTTP request "
+        "and no browser. Call before Bubble work; logged_in=false means stop and ask the user to run "
+        "bubble_session_login. Read-only."
+    ),
     "bubble_context_query": (
         "Answer structural questions from the .bubble export of the version being worked on, so the "
         "export never has to be parsed by hand: an element's subtree with the workflows tied to it "
@@ -2113,6 +2118,7 @@ def tool_annotations(name: str) -> dict[str, bool]:
             "bubble_run_as",
             "bubble_clone_workflow",
             "bubble_duplicate_element",
+            "bubble_session_check",
             "bubble_visual_capture",
         "bubble_visual_capture_actual",
         "bubble_visual_audit",
@@ -2243,6 +2249,7 @@ def _is_read_only(name: str) -> bool:
         "bubble_context_summary",
         "bubble_context_find",
         "bubble_context_query",
+        "bubble_session_check",
         "bubble_session_list",
         "bubble_session_inspect",
         "bubble_eval_run",

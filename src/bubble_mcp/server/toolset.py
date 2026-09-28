@@ -27,6 +27,7 @@ DEFAULT_CORE_TOOLS: tuple[str, ...] = (
     "bubble_agent_guide",
     "bubble_readiness_check",
     "bubble_profile_status",
+    "bubble_session_check",
     "bubble_session_login",
     "bubble_branch_list",
     "bubble_context_find",

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- A logged-out session is known before any work is spent on it. `bubble_session_check` asks
+  Bubble once (`calculate_derived`, ~0.3s, no browser) whether a profile's stored session is
+  still logged in, and every tool that needs the editor (live reads, node edits, clones and
+  duplicates, raw writes, branch, savepoint, deploy and log tools, and any executed write) is
+  refused up front with `error: session_expired` and a `next_action` that says to stop and ask
+  for `bubble_session_login`. A live read on an expired session used to launch a browser and wait
+  for the editor before saying `not_logged_in`, and agents retried or tried other tools before
+  noticing; on a metered API with a weaker model that was a loop of paid calls. A logged-in
+  answer is cached for five minutes per stored session; a logged-out one never is. The server
+  instructions tell agents to call the check before Bubble work.
+- Session login no longer trusts a stale login cookie. An expired login keeps `ajs_user_id`, so
+  the profile looked logged in and the login page was skipped. A profile with the cookie is now
+  sent to the editor first and counts as logged in only when the editor serves the app; when the
+  editor sends the page away, the expired Bubble cookies are cleared and the login page opens.
+
 - Session login opens Bubble's login page first. A browser profile that is not logged in used
   to be sent straight to the editor, which shows a signed-out person no login screen, so on the
   team server nobody could sign in without a terminal. Now `bubble_session_login` (and
@@ -34,7 +49,7 @@
   to a branch only and every copied node and index entry is read back from it. On the team
   server an agent spent ~20 minutes and ~US$4 rebuilding this by hand, with a hand-made
   `_index` payload. The source is read from the live editor, never from the export.
-- `BUBBLE_MCP_TOOLSET=core` makes `tools/list` return about 17 core tools (~8k tokens) plus
+- `BUBBLE_MCP_TOOLSET=core` makes `tools/list` return about 18 core tools (~8k tokens) plus
   `bubble_tool_schema` (search the catalog, or fetch full schemas by name) and `bubble_call`
   (call any catalog tool by name, through the same checks as a direct call). The full list is
   ~350 tools and ~300k tokens: through OpenRouter, without deferred tool loading, Opus received
