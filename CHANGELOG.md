@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `bubble_run_as` resolves an email without a Data API token. With no token it failed with
+  `no_data_api_config`, and on the team server the agent scripted the editor's Data tab with its
+  own Playwright. It now does that itself through the stored editor session: it opens the Data
+  tab on the User type, reads the search answers the page receives (plain JSON with `_id` and
+  the email; the request itself is encrypted and not reproducible), and types the email into the
+  tab's search box when the first page does not hold it. It reads the development database
+  (branches share it); live is refused with `live_lookup_unsupported`. About 20s, measured on
+  mcp-test-app end to end. A configured token is still used first.
+
 - `bubble_profile_add` updates a profile instead of rebuilding it. An update that named only
   `app_version` reset every other field, and `context_path` was not accepted at all, so on the
   team server a profile lost its context path and it was restored by hand. Updates now change
