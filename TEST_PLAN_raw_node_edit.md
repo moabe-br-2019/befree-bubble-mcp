@@ -203,6 +203,22 @@ Os testes de escrita deste plano em `mcp-test` precisam de uma branch: criar com
   `["_index","issues_sub","<id>"]` devolve `ok: true`, `node_kind: "scalar"` e o valor, em vez
   de `unexpected_node_shape`.
 
+### Resultado em 2026-09-28 (mcp-test-app, branch `mcp-dup-test` = `63kqi`, perfil em `test`)
+
+Todos passaram. A escrita foi no `%nm` de um botão que existe só na branch.
+
+- 5.1 e 5.2: `ok`, `app_version` e `confirmed_app_version` = `63kqi`; lido em `63kqi` com o valor
+  novo, ausente em `test`.
+- 5.3: erro "disagrees", nada enviado. 5.4: `main_is_read_only`, sem savepoint.
+- 5.5: `main_is_read_only` para `test` e `live` com `allow_main=true`; preview funciona.
+- 5.6: `delete_event` em main recusado. Na branch, achou e apagou um workflow que só existe
+  lá, e o `.meta.json` do export passou a dizer `63kqi`.
+- 5.7: falhou na primeira rodada. A sessão capturada pela tela de login (item 8) guarda
+  `bubble.io/home` nesses headers, sem versão. Corrigido: nesse caso a URL do editor da versão
+  alvo é montada. Mesmo antes da correção a escrita caiu só na branch, o que mostra que é a
+  versão do corpo que decide, não a dos headers.
+- 5.8: `node_kind: "scalar"` para `id_to_path` e `issues_sub`.
+
 ## Como reportar
 
 Para cada item: id do teste, tool chamada, argumentos, resultado (ok/erro), e se bateu com o
