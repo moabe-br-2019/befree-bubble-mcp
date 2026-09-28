@@ -1102,6 +1102,16 @@ RECIPE_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
 
 
 SEARCH_SYNONYMS: dict[str, tuple[str, ...]] = {
+    # A Bubble workflow is an "event" in tool names (create_event, delete_event, list_events),
+    # so "delete a workflow" found every workflow-named tool except the one that deletes it.
+    "workflow": ("event",),
+    "workflows": ("workflow", "event", "events"),
+    "remove": ("delete",),
+    "remover": ("delete",),
+    "apagar": ("delete",),
+    "apague": ("delete",),
+    "excluir": ("delete",),
+    "exclua": ("delete",),
     "acao": ("action",),
     "conector": ("connector",),
     "requisicao": ("request", "call"),
@@ -1235,6 +1245,8 @@ LOCATION_CONTEXT_SEARCH_TERMS = {
 
 
 TOOL_TARGET_SEARCH_TERMS = {
+    "action",
+    "event",
     "alert",
     "button",
     "checkbox",
@@ -1696,7 +1708,7 @@ def _action_prefixes(terms: list[str]) -> set[str]:
     prefixes: set[str] = set()
     if {"create", "criar", "crie"}.intersection(terms):
         prefixes.add("create")
-    if {"delete", "deletar"}.intersection(terms):
+    if {"delete", "deletar", "remove", "remover", "apagar", "apague", "excluir", "exclua"}.intersection(terms):
         prefixes.add("delete")
     if {"update", "atualizar"}.intersection(terms):
         prefixes.add("update")

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `bubble_tool_search` finds the event tools from the words agents use. "delete a workflow
+  event" returned every workflow-named tool except `delete_event`: a Bubble workflow is an
+  `event` in tool names, "delete" is pruned as a generic verb, and neither "workflow" nor "event"
+  was a target it could pair with. "workflow" now also searches "event", `event` and `action`
+  are verb targets, and "remove" / "apagar" / "excluir" mean delete. The same weakness hid the
+  clone tool on the team server.
+
 - `bubble_e2e_flow` runs a short browser flow declared inline - `goto`, `click`, `fill`,
   `expect_text` / `expect_no_text`, `wait`, `screenshot` - on one or more versions as an app user,
   and returns the recordings side by side: `compare.html` plays every version's video with one
