@@ -40,6 +40,7 @@ DEFAULT_CORE_TOOLS: tuple[str, ...] = (
     "bubble_editor_write",
     "bubble_savepoint_list",
     "bubble_e2e_run",
+    "bubble_e2e_flow",
     "batch",
 )
 

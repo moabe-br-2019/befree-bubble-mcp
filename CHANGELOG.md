@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `bubble_e2e_flow` runs a short browser flow declared inline - `goto`, `click`, `fill`,
+  `expect_text` / `expect_no_text`, `wait`, `screenshot` - on one or more versions as an app user,
+  and returns the recordings side by side: `compare.html` plays every version's video with one
+  button, next to each step's screenshot and status, and `side_by_side.webm` is composed when a
+  full ffmpeg is on PATH (Playwright's own build cannot stack videos). Each version gets its own
+  impersonated session (Bubble's user cookie is per version), resolved from an email without a
+  Data API token. It runs through the suite runner, so URLs, video and step screenshots behave
+  as in a suite. `live` is refused: a flow clicks and confirms for real. On the team server the
+  agent wrote ~10 Playwright scripts for this, ~40 of an ~80-minute task; on mcp-test-app a
+  five-step flow on two versions took 62s end to end.
+
 - Browser tools get past the dev version's preview password page. On the team server E2E and
   visual capture answered 401 on the dev version until the agent supplied the preview login by
   hand. A profile can now hold it (`preview_username` / `preview_password` in
@@ -79,7 +90,7 @@
   to a branch only and every copied node and index entry is read back from it. On the team
   server an agent spent ~20 minutes and ~US$4 rebuilding this by hand, with a hand-made
   `_index` payload. The source is read from the live editor, never from the export.
-- `BUBBLE_MCP_TOOLSET=core` makes `tools/list` return about 18 core tools (~8k tokens) plus
+- `BUBBLE_MCP_TOOLSET=core` makes `tools/list` return about 19 core tools (~8k tokens) plus
   `bubble_tool_schema` (search the catalog, or fetch full schemas by name) and `bubble_call`
   (call any catalog tool by name, through the same checks as a direct call). The full list is
   ~350 tools and ~300k tokens: through OpenRouter, without deferred tool loading, Opus received
