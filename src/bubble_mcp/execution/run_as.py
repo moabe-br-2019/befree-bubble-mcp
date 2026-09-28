@@ -202,21 +202,67 @@ def _load_json(path: Path) -> Any:
         return None
 
 
+def _profile_preview_credentials(profile: str) -> tuple[str, str] | None:
+    from bubble_mcp.core.config import load_settings, resolve_profile
+
+    configured = resolve_profile(load_settings(), profile or None) if profile else None
+    user = str(getattr(configured, "preview_username", "") or "").strip()
+    secret = str(getattr(configured, "preview_password", "") or "").strip()
+    return (user, secret) if user and secret else None
+
+
+def resolve_preview_credentials(
+    profile: str,
+    app_id: str,
+    *,
+    username: str | None = None,
+    password: str | None = None,
+    include_default: bool = True,
+) -> tuple[tuple[str, str], str] | None:
+    """The preview password pair for a browser context, and where it came from.
+
+    Same order as run as, plus the seeded default at the end: a browser context only answers the
+    HTTP Basic challenge when the app issues one, so offering the default costs nothing on a
+    version without the password page and gets past it on one left at Bubble's seed. On the
+    team server E2E and visual capture had no source at all and 401'd until the agent typed the
+    pair in by hand.
+    """
+
+    found = _resolve_preview_credentials(username, password, profile, app_id)
+    if found is not None:
+        return found
+    return (DEFAULT_PREVIEW_CREDENTIALS, "default") if include_default else None
+
+
+def playwright_http_credentials(profile: str, app_id: str) -> dict[str, str] | None:
+    """``http_credentials`` for ``browser.new_context``/``new_page``, or None."""
+
+    found = resolve_preview_credentials(profile, app_id)
+    if found is None:
+        return None
+    (user, secret), _ = found
+    return {"username": user, "password": secret}
+
+
 def _resolve_preview_credentials(
     username: str | None, password: str | None, profile: str, app_id: str
 ) -> tuple[tuple[str, str], str] | None:
     """Return the pair to use and where it came from.
 
-    Order matters and is deliberate: what the caller passed beats the environment, the
-    environment beats the app's own export, and the seeded defaults are not here at all - they
-    are a last resort tried only after a real 401, so a stale export cannot silently mask a
-    changed password.
+    Order matters and is deliberate: what the caller passed beats the profile, the profile
+    beats the environment, the environment beats the app's own export, and the seeded defaults
+    are not here at all - they are a last resort tried only after a real 401, so a stale export
+    cannot silently mask a changed password.
     """
 
     explicit_user = (username or "").strip()
     explicit_secret = (password or "").strip()
     if explicit_user and explicit_secret:
         return (explicit_user, explicit_secret), "argument"
+
+    from_profile = _profile_preview_credentials(profile)
+    if from_profile:
+        return from_profile, "profile"
 
     env_user = os.environ.get(PREVIEW_USER_ENV, "").strip()
     env_secret = os.environ.get(PREVIEW_PASSWORD_ENV, "").strip()
@@ -339,20 +385,17 @@ def run_as_user(
     preview_password: str | None = None,
     transport: Transport | None = None,
     write_storage_state: bool = True,
+    editor_lookup: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Establish an impersonated app session for ``user_id`` and report where it landed.
 
     ``user_id`` is the Bubble unique id of the row in the app's User type - the same id the
     editor's Data tab addresses.
 
-    Resolving one from an email is deliberately NOT done here, because it needs the app's Data
-    API and a Data API token, and a tool that already does that exists: the ``bubble-cli``
-    project mirrors a Bubble app into SQLite over the Data API and exposes it over MCP. There,
-    ``bubble(["pull", "--types", "User"])`` fills the mirror and
-    ``query("SELECT _id, email FROM User WHERE email = '...'")`` hands back the id this
-    function wants - the mirror's ``_id`` primary key IS the Bubble unique id. Duplicating a
-    Data API client here would mean a second token to register and a second thing to keep
-    correct.
+    ``email`` is resolved to that id through the app's Data API when a token is configured
+    (``_user_id_from_email``), and otherwise through the editor's own Data tab with the stored
+    editor session (``editor_user_lookup``), which needs no token and reads the development
+    database. ``editor_lookup`` replaces the latter in tests.
 
     Cookie VALUES never appear in the returned dictionary. They go to the storage-state file,
     whose path is returned instead, so a result can be logged or shown without leaking a live
@@ -389,6 +432,14 @@ def run_as_user(
                 "message": "Pass user_id (a Bubble unique id) or email.",
             }
         email_lookup = _user_id_from_email(str(email), resolved_app_id, data_api_dir, app_version)
+        if email_lookup.get("error") == "no_data_api_config":
+            # No token: read the id from the editor's Data tab, the way a person would, through
+            # the stored editor session (team server, 2026-09-25: the agent scripted exactly that).
+            if editor_lookup is None:
+                from bubble_mcp.execution.editor_user_lookup import find_user_id_in_editor
+
+                editor_lookup = find_user_id_in_editor
+            email_lookup = editor_lookup(profile, resolved_app_id, str(email), app_version=app_version)
         if not email_lookup.get("ok"):
             return email_lookup
         resolved_user_id = str(email_lookup["user_id"])

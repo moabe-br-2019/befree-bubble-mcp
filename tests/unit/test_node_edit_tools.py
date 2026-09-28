@@ -149,7 +149,7 @@ def test_edit_tool_records_a_mutation_overlay_for_an_executed_write(monkeypatch)
     call_tool(
         "bubble_node_edit",
         {
-            "profile": "mcp-test",
+            "profile": "mcp-test", "app_version": "dev01",
             "pointer": ["api", "wf-1", "actions", "0"],
             "op": "patch",
             "leaf_pointer": ["properties"],
@@ -328,7 +328,7 @@ def test_savepoint_restore_passes_confirm_through(monkeypatch) -> None:  # type:
 
     call_tool(
         "bubble_savepoint_restore",
-        {"profile": "mcp-test", "timestamp": 1787834752581, "execute": True, "confirm": True},
+        {"profile": "mcp-test", "app_version": "dev01", "timestamp": 1787834752581, "execute": True, "confirm": True},
     )
 
     assert seen["timestamp"] == 1787834752581

@@ -17,6 +17,7 @@ from bubble_mcp.server.prompts import get_prompt, list_prompts
 from bubble_mcp.server.resources import list_resource_templates, list_resources, read_resource
 from bubble_mcp.server.schemas import list_tool_schemas
 from bubble_mcp.server.tools import call_tool
+from bubble_mcp.server.toolset import active_toolset, listed_tool_schemas
 
 
 JSONRPC_VERSION = "2.0"
@@ -58,6 +59,17 @@ def tool_error_result(name: str, exc: Exception) -> dict[str, Any]:
     }
 
 
+def server_instructions() -> str:
+    if active_toolset() != "core":
+        return SERVER_INSTRUCTIONS
+    return (
+        f"{SERVER_INSTRUCTIONS} tools/list shows a core set only. Every other catalog tool is still "
+        "available: find it with bubble_tool_schema (query to search, names for full schemas) and run it "
+        "with bubble_call(name, arguments). When a runbook recommends a tool that is not listed, call it "
+        "through bubble_call. Parsing the .bubble export by hand is never necessary."
+    )
+
+
 def handle_request(
     request: dict[str, Any],
     *,
@@ -78,7 +90,7 @@ def handle_request(
                 {
                     "protocolVersion": "2024-11-05",
                     "serverInfo": {"name": "befree-bubble-mcp", "version": __version__},
-                    "instructions": SERVER_INSTRUCTIONS,
+                    "instructions": server_instructions(),
                     "capabilities": {
                         "tools": {},
                         "resources": {"templates": True},
@@ -90,7 +102,7 @@ def handle_request(
         if method == "ping":
             return success_response(request_id, {})
         if method == "tools/list":
-            return success_response(request_id, {"tools": list_tool_schemas()})
+            return success_response(request_id, {"tools": listed_tool_schemas(list_tool_schemas())})
         if method == "tools/call":
             name = str(params.get("name") or "")
             raw_arguments = params.get("arguments")

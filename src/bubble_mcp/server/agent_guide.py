@@ -40,14 +40,20 @@ ROUTES: tuple[dict[str, Any], ...] = (
     {
         "intent": "run_browser_e2e_tests",
         "when": "The user asks to run, write, or read the result of an end-to-end / UAT test that drives the app in a browser.",
-        "tools": ["bubble_e2e_list", "bubble_e2e_run", "bubble_e2e_report", "bubble_e2e_scaffold", "bubble_run_as"],
-        "notes": "Call bubble_e2e_list first for the suite and case ids. bubble_e2e_run defaults to execute=false, which previews without opening a browser; execute=true creates real records in the app. A missing or expired session is fixed with bubble_run_as, never with a password inside a case.",
+        "tools": ["bubble_e2e_flow", "bubble_e2e_list", "bubble_e2e_run", "bubble_e2e_report", "bubble_e2e_scaffold", "bubble_run_as"],
+        "notes": "For before/after evidence of a change - open a page, click, confirm, check a text - use bubble_e2e_flow with the steps inline and versions=[main, branch]: it records each version and returns the videos side by side, with no Playwright script and no suite. Never write Playwright scripts by hand for that. For suites, call bubble_e2e_list first for the suite and case ids. bubble_e2e_run defaults to execute=false, which previews without opening a browser; execute=true creates real records in the app. A missing or expired session is fixed with bubble_run_as, never with a password inside a case.",
     },
     {
         "intent": "find_profile_session_or_context",
         "when": "The user names a project/profile, asks what projects are available, or a target cannot be resolved.",
         "tools": ["bubble_profile_cache_refresh", "bubble_project_bootstrap", "bubble_profile_status", "bubble_profile_add", "bubble_profile_list", "bubble_session_login", "bubble_session_list", "bubble_session_inspect", "bubble_context_detect", "bubble_context_find"],
         "notes": "Use bubble_profile_cache_refresh directly when the user asks to refresh/update/reload/sync a profile cache or download the .bubble again. Use bubble_project_bootstrap when profile/app setup is needed. Call bubble_profile_status first only when the user asks for readiness/status rather than refresh.",
+    },
+    {
+        "intent": "inspect_app_structure",
+        "when": "The user or the task needs an element's children and the workflows tied to it, the workflows of a page, reusable or the backend, or which workflows and database triggers change a field of a data type.",
+        "tools": ["bubble_context_query", "bubble_context_find", "bubble_live_node_read"],
+        "notes": "Use bubble_context_query with kind='element_subtree' (element id or name), kind='workflows' (container = page, reusable or 'backend') or kind='field_writers' (data_type and field, by key or display name). It reads the .bubble export of the version passed as app_version and downloads it when the cached one is another version's, so never open or parse the export with python or jq. field_writers also lists the database triggers on the type: check them for side effects before changing a field. Use bubble_live_node_read only when the raw expression encoding is needed for a write.",
     },
     {
         "intent": "create_or_update_visual_editor_elements",
@@ -132,7 +138,7 @@ ROUTES: tuple[dict[str, Any], ...] = (
         "intent": "manage_workflows",
         "when": "The user asks to create events, add actions, wire buttons, change conditions, or inspect workflow refs.",
         "tools": ["create_workflow", "create_event", "add_action", "list_events", "resolve_refs", "map_workflow_ref", "bubble_live_node_read", "bubble_node_edit"],
-        "notes": "For page load workflows, target element_name='Page'. For element events, resolve the element first when ambiguous. To add actions to an existing workflow (including ConditionTrue/CustomEvent/DoEvery), pass event_ref (workflow key/id/name/alias) to add_action instead of element_name; never fall back to manual bubble_editor_write payloads. Expression encodings (APIEventParameter, Message, param ids) are NOT derivable from the .bubble export and /appeditor/write accepts any body with HTTP 200. To EDIT an action that already exists, use bubble_node_edit: it reads the node from the live editor, changes one leaf (op='patch', pointer = ONE action node such as ['api','<wf_id>','actions','3']), and re-reads to prove the write landed. To change the ORDER of existing actions in a workflow, use the same tool with op='reorder', pointer = the actions map (['api','<wf_id>','actions']) and order = every existing action key exactly once; it renumbers the map and repoints _index.id_to_path, and refuses an order that would drop a step. Never recompose an existing action from the export - the expression encoding is not derivable from it. Before deploying, run bubble_deploy_preview to show the user what the deploy would push: it diffs the deployed live version against test. Ask which source they want when it matters - source='overlay' (default) covers only what this MCP wrote, source='full_scan' also catches edits made by hand in the editor. The MCP takes one Bubble savepoint automatically before a session's first executed write; bubble_savepoint_create adds an explicitly labelled one, and bubble_savepoint_restore reverts the WHOLE version to an instant, so never reach for it to undo a single edit. To DUPLICATE a whole workflow, use bubble_clone_workflow with pointer = the workflow root (['api','<wf_id>'] for a backend workflow, ['%p3','<page>','%wf','<wf_id>'] for a page one); it copies the raw node and remints only the event and action ids, which is what the editor itself does - never rebuild a workflow with create_workflow plus add_action to copy it. Use bubble_live_node_read first when you need to see the real shape of an action type. For creating a new expression-heavy action, capturing real editor traffic with bubble_tool_wizard_start is still the route.",
+        "notes": "For page load workflows, target element_name='Page'. For element events, resolve the element first when ambiguous. To add actions to an existing workflow (including ConditionTrue/CustomEvent/DoEvery), pass event_ref (workflow key/id/name/alias) to add_action instead of element_name; never fall back to manual bubble_editor_write payloads. Expression encodings (APIEventParameter, Message, param ids) are NOT derivable from the .bubble export and /appeditor/write accepts any body with HTTP 200. To EDIT an action that already exists, use bubble_node_edit: it reads the node from the live editor, changes one leaf (op='patch', pointer = ONE action node such as ['api','<wf_id>','actions','3']), and re-reads to prove the write landed. To change the ORDER of existing actions in a workflow, use the same tool with op='reorder', pointer = the actions map (['api','<wf_id>','actions']) and order = every existing action key exactly once; it renumbers the map and repoints _index.id_to_path, and refuses an order that would drop a step. Never recompose an existing action from the export - the expression encoding is not derivable from it. Before deploying, run bubble_deploy_preview to show the user what the deploy would push: it diffs the deployed live version against test. Ask which source they want when it matters - source='overlay' (default) covers only what this MCP wrote, source='full_scan' also catches edits made by hand in the editor. The MCP takes one Bubble savepoint automatically before a session's first executed write; bubble_savepoint_create adds an explicitly labelled one, and bubble_savepoint_restore reverts the WHOLE version to an instant, so never reach for it to undo a single edit. To DUPLICATE a whole workflow, use bubble_clone_workflow with pointer = the workflow root (['api','<wf_id>'] for a backend workflow, ['%p3','<page>','%wf','<wf_id>'] for a page one); it copies the raw node and remints only the event and action ids, which is what the editor itself does - never rebuild a workflow with create_workflow plus add_action to copy it. To DUPLICATE an element (a button, a popup, a group) together with the workflows it triggers, use bubble_duplicate_element with element_ids = every root of the copy (the button AND the popup it opens, so the copied button opens the copied popup); it remints every id and writes the _index entries itself - never hand-build _index.id_to_path or issues_sub entries in a bubble_editor_write payload. Use bubble_live_node_read first when you need to see the real shape of an action type. For creating a new expression-heavy action, capturing real editor traffic with bubble_tool_wizard_start is still the route.",
     },
     {
         "intent": "manage_data_schema",
@@ -878,7 +884,7 @@ RECIPES: dict[str, dict[str, Any]] = {
     },
     "e2e_suite": {
         "when": "Run, read or create a browser end-to-end / UAT test that drives the real app as a test user.",
-        "tools": ["bubble_e2e_list", "bubble_e2e_run", "bubble_e2e_report", "bubble_e2e_scaffold", "bubble_run_as"],
+        "tools": ["bubble_e2e_flow", "bubble_e2e_list", "bubble_e2e_run", "bubble_e2e_report", "bubble_e2e_scaffold", "bubble_run_as"],
         "steps": [
             {
                 "tool": "bubble_e2e_list",
@@ -1096,6 +1102,16 @@ RECIPE_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
 
 
 SEARCH_SYNONYMS: dict[str, tuple[str, ...]] = {
+    # A Bubble workflow is an "event" in tool names (create_event, delete_event, list_events),
+    # so "delete a workflow" found every workflow-named tool except the one that deletes it.
+    "workflow": ("event",),
+    "workflows": ("workflow", "event", "events"),
+    "remove": ("delete",),
+    "remover": ("delete",),
+    "apagar": ("delete",),
+    "apague": ("delete",),
+    "excluir": ("delete",),
+    "exclua": ("delete",),
     "acao": ("action",),
     "conector": ("connector",),
     "requisicao": ("request", "call"),
@@ -1229,6 +1245,8 @@ LOCATION_CONTEXT_SEARCH_TERMS = {
 
 
 TOOL_TARGET_SEARCH_TERMS = {
+    "action",
+    "event",
     "alert",
     "button",
     "checkbox",
@@ -1546,6 +1564,7 @@ def agent_guide(task: str = "", *, include_knowledge_advice: bool = True) -> dic
             "use_mcp_tools_directly": True,
             "avoid_shell_cli_discovery": True,
             "preview_default": "Leave execute=false unless the user explicitly asked to apply the change in Bubble.",
+            "main_is_read_only": "Main (app_version test or live) is never written: pass the branch id as app_version on every executed write. A write resolved to main is refused with main_is_read_only; previews still run.",
             "profile_first": "Prefer profile-based calls so the server can use stored session, context, and mutation overlay.",
             "refresh_context_when_stale": "Run bubble_profile_cache_refresh with force=true for routine profile cache refresh; use bubble_context_detect only for lower-level context-specific options.",
             "reusable_definition_modules": REUSABLE_DEFINITION_MODULE_GUIDANCE,
@@ -1689,7 +1708,7 @@ def _action_prefixes(terms: list[str]) -> set[str]:
     prefixes: set[str] = set()
     if {"create", "criar", "crie"}.intersection(terms):
         prefixes.add("create")
-    if {"delete", "deletar"}.intersection(terms):
+    if {"delete", "deletar", "remove", "remover", "apagar", "apague", "excluir", "exclua"}.intersection(terms):
         prefixes.add("delete")
     if {"update", "atualizar"}.intersection(terms):
         prefixes.add("update")
@@ -1726,6 +1745,21 @@ def _semantic_tool_bonus(name: str, raw_query: str) -> int:
 
     def has_any(*values: str) -> bool:
         return bool(terms.intersection(values))
+
+    if name == "bubble_context_query":
+        # Structural questions agents answered by parsing the export by hand (team server,
+        # 2026-09-25): what writes a field, an element's subtree, a reusable's workflows.
+        about_workflows = has_any("workflow", "workflows", "trigger", "triggers")
+        if has_any("subtree", "writers") or _has_keyword(normalized_query, "side effects"):
+            return 40
+        if about_workflows and has_any("field", "fields") and has_any(
+            "change", "changes", "set", "sets", "write", "writes", "modify", "modifies", "update", "updates"
+        ):
+            return 40
+        if about_workflows and has_any("which", "what", "list", "show", "find", "quais", "listar") and has_any(
+            "reusable", "reusables", "element", "page", "backend"
+        ):
+            return 30
 
     if has_any("cache", "cached"):
         if name == "sync_element_ref_cache" and has_any("element") and has_any(

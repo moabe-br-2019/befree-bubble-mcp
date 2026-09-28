@@ -689,6 +689,12 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "each could run now: Playwright installed, run-as session present and unexpired. Use it before "
         "bubble_e2e_run to learn the suite and case ids instead of guessing them. Read-only."
     ),
+    "bubble_e2e_flow": (
+        "Run a short browser flow declared inline (goto, click, fill, expect_text, screenshot) on one or more app "
+        "versions as an app user, and get the recordings side by side: before/after evidence of a change without "
+        "writing a Playwright script. execute=false previews; execute=true clicks for real in development data. "
+        "live is refused."
+    ),
     "bubble_e2e_run": (
         "Run a browser end-to-end suite, or named cases from it, against a Bubble branch as the impersonated run-as "
         "user. Leave execute=false to preview: it resolves branch and base URL, checks the session and the case "
@@ -713,7 +719,20 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "Search a compact Bubble project context file for pages, containers, elements, styles, data types, workflows, "
         "or ids. Use exact=true and include_metadata=false for compact validation checks that must not accept fuzzy "
         "matches; inspect count/truncated and match_field to distinguish direct node matches from context references. "
-        "Read-only."
+        "For an element's children and workflows, a reusable's workflows, or what writes a field, use "
+        "bubble_context_query instead of reading the export by hand. Read-only."
+    ),
+    "bubble_session_check": (
+        "Check whether a profile's stored Bubble editor session is still logged in, with one HTTP request "
+        "and no browser. Call before Bubble work; logged_in=false means stop and ask the user to run "
+        "bubble_session_login. Read-only."
+    ),
+    "bubble_context_query": (
+        "Answer structural questions from the .bubble export of the version being worked on, so the "
+        "export never has to be parsed by hand: an element's subtree with the workflows tied to it "
+        "(kind='element_subtree'), every workflow of a page, reusable or the backend (kind='workflows'), "
+        "and every action that sets field Y of type Z plus the database triggers on Z "
+        "(kind='field_writers'). Read-only."
     ),
     "bubble_context_import": (
         "Convert a Bubble project artifact into compact context. Supports .bubble exports, console.log(app) JSON, "
@@ -833,6 +852,13 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "and write the copy into a sibling slot, then re-read and report divergences. Use instead of "
         "recomposing with create_workflow plus add_action, which cannot reproduce expression "
         "encodings. execute=false previews."
+    ),
+    "bubble_duplicate_element": (
+        "Duplicate (copy/paste) live elements - a button, a popup, a group with its children - "
+        "together with the workflows they trigger: remints every id, repoints references inside "
+        "the copy and maintains _index (id_to_path, issues_list, issues_sub) itself. Pass a button "
+        "and the popup it opens together in element_ids. execute=false previews every new id and "
+        "index entry; execute=true writes to a branch and reads it all back."
     ),
     "bubble_plugin_install": (
         "Preview or install one Bubble plugin in a target app using the stored editor session. Use this when transfer "
@@ -1105,8 +1131,27 @@ EXACT_TOOL_FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "update_reusable": (("profile", "context", "element_name"), ("dry_run", "settings_path", "prefer_last", "width", "height", "is_visible", "collapse_when_hidden", "html_id", "unique_id", *VISUAL_STYLE_FIELDS)),
     "update_reusable_type": (("profile", "name", "type"), ("dry_run", "settings_path")),
     "clone_reusable": (("profile", "source", "name"), ("dry_run", "settings_path")),
-    "delete_reusable": (("profile", "name"), ("dry_run", "settings_path", "confirm")),
-    "create_custom_state": (("profile", "state_name"), ("dry_run", "settings_path", "element_id", "context", "element_name", "state_type", "default_value", "default_value_json")),
+    "delete_reusable": (("profile", "context", "element_name"), ("dry_run", "settings_path", "prefer_last", "confirm")),
+    "delete_repeating_group": (("profile", "context", "element_name"), ("dry_run", "settings_path", "prefer_last", "confirm")),
+    "create_custom_state": (("profile", "state_name", "element_id"), ("dry_run", "settings_path", "context", "element_name", "state_type", "default_value", "default_value_json")),
+    "list_events": (("profile", "context"), ("dry_run", "settings_path", "json")),
+    "delete_style": (("profile", "name"), ("dry_run", "settings_path", "element_type", "confirm")),
+    "delete_301_redirect": (("profile", "name"), ("dry_run", "settings_path", "confirm")),
+    "set_app_setting": (("profile", "name", "value"), ("dry_run", "settings_path", "json")),
+    "set_project_setting": (("profile", "name", "value"), ("dry_run", "settings_path", "json")),
+    "create_api_token": (("profile",), ("dry_run", "settings_path", "name", "private_key")),
+    "rename_api_token": (("profile", "token_id", "new_name"), ("dry_run", "settings_path")),
+    "regenerate_api_token": (("profile", "token_id"), ("dry_run", "settings_path", "private_key", "confirm")),
+    "delete_api_token": (("profile", "token_id"), ("dry_run", "settings_path", "confirm")),
+    "list_text_matches": (("profile", "context", "element_name"), ("dry_run", "settings_path", "ref_kind", "include_non_text", "json")),
+    "convert_text_parts_to_app_text": (("profile", "context", "element_name", "part"), ("dry_run", "settings_path", "part_translation", "part_text_id", "preview_text", "ref_kind", "match_index", "reuse_existing")),
+    "convert_text_to_app_text": (("profile", "context", "element_name"), ("dry_run", "settings_path", "app_text_label", "text_id", "translation_language", "translation_value", "preview_text", "ref_kind", "match_index", "reuse_existing")),
+    "convert_text_path_to_app_text": (("profile", "path"), ("dry_run", "settings_path", "app_text_label", "text_id", "translation_language", "translation_value", "preview_text", "reuse_existing")),
+    "create_app_text": (("profile", "name"), ("dry_run", "settings_path", "text_id", "language", "value", "reuse_existing")),
+    "set_app_text_translation": (("profile", "name", "language", "value"), ("dry_run", "settings_path", "ref_kind")),
+    "propagate_app_text": (("profile", "name", "search_text"), ("dry_run", "settings_path", "app_text_ref_kind", "scope", "contexts", "exact")),
+    "upload_asset": (("profile", "file"), ("dry_run", "settings_path", "name", "execute")),
+    "sync_figma_component": (("profile", "context"), ("dry_run", "settings_path", "parent", "name", "file", "payload", "execute", "json")),
     "list_global_expressions": (("profile",), ("settings_path",)),
     "create_global_expression": (("profile", "name"), ("dry_run", "settings_path", "expression_type", "is_list")),
     "set_global_expression_parameter": (("profile", "expression", "parameter_name"), ("dry_run", "settings_path", "parameter_type", "is_list", "parameter_id")),
@@ -1125,7 +1170,7 @@ EXACT_TOOL_FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "update_name": (("profile", "context", "element_name", "new_name"), ("dry_run", "settings_path")),
     "update_placeholder": (("profile", "context", "element_name", "new_placeholder"), ("dry_run", "settings_path")),
     "update_style": (("profile", "context", "element_name", "new_style"), ("dry_run", "settings_path", "keep_overrides")),
-    "update_style_all": (("profile", "context", "from_style", "to_style"), ("dry_run", "settings_path", "element_type", "keep_overrides", "by_contains")),
+    "update_style_all": (("profile", "context", "element_type", "from_style", "to_style"), ("dry_run", "settings_path", "keep_overrides", "by_contains")),
     "update_image": (("profile", "context", "element_name", "new_source"), ("dry_run", "settings_path", "prefer_last")),
     "update_icon": (("profile", "context", "element_name", "new_icon"), ("dry_run", "settings_path", "prefer_last")),
     "update_layout": (("profile", "context", "element_name", "property", "value"), ("dry_run", "settings_path")),
@@ -1161,7 +1206,7 @@ EXACT_TOOL_FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "create_event": (("profile", "context", "event_type"), ("dry_run", "settings_path", "element_ref", "element_ref_kind", "match_index", "bind_name", "custom_event_name", "run_when", "only_when_json", "interval_seconds", "event_key", "event_id", "id_counter")),
     "create_empty_event": (("profile", "context"), ("dry_run", "settings_path", "event_key", "event_id", "id_counter")),
     "delete_event": (("profile", "context", "event_ref"), ("dry_run", "settings_path", "ref_kind", "confirm")),
-    "set_event_type": (("profile", "context", "event_type"), ("dry_run", "settings_path", "event_ref", "ref_kind", "current_event_type", "element", "element_ref_kind", "match_index")),
+    "set_event_type": (("profile", "context", "event_ref", "event_type"), ("dry_run", "settings_path", "ref_kind", "current_event_type", "element", "element_ref_kind", "match_index")),
     "set_event_element": (("profile", "context", "event_ref", "element_ref"), ("dry_run", "settings_path", "event_ref_kind", "element_ref_kind", "match_index", "bind_name")),
     "map_element_ref": (("profile", "context", "alias_name", "element_ref"), ("dry_run", "settings_path", "ref_kind", "match_index")),
     "map_workflow_ref": (("profile", "context", "alias_name", "event_ref"), ("dry_run", "settings_path", "ref_kind", "match_index")),
@@ -1460,6 +1505,12 @@ def apply_legacy_specific_schema(tool: dict[str, Any]) -> None:
             "deprecated": True,
             "description": "Compatibility alias for enabled; new calls must use enabled.",
         }
+    if name == "natural":
+        input_schema["anyOf"] = [
+            {"required": ["message"]},
+            {"required": ["query"]},
+            {"required": ["commands"]},
+        ]
     if name in {
         "create_data_type",
         "rename_data_type",
@@ -1813,6 +1864,22 @@ def _property_schema(field: str) -> dict[str, Any]:
 FORM_MANDATORY_FIELDS: tuple[str, ...] = ("required", "mandatory")
 
 
+# The fields a create_<element> call must carry, under the public name the schema declares
+# them by: what the runtime method takes without a default, except `name`, which dispatch
+# derives from the label or content when it is left out (aria_dispatch, CREATE_NAME_PREFIXES).
+# Elements not listed require their first field. aria_dispatch.runtime_schema_gaps, checked by
+# bubble_catalog_quality, keeps this honest.
+CREATE_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "text": ("content",),
+    "button": ("label",),
+    "image": ("name", "source"),
+    "icon": ("name", "icon"),
+    "html": ("name", "content"),
+    "link": ("name", "label"),
+    "alert": ("name", "content"),
+}
+
+
 def _visual_fields_for_name(name: str) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
     create_fields: dict[str, tuple[str, ...]] = {
         "group": ("name", "layout", *VISUAL_STYLE_FIELDS, "data_class", "data_source", *QUERY_FIELDS),
@@ -1836,7 +1903,7 @@ def _visual_fields_for_name(name: str) -> tuple[tuple[str, ...], tuple[str, ...]
         "video": ("name", "url", "video_id", "origin", "autoplay", "style", *VISUAL_STYLE_FIELDS),
         "image": ("name", "source", "style", *VISUAL_STYLE_FIELDS),
         "icon": ("name", "icon", "style", "color", *VISUAL_STYLE_FIELDS),
-        "html": ("name", "html", "style", *VISUAL_STYLE_FIELDS),
+        "html": ("name", "content", "style", *VISUAL_STYLE_FIELDS),
         "link": ("name", "label", "url", "style", *VISUAL_STYLE_FIELDS),
         "alert": ("name", "content", "style", *VISUAL_STYLE_FIELDS),
         "map": ("name", "data_source", "style", *VISUAL_STYLE_FIELDS),
@@ -1849,7 +1916,11 @@ def _visual_fields_for_name(name: str) -> tuple[tuple[str, ...], tuple[str, ...]
                 # omitting it must be a schema validation error, not a Python TypeError.
                 remaining = tuple(field for field in fields if field not in {"name", "source"})
                 return (("profile", "context", "parent", "name", "source"), ("dry_run", "settings_path", *remaining))
-            return (("profile", "context", "parent", *fields[:1]), ("dry_run", "settings_path", *fields[1:]))
+            required = CREATE_REQUIRED_FIELDS.get(element, fields[:1])
+            return (
+                ("profile", "context", "parent", *required),
+                ("dry_run", "settings_path", *(field for field in fields if field not in required)),
+            )
         if name == f"update_{element}" or name == f"update_{element}_element":
             return (("profile", "context", "element_name"), ("dry_run", "settings_path", *fields, "prefer_last"))
         if name == f"delete_{element}":
@@ -2052,6 +2123,8 @@ def tool_annotations(name: str) -> dict[str, bool]:
             "bubble_node_edit",
             "bubble_run_as",
             "bubble_clone_workflow",
+            "bubble_duplicate_element",
+            "bubble_session_check",
             "bubble_visual_capture",
         "bubble_visual_capture_actual",
         "bubble_visual_audit",
@@ -2070,6 +2143,7 @@ def tool_annotations(name: str) -> dict[str, bool]:
             # Drives the app under test in a browser over the network. The read-only E2E
             # tools stay closed-world: they only read local manifests and run results.
             "bubble_e2e_run",
+            "bubble_e2e_flow",
             "upload_asset",
         },
     }
@@ -2181,6 +2255,8 @@ def _is_read_only(name: str) -> bool:
         "bubble_e2e_report",
         "bubble_context_summary",
         "bubble_context_find",
+        "bubble_context_query",
+        "bubble_session_check",
         "bubble_session_list",
         "bubble_session_inspect",
         "bubble_eval_run",
@@ -2255,6 +2331,7 @@ def _is_mutating(name: str) -> bool:
         "bubble_execute_plan",
         "bubble_node_edit",
         "bubble_clone_workflow",
+        "bubble_duplicate_element",
         "batch",
         "natural",
     }

@@ -86,7 +86,7 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
     ),
     "app_version": _prop(
         "string",
-        "Bubble branch/version id. Use test/version-test by default; pass a specific branch id when operating outside test.",
+        "Bubble branch/version id. Reads default to test (main). Main (test and live) is read-only: an executed write must name a branch id (see bubble_branch_list) and is refused on test or live. Defaults to the profile's version when omitted.",
         default="test",
         examples=["test", "version-test", "feature-checkout"],
     ),
@@ -703,6 +703,27 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
         "Name for the duplicated backend workflow, written into the body as %p.wf_name. The "
         "editor appends '_copy' when a human duplicates; a page workflow has no name, so leave "
         "this unset there.",
+    ),
+    "element_ids": _prop(
+        "array",
+        "Ids of the elements to copy, each with its whole subtree. Name every root that belongs "
+        "to one copy - a button and the popup it opens - so they share one id mapping and the "
+        "copied button opens the copied popup. All must be on the same page or reusable, and "
+        "none inside another.",
+        items={"type": "string"},
+    ),
+    "rename": _prop(
+        ["string", "object"],
+        "Name for the copy. A string names the single copied root; with several element_ids pass "
+        "an object mapping each source element id to its copy's name. Roots left unnamed get "
+        "the source name plus ' copy'; nested elements keep their names.",
+        additional_properties={"type": "string"},
+    ),
+    "include_workflows": _prop(
+        "boolean",
+        "Also copy every workflow triggered by a copied element, repointed at the copies. "
+        "Workflows that only reference a copied element are reported, never copied.",
+        default=True,
     ),
     "read_headless": _prop(
         "boolean",
@@ -1397,7 +1418,7 @@ def profile_session_context_tools() -> list[ToolSchema]:
         ),
         tool_schema(
             "bubble_profile_add",
-            "Add or update a local Bubble MCP profile. This writes only local MCP settings; it does not contact or mutate Bubble. After adding a profile, run session login/import and context detect before app mutations.",
+            "Add or update a local Bubble MCP profile. This writes only local MCP settings; it does not contact or mutate Bubble. Updating an existing profile changes only the fields passed and keeps the rest; an argument the profile cannot store is an error. The response lists what changed and everything stored. After adding a profile, run session login/import and context detect before app mutations.",
             [
                 "name",
                 "app_id",
@@ -1408,6 +1429,27 @@ def profile_session_context_tools() -> list[ToolSchema]:
                 "consolelog_json_path",
             ],
             required=["name", "app_id"],
+            field_overrides={
+                "context_path": _prop(
+                    "string",
+                    "Optional compact context JSON path for this profile, used instead of the default "
+                    "contexts/<profile>/<app>-context.json.",
+                ),
+                "crawler_index_path": _prop(
+                    "string",
+                    "Optional editor crawler index JSON path for this profile, used for context fallback.",
+                ),
+                "preview_username": _prop(
+                    "string",
+                    "Username of the development version's preview password page (HTTP Basic). Browser "
+                    "tools - E2E, visual capture, run as - send it when the app asks.",
+                ),
+                "preview_password": _prop(
+                    "string",
+                    "Password of the development version's preview password page. Stored in the local "
+                    "settings file; never echoed back.",
+                ),
+            },
         ),
         _empty_tool("bubble_profile_list", "List local Bubble MCP profiles. This is read-only."),
         tool_schema(
@@ -1427,11 +1469,35 @@ def profile_session_context_tools() -> list[ToolSchema]:
             required=["profile"],
         ),
         tool_schema(
+            "bubble_session_check",
+            "Check whether the Bubble editor session stored for a profile is still logged in: one "
+            "HTTP request (~0.3s), no browser. Call it before starting Bubble work. logged_in=false "
+            "means every call that needs the editor will fail until the user logs in again with "
+            "bubble_session_login - stop and ask for that instead of retrying or trying other tools. "
+            "Tools that need the editor already refuse with error='session_expired' when the session "
+            "is known to be logged out. Read-only.",
+            ["profile"],
+            required=["profile"],
+            field_overrides={
+                "use_cache": _prop(
+                    "boolean",
+                    "Accept a logged-in answer from the last few minutes instead of asking Bubble again.",
+                    default=False,
+                ),
+            },
+        ),
+        tool_schema(
             "bubble_session_login",
-            "Open a local Playwright browser, let the user log in to Bubble, capture editor cookies and request headers, and save the redacted session for a profile. This is interactive and writes only local MCP session storage.",
+            "Open a local Playwright browser, let the user log in to Bubble, capture editor cookies and request headers, and save the redacted session for a profile. A browser profile that is not logged in opens Bubble's login page first (https://bubble.io/login?mode=login); login is detected by the ajs_user_id cookie, and the editor then opens on app_version. This is interactive and writes only local MCP session storage.",
             ["profile", "app_id", "editor_url", "app_version", "wait_seconds", "headless"],
             required=["profile"],
             field_overrides={
+                "login_first": _prop(
+                    "boolean",
+                    "Open Bubble's login page first when the browser profile is not logged in, and the "
+                    "editor once login is detected. false opens the editor directly.",
+                    default=True,
+                ),
                 "wait_seconds": _prop(
                     "integer",
                     "Maximum time to keep the local browser login flow open. The browser closes when this "
@@ -1522,6 +1588,55 @@ def profile_session_context_tools() -> list[ToolSchema]:
             "Search a compact Bubble context by profile or local JSON file.",
             ["profile", "file", "query", "limit", "exact", "include_metadata"],
             required=["query"],
+        ),
+        tool_schema(
+            "bubble_context_query",
+            "Answer structural questions about a Bubble app from its .bubble export, for the version "
+            "being worked on - no need to open or parse the export by hand. kind='element_subtree': "
+            "an element (id or name) with its children, the workflows it and its children trigger, and "
+            "the other workflows of the same page or reusable that point at them. kind='workflows': "
+            "every workflow of a page, a reusable, or the backend (container='backend'), each with its "
+            "trigger element, actions, the elements they touch and the fields they set. "
+            "kind='field_writers': every action anywhere (pages, reusables, backend) that creates or "
+            "changes field Y of data type Z, and the database triggers on Z that can react to it - "
+            "the side effects of changing that field. When the cached export is another version's, "
+            "the target version's is downloaded first. Read-only.",
+            ["profile", "file", "app_id", "app_version"],
+            required=["kind"],
+            field_overrides={
+                "kind": {
+                    "type": "string",
+                    "enum": ["element_subtree", "workflows", "field_writers"],
+                    "description": "Which question to answer.",
+                },
+                "element": {
+                    "type": "string",
+                    "description": "element_subtree: the element's id, or its exact name.",
+                },
+                "container": {
+                    "type": "string",
+                    "description": (
+                        "workflows: the page or reusable (id or exact name), or 'backend'. "
+                        "element_subtree: optional, narrows an element name to one page or reusable."
+                    ),
+                },
+                "data_type": {
+                    "type": "string",
+                    "description": "field_writers: the data type's key (client) or display name (Client).",
+                },
+                "field": {
+                    "type": "string",
+                    "description": (
+                        "field_writers: the field's key (client_status_option_o_compliance_status) or "
+                        "display name (Client Status)."
+                    ),
+                },
+                "depth": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "element_subtree: levels of children to include; omitted means all.",
+                },
+            },
         ),
         tool_schema(
             "bubble_context_import",
@@ -1685,8 +1800,8 @@ def planning_execution_tools() -> list[ToolSchema]:
         ),
         tool_schema(
             "bubble_editor_write",
-            "Send a Bubble /appeditor/write payload using a stored local session. Set execute=true to mutate Bubble; otherwise it previews the request. Node bodies must use encoded keys (%x/%p/%nm/%dn); decoded export keys (type/properties) are rejected unless allow_decoded_keys=true. WARNING: the endpoint returns HTTP 200 for ANY body without semantic validation, and expression encodings (APIEventParameter, Message chains, param ids) are NOT derivable from the .bubble export — compose expression-bearing actions from captured editor traffic (bubble_tool_wizard_start) or via add_action, never from export-derived bodies; results carry warnings when such nodes are detected.",
-            ["profile", "payload", "execute", "calculate_derived", "allow_decoded_keys"],
+            "Send a Bubble /appeditor/write payload using a stored local session. Set execute=true to mutate Bubble; otherwise it previews the request. The target version is app_version, else the payload body's app_version/appVersion, else the profile's version; a write to main (test/live) is refused. An executed write is read back from the target version and fails with write_not_verified if what landed differs; the response names the version written (app_version) and whether the read-back confirmed it (confirmed_app_version). Node bodies must use encoded keys (%x/%p/%nm/%dn); decoded export keys (type/properties) are rejected unless allow_decoded_keys=true. WARNING: the endpoint returns HTTP 200 for ANY body without semantic validation, and expression encodings (APIEventParameter, Message chains, param ids) are NOT derivable from the .bubble export — compose expression-bearing actions from captured editor traffic (bubble_tool_wizard_start) or via add_action, never from export-derived bodies; results carry warnings when such nodes are detected.",
+            ["profile", "payload", "app_version", "execute", "calculate_derived", "allow_decoded_keys", "verify"],
             required=["profile", "payload"],
         ),
         tool_schema(
@@ -1728,8 +1843,9 @@ def planning_execution_tools() -> list[ToolSchema]:
                     "type": "string",
                     "description": (
                         "Email of the app user to impersonate, resolved to a user id through the "
-                        "app's Data API using the token in the matching bubble-cli bubble.json. "
-                        "Pass this OR user_id."
+                        "app's Data API when a token is configured (bubble-cli bubble.json or "
+                        "BUBBLE_DATA_API_TOKEN), otherwise read from the editor's Data tab with the "
+                        "stored editor session (development database; about 20s). Pass this OR user_id."
                     ),
                 },
                 "data_api_dir": {
@@ -1799,6 +1915,42 @@ def planning_execution_tools() -> list[ToolSchema]:
                 "execute",
             ],
             required=["profile", "pointer"],
+        ),
+        tool_schema(
+            "bubble_duplicate_element",
+            "Duplicate (copy/paste, clone) live Bubble elements with their workflows: a button, a "
+            "popup, a group and everything inside it. Reads the raw nodes from the editor of the "
+            "named version, remints every element id, slot key, event id and action id without "
+            "colliding with ids the app already holds, repoints %ei references inside the copy "
+            "(a copied 'show popup' step opens the copied popup), and maintains _index itself - "
+            "id_to_path for every new id, issues_list for every new element, issues_sub for the "
+            "parents - so never assemble a bubble_editor_write payload or _index entries by hand "
+            "to copy an element. To copy a button together with the popup it opens, pass both in "
+            "element_ids. Workflows outside the copy that point at a copied element are listed in "
+            "referencing_workflows_not_copied. execute=false previews and lists every new id and "
+            "index entry; execute=true writes to a branch (main is refused) and reads every "
+            "copied node and index entry back from that version.",
+            [
+                "profile",
+                "element_ids",
+                "target_parent",
+                "rename",
+                "include_workflows",
+                "app_id",
+                "app_version",
+                "execute",
+            ],
+            required=["profile", "element_ids"],
+            field_overrides={
+                "target_parent": {
+                    "type": "string",
+                    "description": (
+                        "Id of the element (or of the page/reusable itself) to create the copy "
+                        "in. Omitted: beside each source, in the same container. Must be on the "
+                        "same page or reusable as the source."
+                    ),
+                },
+            },
         ),
         tool_schema(
             "bubble_plugin_install",
@@ -2736,6 +2888,75 @@ def e2e_tools() -> list[ToolSchema]:
                     ),
                 },
                 required=["profile"],
+            ),
+        },
+        {
+            "name": "bubble_e2e_flow",
+            "description": (
+                "Run one short browser flow, declared inline, on one or more app versions as an "
+                "impersonated app user, and get video side by side - before/after evidence of a "
+                "change without writing a Playwright script or a suite. Each step names one action: "
+                "goto (a page name or path, or a full URL), click (visible text, or a selector "
+                "starting with # . [ css= xpath= text= role=), fill (a field by placeholder, label "
+                "or selector, with 'value'), expect_text / expect_no_text, wait (ms), screenshot. "
+                "Optional per step: name, exact, timeout_ms. execute=false (the default) checks the "
+                "steps and resolves each version's URL without opening a browser. execute=true runs "
+                "the flow on every version - it clicks and confirms for real in the development "
+                "data - and returns per-version steps, screenshots and video, compare.html playing "
+                "the recordings side by side, and side_by_side.webm when a full ffmpeg is on PATH. "
+                "live is refused. For checks a step list cannot express, write a suite case "
+                "(bubble_e2e_scaffold)."
+            ),
+            "inputSchema": object_schema(
+                {
+                    "profile": field("profile"),
+                    "steps": _prop(
+                        "array",
+                        "The flow, in order. Each item names exactly one action.",
+                        items={"type": "object", "additionalProperties": True},
+                        examples=[
+                            [
+                                {"goto": "client", "name": "open-client"},
+                                {"click": "Mark Client as Inactive"},
+                                {"click": "Confirm"},
+                                {"expect_text": "Inactive"},
+                                {"screenshot": "badge"},
+                            ]
+                        ],
+                    ),
+                    "versions": _prop(
+                        "array",
+                        "App versions to run the flow on, e.g. main (test) and the branch with the "
+                        "change. One to four; live is refused.",
+                        items={"type": "string"},
+                        examples=[["test", "93k8b"]],
+                    ),
+                    "email": _prop(
+                        "string",
+                        "Email of the app user to run as (resolved like bubble_run_as, no Data API "
+                        "token needed). Pass this or user_id.",
+                    ),
+                    "user_id": _prop("string", "Bubble unique id of the app user to run as."),
+                    "name": _prop("string", "Short name for the flow, used in artifact paths.", default="flow"),
+                    "execute": _prop(
+                        "boolean",
+                        "false checks and previews without a browser. true runs the flow for real on "
+                        "every version.",
+                        default=False,
+                    ),
+                    "headless": _prop("boolean", "Run the browser without a window.", default=True),
+                    "video": _prop("boolean", "Record each version.", default=True),
+                    "cursor": _prop("boolean", "Paint the demo cursor in the recordings.", default=True),
+                    "timeout_ms": _prop(
+                        "integer", "Default timeout per step, in milliseconds.", default=30000, minimum=1000
+                    ),
+                    "base_url": _prop(
+                        "string",
+                        "App origin when the export cannot tell it (a custom domain), e.g. "
+                        "https://app.example.org. The version path is added per version.",
+                    ),
+                },
+                required=["profile", "steps", "versions"],
             ),
         },
         {

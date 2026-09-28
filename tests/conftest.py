@@ -16,6 +16,17 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _no_session_check_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the session gate from asking Bubble whether a real stored session is logged in."""
+
+    monkeypatch.setattr(
+        "bubble_mcp.server.tools.check_session",
+        lambda profile, **kwargs: {"ok": True, "profile": profile, "logged_in": True, "reason": "stubbed_in_tests"},
+        raising=False,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _no_savepoint_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep the savepoint guard from reaching Bubble, and from writing a marker file."""
 

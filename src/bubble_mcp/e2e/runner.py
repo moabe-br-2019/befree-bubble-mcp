@@ -42,7 +42,7 @@ from bubble_mcp.e2e.target import (
     playwright_available,
     resolve_target,
 )
-from bubble_mcp.execution.run_as import preview_credentials_from_export
+from bubble_mcp.execution.run_as import playwright_http_credentials
 
 CaseCallable = Callable[[E2EContext], None]
 
@@ -228,8 +228,12 @@ def _run_one_case(
     headless: bool,
     slow_mo: int,
     config_dir: Path | None,
+    case_callable: Callable[[E2EContext], Any] | None = None,
 ) -> dict[str, Any]:
-    """One case, one browser. Every failure mode lands in the result instead of propagating."""
+    """One case, one browser. Every failure mode lands in the result instead of propagating.
+
+    ``case_callable`` runs a case that has no module - an inline flow (``e2e/flow.py``).
+    """
 
     artifact_dir.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
@@ -237,9 +241,10 @@ def _run_one_case(
     artifacts: dict[str, Any] = {"dir": str(artifact_dir)}
 
     try:
-        case_callable = load_case_callable(
-            suite.profile, spec, config_dir, cases_root=suite.cases_root
-        )
+        if case_callable is None:
+            case_callable = load_case_callable(
+                suite.profile, spec, config_dir, cases_root=suite.cases_root
+            )
     except (E2ESuiteError, OSError, SyntaxError, ValueError) as error:
         return _case_result(
             spec,
@@ -260,10 +265,7 @@ def _run_one_case(
             detail=traceback.format_exc(limit=6),
         )
 
-    credentials = preview_credentials_from_export(suite.profile, target.app_id)
-    http_credentials = (
-        {"username": credentials[0], "password": credentials[1]} if credentials else None
-    )
+    http_credentials = playwright_http_credentials(suite.profile, target.app_id)
     context_kwargs: dict[str, Any] = {
         "storage_state": str(session.path),
         "viewport": {"width": suite.viewport[0], "height": suite.viewport[1]},
