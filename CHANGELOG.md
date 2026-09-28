@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Session login opens Bubble's login page first. A browser profile that is not logged in used
+  to be sent straight to the editor, which shows a signed-out person no login screen, so on the
+  team server nobody could sign in without a terminal. Now `bubble_session_login` (and
+  `session login`) opens `https://bubble.io/login?mode=login`, detects the login by the
+  `ajs_user_id` cookie (Bubble stays on the login URL after signing in, so the URL cannot tell),
+  and then opens the editor on the profile's version (`version=<branch>`, omitted for main). A
+  profile that is already logged in goes straight to the editor. One `wait_seconds` budget
+  covers both. `login_first=false` (CLI: `--no-login-first`) keeps the old behavior.
+
 - `bubble_context_query` answers the structural questions agents were parsing the `.bubble`
   export for with `python3 -c` (19 times in one session on the team server, 28 in another):
   `kind='element_subtree'` gives an element's children, the workflows it and its children
