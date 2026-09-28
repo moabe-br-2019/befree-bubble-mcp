@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `bubble_profile_add` updates a profile instead of rebuilding it. An update that named only
+  `app_version` reset every other field, and `context_path` was not accepted at all, so on the
+  team server a profile lost its context path and it was restored by hand. Updates now change
+  only the fields passed (an empty value clears one), `context_path` and `crawler_index_path` are
+  accepted, an argument the profile cannot store is an error, and the response says whether the
+  profile was created, which fields changed, and everything stored.
+
 - A logged-out session is known before any work is spent on it. `bubble_session_check` asks
   Bubble once (`calculate_derived`, ~0.3s, no browser) whether a profile's stored session is
   still logged in, and every tool that needs the editor (live reads, node edits, clones and
