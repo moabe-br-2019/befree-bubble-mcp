@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Browser tools get past the dev version's preview password page. On the team server E2E and
+  visual capture answered 401 on the dev version until the agent supplied the preview login by
+  hand. A profile can now hold it (`preview_username` / `preview_password` in
+  `bubble_profile_add`; the password is never echoed back), and E2E, `bubble_visual_capture_actual`
+  and `bubble_run_as` share one resolver: the call's arguments, the profile, the environment
+  (`BUBBLE_PREVIEW_USER` / `BUBBLE_PREVIEW_PW`), the app's export, then Bubble's seeded
+  `username` / `password`. Visual capture sent nothing before; E2E read only the export. On
+  kaimia-app's dev version a capture went from the 401 page (1 node) to the app's sign-in page
+  (45 nodes).
+
 - `bubble_run_as` resolves an email without a Data API token. With no token it failed with
   `no_data_api_config`, and on the team server the agent scripted the editor's Data tab with its
   own Playwright. It now does that itself through the stored editor session: it opens the Data
