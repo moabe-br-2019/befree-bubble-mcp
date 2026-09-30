@@ -128,7 +128,7 @@ def test_apply_writes_only_the_id_turns_expose_on_and_records_both(app: FakeApp,
 def test_an_invalid_batch_writes_nothing(app: FakeApp, tmp_path: Path) -> None:
     result = _apply(app, tmp_path, [{"pointer": EMAIL, "html_id": "btn-start"}])
 
-    assert result["ok"] is False
+    assert result["ok"] is False and result["error"] == "invalid_batch"
     assert result["problems"][0]["error"] == "duplicate_html_id"
     assert app.writes == []
 
@@ -263,3 +263,153 @@ def test_a_reader_that_raises_is_reported(app: FakeApp, tmp_path: Path) -> None:
     assert result["error"] == "read_failed" and "OSError" in result["message"]
     assert ledger.read_entries("p", config_dir=tmp_path) == []
     assert service.plan_ids("p", ROOT, reader=broken)["error"] == "read_failed"
+
+
+def _not_landing(app: FakeApp) -> Any:
+    """A writer Bubble answers ok for but that changes nothing."""
+
+    def writer(payload: dict[str, Any]) -> dict[str, Any]:
+        app.writes.append(payload)
+        return {"ok": True}
+
+    return writer
+
+
+def test_a_loose_profile_spelling_shares_the_canonical_ledger(
+    app: FakeApp, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    profile = BubbleProfile(name="orana", app_id="app", appname="app", tester_mode=True)
+    monkeypatch.setattr(service, "load_settings", lambda: BubbleMcpSettings(
+        config_dir=tmp_path, default_profile="orana", profiles={"orana": profile}))
+
+    for spelling in ("O-rana", "../orana"):
+        service.apply_ids(spelling, ROOT, [{"pointer": EMAIL, "html_id": "login-email"}], execute=True,
+                          reader=app.reader, writer=app.writer, config_dir=tmp_path)
+    result = service.restore_ids("orana", pointers=[EMAIL], execute=True, reader=app.reader,
+                                 writer=app.writer, config_dir=tmp_path)
+
+    assert [r["pointer"] for r in result["restored"]] == [EMAIL]
+    assert [p.name for p in (tmp_path / "tester").iterdir()] == ["orana"]
+    assert not (tmp_path / "orana").exists()
+
+
+def test_a_restore_bubble_did_not_store_is_reported_and_stays_open(app: FakeApp, tmp_path: Path) -> None:
+    _apply(app, tmp_path, [{"pointer": EMAIL, "html_id": "login-email"}])
+
+    result = service.restore_ids("p", pointers=[EMAIL], execute=True, reader=app.reader,
+                                 writer=_not_landing(app), config_dir=tmp_path)
+    again = _restore(app, tmp_path, pointers=[EMAIL])
+
+    assert result["ok"] is False and result["restored"] == []
+    assert result["not_restored"] == [{"pointer": EMAIL, "current": html_id_body("login-email")}]
+    assert [r["pointer"] for r in again["restored"]] == [EMAIL]
+    assert "unique_id" not in app.page["%el"]["c"]["%p"]
+
+
+def test_an_apply_bubble_did_not_store_is_unknown_and_open(app: FakeApp, tmp_path: Path) -> None:
+    result = service.apply_ids("p", ROOT, [{"pointer": EMAIL, "html_id": "login-email"}], execute=True,
+                               reader=app.reader, writer=_not_landing(app), config_dir=tmp_path)
+
+    assert result["ok"] is False
+    assert {"pointer": EMAIL, "current": None} in result["not_confirmed"]
+    assert {"expose_id": True, "current": False} in result["not_confirmed"]
+    [change] = ledger.open_changes("p", config_dir=tmp_path)
+    assert change["pointer"] == EMAIL
+    assert _statuses(tmp_path) == {"pending", "unknown"}
+    assert len(ledger.open_expose_flips("p", config_dir=tmp_path)) == 1
+
+
+def test_a_read_back_that_fails_after_an_ok_write_is_unknown(app: FakeApp, tmp_path: Path) -> None:
+    calls = {"n": 0}
+
+    def flaky(*args: Any, **kwargs: Any) -> dict:
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise OSError("down")
+        return app.reader(*args, **kwargs)
+
+    result = service.apply_ids("p", ROOT, [{"pointer": EMAIL, "html_id": "login-email"}], execute=True,
+                               reader=flaky, writer=app.writer, config_dir=tmp_path)
+
+    assert result["ok"] is False and result["executed"] is True
+    assert [n["pointer"] for n in result["not_confirmed"] if "pointer" in n] == [EMAIL]
+    assert _statuses(tmp_path) == {"pending", "unknown"}
+    assert len(ledger.open_changes("p", config_dir=tmp_path)) == 1
+
+
+def test_a_change_already_at_its_old_value_is_closed_without_writing(app: FakeApp, tmp_path: Path) -> None:
+    def boom(payload: dict) -> dict:
+        raise TimeoutError("late")
+
+    applied = service.apply_ids("p", ROOT, [{"pointer": EMAIL, "html_id": "login-email"}], execute=True,
+                                reader=app.reader, writer=boom, config_dir=tmp_path)
+    first = _restore(app, tmp_path, batch_id=applied["batch_id"])
+    second = _restore(app, tmp_path, batch_id=applied["batch_id"])
+
+    assert first["already_restored"] == [{"pointer": EMAIL}]
+    assert first["conflicts"] == [] and first["restored"] == []
+    assert app.writes == []
+    assert (second["restored"], second["already_restored"], second["conflicts"]) == ([], [], [])
+    assert any(e.get("note") == "already_at_old" for e in ledger.read_entries("p", config_dir=tmp_path))
+
+
+def test_all_is_exclusive_with_other_selections(app: FakeApp, tmp_path: Path) -> None:
+    def broken(*args: Any, **kwargs: Any) -> dict:
+        raise AssertionError("must refuse before reading")
+
+    for extra in ({"batch_id": "x"}, {"pointers": [EMAIL]}):
+        result = service.restore_ids("p", restore_all=True, execute=True, reader=broken, writer=app.writer,
+                                     config_dir=tmp_path, **extra)
+        assert result["ok"] is False and result["error"] == "conflicting_selection"
+    assert app.writes == []
+
+
+@pytest.mark.parametrize("pointer", [["%p3"], ["%p3", "pg", "%el", "a"], ["%x", "pg"], ["pg", "%p3"]])
+def test_plan_and_apply_take_only_a_whole_page_or_reusable(app: FakeApp, tmp_path: Path, pointer: list) -> None:
+    assert service.plan_ids("p", pointer, reader=app.reader)["error"] == "invalid_pointer"
+    result = service.apply_ids("p", pointer, [{"pointer": EMAIL, "html_id": "x"}], execute=True,
+                               reader=app.reader, writer=app.writer, config_dir=tmp_path)
+    assert result["error"] == "invalid_pointer"
+    assert app.writes == []
+
+
+def test_a_reusable_pointer_is_accepted(app: FakeApp) -> None:
+    assert service.plan_ids("p", ["%ed", "r1"], reader=lambda *a, **k: {})["error"] == "element_not_found"
+
+
+def test_replacing_an_id_a_human_changed_after_the_tester_is_refused(app: FakeApp, tmp_path: Path) -> None:
+    _apply(app, tmp_path, [{"pointer": START, "html_id": "start-a", "replace": True}])
+    app.page["%el"]["a"]["%p"]["unique_id"] = html_id_body("human-id")
+    writes = len(app.writes)
+
+    result = _apply(app, tmp_path, [{"pointer": START, "html_id": "start-b", "replace": True}])
+
+    assert result["ok"] is False and result["error"] == "invalid_batch"
+    assert result["problems"] == [{"error": "changed_since_tester", "pointer": START}]
+    assert len(app.writes) == writes
+
+
+def test_an_expose_flip_that_landed_with_an_unknown_answer_is_restorable(app: FakeApp, tmp_path: Path) -> None:
+    def lands_then_raises(payload: dict) -> dict:
+        app.writer(payload)
+        raise TimeoutError("late")
+
+    service.apply_ids("p", ROOT, [{"pointer": EMAIL, "html_id": "login-email"}], execute=True,
+                      reader=app.reader, writer=lands_then_raises, config_dir=tmp_path)
+    assert app.expose is True and len(ledger.open_expose_flips("p", config_dir=tmp_path)) == 1
+
+    result = _restore(app, tmp_path, restore_all=True)
+
+    assert result["ok"] is True
+    assert app.expose is False
+    assert ledger.open_expose_flips("p", config_dir=tmp_path) == []
+
+
+def test_an_apply_that_only_keeps_ids_still_turns_expose_on(app: FakeApp, tmp_path: Path) -> None:
+    preview = _apply(app, tmp_path, [{"pointer": START, "html_id": "ignored"}], execute=False)
+    result = _apply(app, tmp_path, [{"pointer": START, "html_id": "ignored"}])
+
+    assert preview["turns_expose_id_on"] is True
+    assert result["ok"] is True and app.expose is True
+    assert [c["path_array"] for c in app.writes[0]["changes"]] == [EXPOSE_ID_POINTER]
+    assert len(ledger.open_expose_flips("p", config_dir=tmp_path)) == 1

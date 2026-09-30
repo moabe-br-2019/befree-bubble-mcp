@@ -71,6 +71,14 @@ def test_expose_flips_open_until_restored(tmp_path: Path) -> None:
     assert ledger.open_expose_flips("p", config_dir=tmp_path) == []
 
 
+def test_an_unknown_expose_flip_is_open_and_pending_or_failed_are_not(tmp_path: Path) -> None:
+    for batch, status in (("b1", "pending"), ("b2", "failed"), ("b3", "unknown")):
+        ledger.append("p", {"kind": "expose_id", "batch_id": batch, "app_id": "app", "app_version": "test",
+                            "old": False, "new": True, "status": status}, config_dir=tmp_path)
+
+    assert [f["batch_id"] for f in ledger.open_expose_flips("p", config_dir=tmp_path)] == ["b3"]
+
+
 def test_append_recovers_from_torn_line(tmp_path: Path) -> None:
     """If a process dies mid-write, the next append must not glue to the torn line."""
     ledger.append("p", _id("b1", None, "x"), config_dir=tmp_path)

@@ -110,10 +110,11 @@ def open_expose_flips(
     app_version: str | None = None,
     config_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Open expose_id_option flips; a restore line closes only flips of its own app/version."""
+    """Open expose_id_option flips (applied or unknown); a restore line closes only flips of its
+    own app/version."""
     flips: dict[str, dict[str, Any]] = {}
     for entry in read_entries(profile, config_dir):
-        if entry.get("kind") == "expose_id" and entry.get("status") == "applied":
+        if entry.get("kind") == "expose_id" and entry.get("status") in OPEN_STATUSES:
             flips[str(entry.get("batch_id"))] = entry
         elif entry.get("kind") == "restore" and entry.get("expose_id"):
             if entry.get("app_id") is None and entry.get("app_version") is None:
