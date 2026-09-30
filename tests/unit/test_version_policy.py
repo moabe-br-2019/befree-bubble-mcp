@@ -27,6 +27,15 @@ SESSION = BubbleSessionData(
 )
 
 
+@pytest.fixture(autouse=True)
+def _auto_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        version_policy,
+        "app_write_settings",
+        lambda app_id: {"main_write_policy": "auto", "tester_mode": False, "warning": None},
+    )
+
+
 def _versions(monkeypatch: pytest.MonkeyPatch, *branches: str, ok: bool = True) -> list[str]:
     calls: list[str] = []
 
@@ -186,3 +195,64 @@ def test_a_long_branch_list_is_cut_short_in_the_advice(monkeypatch: pytest.Monke
 
     assert "and 7 more" in advice
     assert "b11" not in advice
+
+
+def _settings(monkeypatch: pytest.MonkeyPatch, **values: Any) -> None:
+    answer = {"main_write_policy": "auto", "tester_mode": False, "warning": None, **values}
+    monkeypatch.setattr(version_policy, "app_write_settings", lambda app_id: answer)
+
+
+def test_always_opens_main_even_with_branches_and_skips_the_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _versions(monkeypatch, "93k8b")
+    _settings(monkeypatch, main_write_policy="always")
+
+    policy = version_policy.write_policy(SESSION, "team-app")
+
+    assert policy["main_writable"] is True
+    assert policy["policy_source"] == "profile_setting"
+    assert calls == []
+    assert version_policy.main_write_allowed("live", SESSION, "team-app")[0] is False
+
+
+def test_never_closes_main_even_without_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+    _versions(monkeypatch)
+    _settings(monkeypatch, main_write_policy="never")
+
+    policy = version_policy.write_policy(SESSION, "solo-app")
+
+    assert policy["main_writable"] is False
+    assert policy["policy_source"] == "profile_setting"
+    assert "bubble_branch_create" in policy["advice"]
+
+
+def test_auto_reports_its_source_and_the_tester_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    _versions(monkeypatch)
+    _settings(monkeypatch, tester_mode=True, warning="bad value")
+
+    policy = version_policy.write_policy(SESSION, "solo-app")
+
+    assert policy["policy_source"] == "app_branches"
+    assert policy["main_write_policy"] == "auto"
+    assert policy["tester_mode"] is True
+    assert policy["setting_warning"] == "bad value"
+
+
+def test_tester_mode_does_not_open_main_to_ordinary_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+    _versions(monkeypatch, "93k8b")
+    _settings(monkeypatch, tester_mode=True)
+    sent: list[str] = []
+
+    with pytest.raises(MainVersionReadOnlyError):
+        _client(sent).write(_write("test"), SESSION)
+    assert sent == []
+
+
+def test_the_tester_exemption_reaches_test_but_never_live(monkeypatch: pytest.MonkeyPatch) -> None:
+    _versions(monkeypatch, "93k8b")
+    _settings(monkeypatch, tester_mode=True)
+    sent: list[str] = []
+
+    _client(sent).write(_write("test"), SESSION, tester_ids=True)
+    with pytest.raises(MainVersionReadOnlyError, match="live"):
+        _client(sent).write(_write("live"), SESSION, tester_ids=True)
+    assert len(sent) == 1

@@ -12,6 +12,10 @@ blanket rule left it with nowhere to write at all. So the rule follows the app:
 The answer comes from ``/appeditor/get_versions`` (the call ``bubble_branch_list`` makes), cached
 per app for a few minutes and dropped when a branch is created or deleted. When the versions
 cannot be read, main stays read-only: not knowing is not permission.
+
+Each profile may override this with ``main_write_policy`` in settings.json: ``always`` opens
+main, ``never`` closes it, ``auto`` (the default) is the rule above. ``tester_mode`` does not
+change it for ordinary writes; the tester tools pass their own narrow exemption to the client.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from bubble_mcp.core.config import app_write_settings
 from bubble_mcp.sessions.store import BubbleSessionData
 
 MAIN_EDITABLE = "test"
@@ -90,8 +95,51 @@ def forget(app_id: str | None = None) -> None:
         _CACHE.pop(key, None)
 
 
-def write_policy(session: BubbleSessionData | None, app_id: str, **kwargs: Any) -> dict[str, Any]:
+def write_policy(
+    session: BubbleSessionData | None,
+    app_id: str,
+    *,
+    settings: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
     """What an agent needs before writing: the branches, whether main takes writes, and why."""
+
+    configured = settings if settings is not None else app_write_settings(app_id)
+    extra = {
+        "main_write_policy": configured["main_write_policy"],
+        "tester_mode": bool(configured["tester_mode"]),
+        "setting_warning": configured["warning"],
+    }
+    if configured["main_write_policy"] == "always":
+        return {
+            "branches": [],
+            "main_writable": True,
+            "live_writable": False,
+            "policy_source": "profile_setting",
+            **extra,
+            "advice": (
+                "This profile sets main_write_policy=always: writes with app_version='test' are "
+                "allowed (after the session's automatic savepoint). live is never written."
+            ),
+        }
+    if configured["main_write_policy"] == "never":
+        return {
+            "branches": [],
+            "main_writable": False,
+            "live_writable": False,
+            "policy_source": "profile_setting",
+            **extra,
+            "advice": (
+                "This profile sets main_write_policy=never, so main (test) is read-only: create a "
+                "development branch with bubble_branch_create (from_app_version='test') and pass "
+                "its id as app_version."
+            ),
+        }
+    return {**_branch_policy(session, app_id, **kwargs), "policy_source": "app_branches", **extra}
+
+
+def _branch_policy(session: BubbleSessionData | None, app_id: str, **kwargs: Any) -> dict[str, Any]:
+    """The default rule: read-only main when the app has branches, writable when it has none."""
 
     listed = app_branches(session, app_id, **kwargs)
     if not listed.get("ok"):

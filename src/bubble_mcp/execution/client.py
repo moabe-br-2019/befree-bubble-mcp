@@ -280,17 +280,22 @@ class BubbleEditorClient:
         *,
         dry_run: bool = False,
         calculate_derived: bool = False,
+        tester_ids: bool = False,
     ) -> dict[str, Any]:
         normalized = normalize_write_payload(payload, session)
         if not dry_run and is_main_version(normalized.get("app_version")):
-            # Nothing below this line may send a write to main unless the app has no branch
-            # (then test is where development happens); live never. See version_policy.
-            from bubble_mcp.execution.version_policy import main_write_allowed
+            # Nothing below this line may send a write to main unless the profile's policy allows
+            # it; live never. tester_ids is the tester tools' narrow exemption for test only - its
+            # callers check tester_mode themselves (execution/tester_ids). See version_policy.
+            from bubble_mcp.execution.version_policy import LIVE, main_write_allowed
 
             version = str(normalized.get("app_version") or "test")
-            allowed, advice = main_write_allowed(
-                version, session, str(normalized.get("appname") or session.app_id or "")
-            )
+            if tester_ids and version.strip().lower() != LIVE:
+                allowed, advice = True, ""
+            else:
+                allowed, advice = main_write_allowed(
+                    version, session, str(normalized.get("appname") or session.app_id or "")
+                )
             if not allowed:
                 raise MainVersionReadOnlyError(version, advice=advice)
         headers = build_editor_write_headers(session, normalized)
