@@ -139,7 +139,7 @@ def test_a_failed_write_is_recorded_as_failed(app: FakeApp, tmp_path: Path) -> N
     result = _apply(app, tmp_path, [{"pointer": EMAIL, "html_id": "login-email"}])
 
     assert result["ok"] is False
-    assert {e["status"] for e in ledger.read_entries("p", config_dir=tmp_path)} >= {"pending", "failed"}
+    assert {e["status"] for e in ledger.read_entries("p", config_dir=tmp_path)} == {"pending", "failed"}
     assert ledger.open_changes("p", config_dir=tmp_path) == []
 
 
@@ -183,3 +183,83 @@ def test_expose_goes_back_off_only_with_all(app: FakeApp, tmp_path: Path) -> Non
     _apply(app, tmp_path, [{"pointer": EMAIL, "html_id": "login-email"}])
     _restore(app, tmp_path, restore_all=True)
     assert app.expose is False
+
+
+def _statuses(tmp_path: Path) -> set[str]:
+    return {e["status"] for e in ledger.read_entries("p", config_dir=tmp_path)}
+
+
+def test_a_writer_that_raises_is_unknown_and_stays_open(app: FakeApp, tmp_path: Path) -> None:
+    def boom(payload: dict) -> dict:
+        raise TimeoutError("late")
+
+    result = service.apply_ids("p", ROOT, [{"pointer": EMAIL, "html_id": "login-email"}], execute=True,
+                               reader=app.reader, writer=boom, config_dir=tmp_path)
+
+    assert result["ok"] is False
+    assert _statuses(tmp_path) == {"pending", "unknown"}
+    assert len(ledger.open_changes("p", config_dir=tmp_path)) == 1
+
+
+def test_restore_with_nothing_selected(app: FakeApp, tmp_path: Path) -> None:
+    assert _restore(app, tmp_path)["error"] == "nothing_selected"
+
+
+def test_a_failed_restore_leaves_the_changes_open(app: FakeApp, tmp_path: Path) -> None:
+    _apply(app, tmp_path, [{"pointer": EMAIL, "html_id": "login-email"}])
+
+    failing = service.restore_ids("p", restore_all=True, execute=True, reader=app.reader,
+                                  writer=lambda payload: {"ok": False}, config_dir=tmp_path)
+    again = _restore(app, tmp_path, restore_all=True)
+
+    assert failing["ok"] is False
+    assert [r["pointer"] for r in again["restored"]] == [EMAIL]
+
+
+def test_the_same_pointer_on_two_versions_restores_separately(app: FakeApp, tmp_path: Path) -> None:
+    branch = FakeApp()  # a branch has its own copy of the same element keys
+    for version, store in (("test", app), ("b1", branch)):
+        service.apply_ids("p", ROOT, [{"pointer": EMAIL, "html_id": "login-email"}], app_version=version,
+                          execute=True, reader=store.reader, writer=store.writer, config_dir=tmp_path)
+
+    result = _restore(app, tmp_path, restore_all=True)
+
+    assert [r["pointer"] for r in result["restored"]] == [EMAIL]
+    [left] = ledger.open_changes("p", config_dir=tmp_path)
+    assert left["app_version"] == "b1"
+    assert [f["app_version"] for f in ledger.open_expose_flips("p", config_dir=tmp_path)] == ["b1"]
+
+
+def test_an_expression_id_is_not_replaceable(app: FakeApp, tmp_path: Path) -> None:
+    app.page["%el"]["a"]["%p"]["unique_id"] = {"%x": "TextExpression",
+                                              "%e": {"0": "row-", "1": {"%x": "X"}}}
+
+    result = _apply(app, tmp_path, [{"pointer": START, "html_id": "new-id", "replace": True}])
+
+    assert result["ok"] is False
+    assert result["problems"][0]["error"] == "expression_id_not_replaceable"
+    assert app.writes == []
+
+
+def test_no_session_refuses_before_reading_or_writing(
+    app: FakeApp, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(service, "load_session", lambda profile: None)
+
+    assert service.plan_ids("p", ROOT)["error"] == "no_session"
+    result = service.apply_ids("p", ROOT, [{"pointer": EMAIL, "html_id": "login-email"}], execute=True,
+                               reader=app.reader, config_dir=tmp_path)
+    assert result["error"] == "no_session"
+    assert ledger.read_entries("p", config_dir=tmp_path) == []
+
+
+def test_a_reader_that_raises_is_reported(app: FakeApp, tmp_path: Path) -> None:
+    def broken(*args: Any, **kwargs: Any) -> dict:
+        raise OSError("down")
+
+    result = service.apply_ids("p", ROOT, [{"pointer": EMAIL, "html_id": "x"}], execute=True,
+                               reader=broken, writer=app.writer, config_dir=tmp_path)
+
+    assert result["error"] == "read_failed" and "OSError" in result["message"]
+    assert ledger.read_entries("p", config_dir=tmp_path) == []
+    assert service.plan_ids("p", ROOT, reader=broken)["error"] == "read_failed"

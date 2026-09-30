@@ -49,23 +49,40 @@ def read_entries(profile: str, config_dir: Path | None = None) -> list[dict[str,
     return entries
 
 
+OPEN_STATUSES = ("applied", "unknown")  # unknown: the write may have landed; restore checks the value
+
+
 def open_changes(
     profile: str,
     *,
     batch_id: str | None = None,
     pointers: list[list[str]] | None = None,
+    app_id: str | None = None,
+    app_version: str | None = None,
     config_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
-    state: dict[tuple[str, ...], dict[str, Any]] = {}
+    """Open changes, folded per (app_id, app_version, pointer).
+
+    A restore line carrying app_id/app_version closes only that version's change; one without
+    (older ledgers) closes every version of the pointer.
+    """
+    state: dict[tuple[Any, ...], dict[str, Any]] = {}
     for entry in read_entries(profile, config_dir):
-        key = tuple(str(part) for part in entry.get("pointer") or [])
-        if entry.get("kind") == "restore" and key:
-            state.pop(key, None)
-        elif entry.get("kind") == "id" and entry.get("status") == "applied" and key:
+        pointer = tuple(str(part) for part in entry.get("pointer") or [])
+        if not pointer:
+            continue
+        key = (entry.get("app_id"), entry.get("app_version"), pointer)
+        if entry.get("kind") == "restore":
+            if entry.get("app_id") is None and entry.get("app_version") is None:
+                for other in [k for k in state if k[2] == pointer]:
+                    del state[other]
+            else:
+                state.pop(key, None)
+        elif entry.get("kind") == "id" and entry.get("status") in OPEN_STATUSES:
             current = state.get(key)
             if current is None:
                 state[key] = {
-                    "pointer": list(key),
+                    "pointer": list(pointer),
                     "app_id": entry.get("app_id"),
                     "app_version": entry.get("app_version"),
                     "old_body": entry.get("old_body"),
@@ -79,15 +96,36 @@ def open_changes(
     return [
         change
         for key, change in state.items()
-        if (batch_id is None or batch_id in change["batch_ids"]) and (wanted is None or key in wanted)
+        if (batch_id is None or batch_id in change["batch_ids"])
+        and (wanted is None or key[2] in wanted)
+        and (app_id is None or change["app_id"] == app_id)
+        and (app_version is None or change["app_version"] == app_version)
     ]
 
 
-def open_expose_flips(profile: str, config_dir: Path | None = None) -> list[dict[str, Any]]:
+def open_expose_flips(
+    profile: str,
+    *,
+    app_id: str | None = None,
+    app_version: str | None = None,
+    config_dir: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Open expose_id_option flips; a restore line closes only flips of its own app/version."""
     flips: dict[str, dict[str, Any]] = {}
     for entry in read_entries(profile, config_dir):
         if entry.get("kind") == "expose_id" and entry.get("status") == "applied":
             flips[str(entry.get("batch_id"))] = entry
         elif entry.get("kind") == "restore" and entry.get("expose_id"):
-            flips.clear()
-    return list(flips.values())
+            if entry.get("app_id") is None and entry.get("app_version") is None:
+                flips.clear()
+            else:
+                for k in [
+                    k for k, f in flips.items()
+                    if f.get("app_id") == entry.get("app_id") and f.get("app_version") == entry.get("app_version")
+                ]:
+                    del flips[k]
+    return [
+        f for f in flips.values()
+        if (app_id is None or f.get("app_id") == app_id)
+        and (app_version is None or f.get("app_version") == app_version)
+    ]

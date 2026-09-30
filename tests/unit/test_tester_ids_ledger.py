@@ -85,3 +85,14 @@ def test_append_recovers_from_torn_line(tmp_path: Path) -> None:
     assert len(entries) == 2
     assert entries[0]["batch_id"] == "b1"
     assert entries[1]["batch_id"] == "b2"
+
+
+def test_versions_fold_separately_and_unknown_is_open(tmp_path: Path) -> None:
+    ledger.append("p", _id("b1", None, "x", status="unknown"), config_dir=tmp_path)
+    ledger.append("p", {**_id("b2", None, "y"), "app_version": "b1"}, config_dir=tmp_path)
+    ledger.append("p", {"kind": "restore", "pointer": P, "batch_id": "b1", "app_id": "app",
+                        "app_version": "test"}, config_dir=tmp_path)
+
+    [left] = ledger.open_changes("p", config_dir=tmp_path)
+    assert left["app_version"] == "b1"
+    assert ledger.open_changes("p", app_version="test", config_dir=tmp_path) == []
