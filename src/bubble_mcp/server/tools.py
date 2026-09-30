@@ -2376,8 +2376,9 @@ def _call_tool(
                 execute=bool(args.get("execute")),
             )
         pointer = args.get("pointer")
-        if not isinstance(pointer, list) or len(pointer) < 2:
+        if not isinstance(pointer, list):
             raise ValueError(f"{name} requires a pointer like ['%p3', '<page key>'].")
+        # Its shape (a whole page or reusable) is checked by the service: invalid_pointer.
         pointer = [str(part) for part in pointer]
         if name == "bubble_test_ids_plan":
             return plan_tester_ids(profile, pointer, app_version=app_version)

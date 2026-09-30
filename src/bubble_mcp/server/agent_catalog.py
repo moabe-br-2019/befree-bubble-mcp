@@ -835,15 +835,20 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
     ),
     "bubble_test_ids_plan": (
         "Tester mode: list a page's elements with the HTML id each already has (reuse these) and "
-        "the ones without one. Read-only. Needs tester_mode: true on the profile."
+        "the ones without one. pointer is exactly ['%p3', page] or ['%ed', reusable], else "
+        "invalid_pointer. Read-only. Needs tester_mode: true on the profile."
     ),
     "bubble_test_ids_apply": (
-        "Tester mode: give elements HTML ids for tests. Elements that already have one keep it "
-        "unless replace=true. Records the old value so it can be restored. execute=false previews."
+        "Tester mode: give elements HTML ids for tests. pointer is exactly ['%p3', page] or "
+        "['%ed', reusable], else invalid_pointer. Elements that already have one keep it unless "
+        "replace=true. Records the old value so it can be restored; writes Bubble did not store "
+        "are listed in not_confirmed. execute=false previews."
     ),
     "bubble_test_ids_restore": (
         "Tester mode: put back the HTML ids the tester changed - by batch_id, element pointers or "
-        "all. Skips any element whose id someone changed since. execute=false previews."
+        "all (alone; combined it is refused with conflicting_selection). Skips any element whose id "
+        "someone changed since; reports not_restored when Bubble did not store it. execute=false "
+        "previews."
     ),
     "bubble_savepoint_create": (
         "Create a Bubble savepoint on the selected app version so the work that follows has a "

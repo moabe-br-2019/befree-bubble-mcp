@@ -101,6 +101,24 @@ def test_the_main_lock_stops_ordinary_writes_but_leaves_the_tester_tools_to_thei
         assert tools.main_write_refusal(name, args) is None
 
 
+def test_a_pointer_that_is_not_a_whole_page_reaches_the_service_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    _profile(monkeypatch, tester_mode=True)
+
+    result = tools._call_tool("bubble_test_ids_plan", {"profile": "p", "pointer": ["%p3"]})
+
+    assert result["error"] == "invalid_pointer"
+
+
+def test_the_schemas_say_the_pointer_is_a_whole_page_and_all_is_exclusive() -> None:
+    schemas = {tool["name"]: tool for tool in list_tool_schemas()}
+
+    for name in ("bubble_test_ids_plan", "bubble_test_ids_apply"):
+        pointer = schemas[name]["inputSchema"]["properties"]["pointer"]
+        assert (pointer["minItems"], pointer["maxItems"]) == (2, 2)
+        assert "invalid_pointer" in schemas[name]["description"]
+    assert "conflicting_selection" in schemas["bubble_test_ids_restore"]["description"]
+
+
 def test_restore_rejects_element_pointers_that_are_not_lists() -> None:
     with pytest.raises(ValueError, match="element_pointers"):
         tools._call_tool("bubble_test_ids_restore", {"profile": "p", "element_pointers": ["%p3/pg"]})
