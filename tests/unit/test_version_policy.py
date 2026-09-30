@@ -256,3 +256,18 @@ def test_the_tester_exemption_reaches_test_but_never_live(monkeypatch: pytest.Mo
     with pytest.raises(MainVersionReadOnlyError, match="live"):
         _client(sent).write(_write("live"), SESSION, tester_ids=True)
     assert len(sent) == 1
+
+
+def test_session_check_reports_the_profile_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    from bubble_mcp.server import tools
+
+    _versions(monkeypatch)
+    _settings(monkeypatch, main_write_policy="never", tester_mode=True)
+    monkeypatch.setattr(tools, "check_session", lambda profile, use_cache=False: {"ok": True, "logged_in": True, "app_id": "solo-app"})
+    monkeypatch.setattr(tools, "load_session", lambda profile: SESSION)
+
+    checked = tools._call_tool(tools.SESSION_CHECK_TOOL, {"profile": "p"})
+
+    assert checked["write_policy"]["main_write_policy"] == "never"
+    assert checked["write_policy"]["tester_mode"] is True
+    assert checked["write_policy"]["policy_source"] == "profile_setting"
