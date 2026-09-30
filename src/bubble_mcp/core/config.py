@@ -13,6 +13,22 @@ from typing import Any
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "bubble-mcp"
 SETTINGS_FILENAME = "settings.json"
 
+MAIN_WRITE_POLICIES = ("auto", "always", "never")
+# Strictest first: when two profiles of one app disagree, the client (which only knows the app
+# id) must not pick the looser one.
+_POLICY_STRICTNESS = {"never": 0, "auto": 1, "always": 2}
+
+
+def normalize_main_write_policy(value: object) -> tuple[str, str | None]:
+    """Return ``(policy, warning)``; anything unrecognised behaves as ``auto``."""
+
+    text = str(value or "").strip().lower()
+    if not text:
+        return "auto", None
+    if text in MAIN_WRITE_POLICIES:
+        return text, None
+    return "auto", f"main_write_policy {value!r} is not one of {', '.join(MAIN_WRITE_POLICIES)}; using auto."
+
 
 @dataclass(frozen=True)
 class BubbleProfile:
@@ -31,6 +47,10 @@ class BubbleProfile:
     # asks; see execution/run_as.resolve_preview_credentials for the order sources are tried in.
     preview_username: str | None = None
     preview_password: str | None = None
+    # Where ordinary writes may go on main (test), and whether the tester tools are on. Chosen by
+    # whoever installs the MCP, in settings.json; no tool writes them (see version_policy).
+    main_write_policy: str = "auto"
+    tester_mode: bool = False
 
 
 @dataclass(frozen=True)
@@ -116,6 +136,8 @@ def load_settings(config_dir: Path | None = None) -> BubbleMcpSettings:
             crawler_index_path=str(raw_profile.get("crawler_index_path") or "").strip() or None,
             preview_username=str(raw_profile.get("preview_username") or "").strip() or None,
             preview_password=str(raw_profile.get("preview_password") or "").strip() or None,
+            main_write_policy=normalize_main_write_policy(raw_profile.get("main_write_policy"))[0],
+            tester_mode=raw_profile.get("tester_mode") is True,
         )
 
     default_profile = str(payload.get("default_profile") or "").strip() or None
@@ -152,6 +174,12 @@ def save_settings(settings: BubbleMcpSettings) -> None:
                 ),
                 **({"preview_username": profile.preview_username} if profile.preview_username else {}),
                 **({"preview_password": profile.preview_password} if profile.preview_password else {}),
+                **(
+                    {"main_write_policy": profile.main_write_policy}
+                    if profile.main_write_policy != "auto"
+                    else {}
+                ),
+                **({"tester_mode": True} if profile.tester_mode else {}),
             }
             for name, profile in sorted(settings.profiles.items())
         },
@@ -190,3 +218,28 @@ def with_profile(settings: BubbleMcpSettings, profile: BubbleProfile) -> BubbleM
         default_profile=default_profile,
         profiles=profiles,
     )
+
+
+def app_write_settings(app_id: str, settings: BubbleMcpSettings | None = None) -> dict[str, Any]:
+    """Write settings for an app, across every profile that points at it.
+
+    The editor client only knows the app id, so when profiles disagree the strictest policy wins
+    and tester mode counts only if every one of them has it on.
+    """
+
+    resolved = settings or load_settings()
+    raw = load_json_file(get_settings_path(resolved.config_dir)).get("profiles", {})
+    matching = [p for p in resolved.profiles.values() if p.app_id == app_id]
+    if not matching:
+        return {"main_write_policy": "auto", "tester_mode": False, "warning": None}
+    policy = min((p.main_write_policy for p in matching), key=_POLICY_STRICTNESS.__getitem__)
+    warnings = [
+        normalize_main_write_policy((raw.get(p.name) or {}).get("main_write_policy"))[1]
+        for p in matching
+        if isinstance(raw, dict)
+    ]
+    return {
+        "main_write_policy": policy,
+        "tester_mode": all(p.tester_mode for p in matching),
+        "warning": next((w for w in warnings if w), None),
+    }
