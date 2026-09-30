@@ -77,7 +77,7 @@ def validate_batch(items: list[dict[str, Any]], elements: list[dict[str, Any]]) 
         if element["html_id"] and not item.get("replace"):
             kept.append({"pointer": list(pointer), "html_id": element["html_id"]})
             continue
-        if not HTML_ID_PATTERN.match(new_id):
+        if not HTML_ID_PATTERN.fullmatch(new_id):
             problems.append({"error": "invalid_html_id", "pointer": list(pointer), "html_id": new_id})
             continue
         owner = taken.get(new_id)

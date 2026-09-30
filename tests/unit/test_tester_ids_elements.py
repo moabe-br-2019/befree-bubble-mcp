@@ -88,3 +88,26 @@ def test_two_items_in_one_batch_cannot_share_an_id() -> None:
     )
 
     assert [p["error"] for p in result["problems"]] == ["duplicate_html_id"]
+
+
+def test_trailing_newline_in_id_is_rejected() -> None:
+    result = _batch({"pointer": _by_name("Email")["pointer"], "html_id": "ok\n"})
+
+    assert result["ok"] is False
+    assert result["problems"][0]["error"] == "invalid_html_id"
+
+
+def test_expression_id_given_new_html_id_without_replace_is_kept() -> None:
+    result = _batch({"pointer": _by_name("Dyn")["pointer"], "html_id": "new-id"})
+
+    assert result["ok"] is True
+    assert [k["html_id"] for k in result["kept"]] == [_by_name("Dyn")["html_id"]]
+    assert result["write"] == []
+
+
+def test_expression_id_with_replace_includes_full_old_body() -> None:
+    result = _batch({"pointer": _by_name("Dyn")["pointer"], "html_id": "replace-expr", "replace": True})
+
+    assert result["ok"] is True
+    assert result["write"][0]["old_body"] == {"%x": "TextExpression", "%e": {"0": "row-", "1": {"%x": "X"}}}
+    assert result["write"][0]["html_id"] == "replace-expr"
