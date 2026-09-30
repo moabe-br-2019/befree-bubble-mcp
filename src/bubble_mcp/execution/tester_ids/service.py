@@ -35,7 +35,7 @@ def _refusal(error: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": error, "message": message}
 
 
-def _gate(profile: str, app_version: str) -> tuple[Any, dict[str, Any] | None]:
+def _checked_profile(profile: str, app_version: str) -> tuple[Any, dict[str, Any] | None]:
     if str(app_version).strip().lower() == LIVE:
         return None, _refusal("live_never", "live is the deployed app and is never written by this MCP.")
     resolved = resolve_profile(load_settings(), profile)
@@ -46,6 +46,16 @@ def _gate(profile: str, app_version: str) -> tuple[Any, dict[str, Any] | None]:
             "installs the MCP can turn it on.",
         )
     return resolved, None
+
+
+def tester_gate(profile: str, app_version: str) -> dict[str, Any] | None:
+    """The refusal (live_never or tester_mode_off) for this profile and version, or None."""
+
+    return _checked_profile(profile, app_version)[1]
+
+
+def _gate(profile: str, app_version: str) -> tuple[Any, dict[str, Any] | None]:
+    return _checked_profile(profile, app_version)
 
 
 def _default_reader() -> Reader:
