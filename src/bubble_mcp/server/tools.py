@@ -1753,29 +1753,26 @@ def _call_tool(
         existing_profile = resolve_profile(settings, profile_name)
         app_id = str(args.get("app_id") or (existing_profile.app_id if existing_profile else "")).strip()
         if app_id:
-            updated_profile = BubbleProfile(
-                name=profile_name,
-                app_id=app_id,
-                appname=str(args.get("appname") or (existing_profile.appname if existing_profile else app_id)).strip()
-                or app_id,
-                editor_url=str(
-                    args.get("editor_url") or (existing_profile.editor_url if existing_profile else "")
-                ).strip()
-                or None,
-                app_version=str(
-                    args.get("app_version") or (existing_profile.app_version if existing_profile else "test")
-                ).strip()
-                or None,
-                app_json_path=str(
-                    args.get("app_json_path") or (existing_profile.app_json_path if existing_profile else "")
-                ).strip()
-                or None,
-                consolelog_json_path=str(
-                    args.get("consolelog_json_path")
-                    or (existing_profile.consolelog_json_path if existing_profile else "")
-                ).strip()
-                or None,
-            )
+            # Only the fields actually passed change; an existing profile keeps the rest,
+            # including main_write_policy and tester_mode, and None is never stored as "None".
+            passed = {
+                field_name: str(args[field_name]).strip()
+                for field_name in ("appname", "editor_url", "app_version", "app_json_path", "consolelog_json_path")
+                if args.get(field_name) is not None and str(args[field_name]).strip()
+            }
+            if existing_profile is None:
+                updated_profile = BubbleProfile(
+                    name=profile_name,
+                    app_id=app_id,
+                    appname=passed.pop("appname", None) or app_id,
+                    app_version=passed.pop("app_version", None) or "test",
+                    **passed,
+                )
+            else:
+                updates: dict[str, Any] = {"app_id": app_id, **passed}
+                if existing_profile.app_id != app_id and "appname" not in passed:
+                    updates["appname"] = app_id
+                updated_profile = replace(existing_profile, **updates)
             save_settings(with_profile(settings, updated_profile))
 
         context_detection: dict[str, Any] | None = None
