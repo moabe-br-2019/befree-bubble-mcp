@@ -65,6 +65,11 @@ from bubble_mcp.execution.editor_api import (
 from bubble_mcp.execution.executor import execute_plan
 from bubble_mcp.execution.live_node_read import read_live_node
 from bubble_mcp.execution.run_as import run_as_user
+from bubble_mcp.execution.tester_ids.service import (
+    apply_ids as apply_tester_ids,
+    plan_ids as plan_tester_ids,
+    restore_ids as restore_tester_ids,
+)
 from bubble_mcp.execution.node_edit import clone_live_workflow, edit_live_node
 from bubble_mcp.execution.duplicate_element import duplicate_live_element
 from bubble_mcp.context.export_queries import run_context_query
@@ -894,6 +899,9 @@ def _attach_write_verification(
 # mutating-named tools whose only effect is on local files.
 MAIN_GUARDED_EXTRA_TOOLS = frozenset({"bubble_savepoint_restore", "bubble_runtime_smoke"})
 MAIN_GUARD_LOCAL_ONLY_TOOLS = frozenset({"clear_cache"})
+# The tester tools write to test even in an app with branches; execution/tester_ids gates them on
+# the profile's tester_mode and refuses live itself.
+TESTER_ID_TOOLS = frozenset({"bubble_test_ids_apply", "bubble_test_ids_restore"})
 
 
 def _resolved_write_version(args: dict[str, Any]) -> str:
@@ -929,6 +937,9 @@ EDITOR_SESSION_TOOLS = frozenset(
         "bubble_savepoint_create",
         "bubble_savepoint_list",
         "bubble_savepoint_restore",
+        "bubble_test_ids_plan",
+        "bubble_test_ids_apply",
+        "bubble_test_ids_restore",
         "bubble_deploy_history",
         "bubble_list_scheduled_deploys",
         "bubble_schedule_deploy",
@@ -1076,7 +1087,7 @@ def main_write_refusal(name: str, args: dict[str, Any]) -> dict[str, Any] | None
 
     if not args.get("execute") or args.get("dry_run") is True:
         return None
-    if name in MAIN_GUARD_LOCAL_ONLY_TOOLS:
+    if name in MAIN_GUARD_LOCAL_ONLY_TOOLS or name in TESTER_ID_TOOLS:
         return None
     if not _is_mutating(name) and name not in MAIN_GUARDED_EXTRA_TOOLS:
         return None
@@ -2344,6 +2355,32 @@ def _call_tool(
             test_version=str(args.get("app_version") or "test"),
             reader=read_nodes_over_http,
         )
+    if name in {"bubble_test_ids_plan", "bubble_test_ids_apply", "bubble_test_ids_restore"}:
+        args = arguments or {}
+        profile = str(args.get("profile") or "").strip()
+        if not profile:
+            raise ValueError(f"{name} requires a profile.")
+        app_version = str(args.get("app_version") or "test")
+        if name == "bubble_test_ids_restore":
+            raw_pointers = args.get("element_pointers")
+            return restore_tester_ids(
+                profile,
+                batch_id=str(args.get("batch_id") or "") or None,
+                pointers=[[str(p) for p in ptr] for ptr in raw_pointers] if isinstance(raw_pointers, list) else None,
+                restore_all=bool(args.get("all")),
+                app_version=app_version,
+                execute=bool(args.get("execute")),
+            )
+        pointer = args.get("pointer")
+        if not isinstance(pointer, list) or len(pointer) < 2:
+            raise ValueError(f"{name} requires a pointer like ['%p3', '<page key>'].")
+        pointer = [str(part) for part in pointer]
+        if name == "bubble_test_ids_plan":
+            return plan_tester_ids(profile, pointer, app_version=app_version)
+        ids = args.get("ids")
+        if not isinstance(ids, list) or not ids:
+            raise ValueError("bubble_test_ids_apply requires a non-empty ids array.")
+        return apply_tester_ids(profile, pointer, ids, app_version=app_version, execute=bool(args.get("execute")))
     if name in {"bubble_savepoint_create", "bubble_savepoint_list", "bubble_savepoint_restore"}:
         args = arguments or {}
         profile = str(args.get("profile") or "").strip()

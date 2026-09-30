@@ -2200,6 +2200,56 @@ def branch_changelog_tools() -> list[ToolSchema]:
             required=["profile"],
         ),
         tool_schema(
+            "bubble_test_ids_plan",
+            "Tester mode (profile tester_mode: true). Read a page or reusable - pointer "
+            "['%p3', <page key>] or ['%ed', <reusable key>], found with bubble_context_find - and "
+            "list its elements: 'reusable' already have an HTML id, 'missing' do not. Read-only.",
+            ["profile", "app_version"],
+            required=["profile", "pointer"],
+            field_overrides={"pointer": {"type": "array", "items": {"type": "string"}, "minItems": 2}},
+        ),
+        tool_schema(
+            "bubble_test_ids_apply",
+            "Tester mode. Set HTML ids on elements of the page at pointer. Each ids item is "
+            "{pointer, html_id, replace?}; html_id must match ^[a-z][a-z0-9-]*$ and be unique on the "
+            "page. Elements that already have an id keep it unless replace=true. Turns the app's "
+            "expose-id option on if it is off. Writes to test even when the app has branches; never "
+            "live. Returns a batch_id for bubble_test_ids_restore. execute=false previews.",
+            ["profile", "app_version", "execute"],
+            required=["profile", "pointer", "ids"],
+            field_overrides={
+                "pointer": {"type": "array", "items": {"type": "string"}, "minItems": 2},
+                "ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "pointer": {"type": "array", "items": {"type": "string"}},
+                            "html_id": {"type": "string"},
+                            "replace": {"type": "boolean", "default": False},
+                        },
+                        "required": ["pointer", "html_id"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        ),
+        tool_schema(
+            "bubble_test_ids_restore",
+            "Tester mode. Put back the HTML ids the tester changed, to the value before its first "
+            "change. Select with batch_id, element_pointers, or all=true (all also turns the "
+            "expose-id option back off if the tester turned it on). An element whose id someone "
+            "changed since is skipped as a conflict. execute=false previews.",
+            ["profile", "app_version", "execute"],
+            required=["profile"],
+            field_overrides={
+                "batch_id": {"type": "string"},
+                "element_pointers": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+                "all": {"type": "boolean", "default": False},
+            },
+        ),
+        tool_schema(
             "bubble_savepoint_create",
             "Create a Bubble savepoint on the selected app version through the editor's "
             "commit_test_version endpoint, so the work that follows has a point to return to. This "

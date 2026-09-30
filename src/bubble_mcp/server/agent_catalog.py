@@ -833,6 +833,18 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "Read-only, never deploys. source='overlay' compares only what this MCP wrote; "
         "source='full_scan' walks both trees and also sees hand edits."
     ),
+    "bubble_test_ids_plan": (
+        "Tester mode: list a page's elements with the HTML id each already has (reuse these) and "
+        "the ones without one. Read-only. Needs tester_mode: true on the profile."
+    ),
+    "bubble_test_ids_apply": (
+        "Tester mode: give elements HTML ids for tests. Elements that already have one keep it "
+        "unless replace=true. Records the old value so it can be restored. execute=false previews."
+    ),
+    "bubble_test_ids_restore": (
+        "Tester mode: put back the HTML ids the tester changed - by batch_id, element pointers or "
+        "all. Skips any element whose id someone changed since. execute=false previews."
+    ),
     "bubble_savepoint_create": (
         "Create a Bubble savepoint on the selected app version so the work that follows has a "
         "point to return to. One HTTP call, not a branch. The MCP takes one automatically before "
@@ -2051,6 +2063,7 @@ def legacy_description(name: str) -> str:
 def tool_annotations(name: str) -> dict[str, bool]:
     agent_read_only = {
         "bubble_agent_guide",
+        "bubble_test_ids_plan",
         "bubble_profile_status",
         "bubble_tool_search",
         "bubble_task_recipe",
@@ -2332,6 +2345,8 @@ def _is_mutating(name: str) -> bool:
         "bubble_node_edit",
         "bubble_clone_workflow",
         "bubble_duplicate_element",
+        "bubble_test_ids_apply",
+        "bubble_test_ids_restore",
         "batch",
         "natural",
     }

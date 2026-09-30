@@ -12,6 +12,8 @@ SERVER_INSTRUCTIONS = (
     "write_policy: whether main (test) takes writes is set per profile (main_write_policy auto/always/never; "
     "auto = read-only when the app has branches) - write to a branch, or create one with "
     "bubble_branch_create for new work; in an app with only test and live, test takes writes. live is never written. "
+    "A profile with tester_mode: true may set and restore HTML element ids with bubble_test_ids_plan/"
+    "apply/restore, also on test in an app with branches; those tools change nothing else. "
     "Use bubble_context_find with "
     "exact=true and include_metadata=false for compact target resolution or verification. Use bubble_readiness_check "
     "before broad work or after installation."
