@@ -69,3 +69,19 @@ def test_expose_flips_open_until_restored(tmp_path: Path) -> None:
     ledger.append("p", {"kind": "restore", "expose_id": True, "batch_id": "b1"}, config_dir=tmp_path)
 
     assert ledger.open_expose_flips("p", config_dir=tmp_path) == []
+
+
+def test_append_recovers_from_torn_line(tmp_path: Path) -> None:
+    """If a process dies mid-write, the next append must not glue to the torn line."""
+    ledger.append("p", _id("b1", None, "x"), config_dir=tmp_path)
+    # Simulate killed process: write a torn fragment without newline
+    with ledger.ledger_path("p", tmp_path).open("a", encoding="utf-8") as handle:
+        handle.write('{"kind": "id", "batch')
+    # Append should prepend a newline to separate from the torn fragment
+    ledger.append("p", _id("b2", "x", "y"), config_dir=tmp_path)
+
+    entries = ledger.read_entries("p", config_dir=tmp_path)
+
+    assert len(entries) == 2
+    assert entries[0]["batch_id"] == "b1"
+    assert entries[1]["batch_id"] == "b2"

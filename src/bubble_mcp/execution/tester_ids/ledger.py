@@ -24,6 +24,13 @@ def append(profile: str, entry: dict[str, Any], config_dir: Path | None = None) 
     path.parent.mkdir(parents=True, exist_ok=True)
     line = {**entry, "at": datetime.now(timezone.utc).isoformat()}
     with path.open("a", encoding="utf-8") as handle:
+        # If the file exists, is non-empty, and doesn't end with a newline,
+        # prepend a newline to recover from a process killed mid-write
+        if path.exists() and path.stat().st_size > 0:
+            with path.open("rb") as rb:
+                rb.seek(-1, 2)  # Seek to last byte
+                if rb.read(1) != b"\n":
+                    handle.write("\n")
         handle.write(json.dumps(line, sort_keys=True) + "\n")
 
 
