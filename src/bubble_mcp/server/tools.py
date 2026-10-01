@@ -65,6 +65,12 @@ from bubble_mcp.execution.editor_api import (
 from bubble_mcp.execution.executor import execute_plan
 from bubble_mcp.execution.live_node_read import read_live_node
 from bubble_mcp.execution.run_as import run_as_user
+from bubble_mcp.execution.tester_ids.service import (
+    apply_ids as apply_tester_ids,
+    plan_ids as plan_tester_ids,
+    restore_ids as restore_tester_ids,
+    tester_gate,
+)
 from bubble_mcp.execution.node_edit import clone_live_workflow, edit_live_node
 from bubble_mcp.execution.duplicate_element import duplicate_live_element
 from bubble_mcp.context.export_queries import run_context_query
@@ -894,6 +900,9 @@ def _attach_write_verification(
 # mutating-named tools whose only effect is on local files.
 MAIN_GUARDED_EXTRA_TOOLS = frozenset({"bubble_savepoint_restore", "bubble_runtime_smoke"})
 MAIN_GUARD_LOCAL_ONLY_TOOLS = frozenset({"clear_cache"})
+# The tester tools write to test even in an app with branches; execution/tester_ids gates them on
+# the profile's tester_mode and refuses live itself.
+TESTER_ID_TOOLS = frozenset({"bubble_test_ids_apply", "bubble_test_ids_restore"})
 
 
 def _resolved_write_version(args: dict[str, Any]) -> str:
@@ -929,6 +938,9 @@ EDITOR_SESSION_TOOLS = frozenset(
         "bubble_savepoint_create",
         "bubble_savepoint_list",
         "bubble_savepoint_restore",
+        "bubble_test_ids_plan",
+        "bubble_test_ids_apply",
+        "bubble_test_ids_restore",
         "bubble_deploy_history",
         "bubble_list_scheduled_deploys",
         "bubble_schedule_deploy",
@@ -1076,6 +1088,10 @@ def main_write_refusal(name: str, args: dict[str, Any]) -> dict[str, Any] | None
 
     if not args.get("execute") or args.get("dry_run") is True:
         return None
+    if name in TESTER_ID_TOOLS:
+        # Not main-locked, but the tester gate must answer before the session savepoint is taken.
+        gate = tester_gate(str(args.get("profile") or "").strip(), _resolved_write_version(args))
+        return {"ok": False, "tool_name": name, "executed": False, **gate} if gate else None
     if name in MAIN_GUARD_LOCAL_ONLY_TOOLS:
         return None
     if not _is_mutating(name) and name not in MAIN_GUARDED_EXTRA_TOOLS:
@@ -1737,29 +1753,26 @@ def _call_tool(
         existing_profile = resolve_profile(settings, profile_name)
         app_id = str(args.get("app_id") or (existing_profile.app_id if existing_profile else "")).strip()
         if app_id:
-            updated_profile = BubbleProfile(
-                name=profile_name,
-                app_id=app_id,
-                appname=str(args.get("appname") or (existing_profile.appname if existing_profile else app_id)).strip()
-                or app_id,
-                editor_url=str(
-                    args.get("editor_url") or (existing_profile.editor_url if existing_profile else "")
-                ).strip()
-                or None,
-                app_version=str(
-                    args.get("app_version") or (existing_profile.app_version if existing_profile else "test")
-                ).strip()
-                or None,
-                app_json_path=str(
-                    args.get("app_json_path") or (existing_profile.app_json_path if existing_profile else "")
-                ).strip()
-                or None,
-                consolelog_json_path=str(
-                    args.get("consolelog_json_path")
-                    or (existing_profile.consolelog_json_path if existing_profile else "")
-                ).strip()
-                or None,
-            )
+            # Only the fields actually passed change; an existing profile keeps the rest,
+            # including main_write_policy and tester_mode, and None is never stored as "None".
+            passed = {
+                field_name: str(args[field_name]).strip()
+                for field_name in ("appname", "editor_url", "app_version", "app_json_path", "consolelog_json_path")
+                if args.get(field_name) is not None and str(args[field_name]).strip()
+            }
+            if existing_profile is None:
+                updated_profile = BubbleProfile(
+                    name=profile_name,
+                    app_id=app_id,
+                    appname=passed.pop("appname", None) or app_id,
+                    app_version=passed.pop("app_version", None) or "test",
+                    **passed,
+                )
+            else:
+                updates: dict[str, Any] = {"app_id": app_id, **passed}
+                if existing_profile.app_id != app_id and "appname" not in passed:
+                    updates["appname"] = app_id
+                updated_profile = replace(existing_profile, **updates)
             save_settings(with_profile(settings, updated_profile))
 
         context_detection: dict[str, Any] | None = None
@@ -2344,6 +2357,35 @@ def _call_tool(
             test_version=str(args.get("app_version") or "test"),
             reader=read_nodes_over_http,
         )
+    if name in {"bubble_test_ids_plan", "bubble_test_ids_apply", "bubble_test_ids_restore"}:
+        args = arguments or {}
+        profile = str(args.get("profile") or "").strip()
+        if not profile:
+            raise ValueError(f"{name} requires a profile.")
+        app_version = str(args.get("app_version") or "test")
+        if name == "bubble_test_ids_restore":
+            raw_pointers = args.get("element_pointers")
+            if isinstance(raw_pointers, list) and not all(isinstance(ptr, list) for ptr in raw_pointers):
+                raise ValueError("element_pointers must be a list of pointers, each itself a list of strings.")
+            return restore_tester_ids(
+                profile,
+                batch_id=str(args.get("batch_id") or "") or None,
+                pointers=[[str(p) for p in ptr] for ptr in raw_pointers] if isinstance(raw_pointers, list) else None,
+                restore_all=bool(args.get("all")),
+                app_version=app_version,
+                execute=bool(args.get("execute")),
+            )
+        pointer = args.get("pointer")
+        if not isinstance(pointer, list):
+            raise ValueError(f"{name} requires a pointer like ['%p3', '<page key>'].")
+        # Its shape (a whole page or reusable) is checked by the service: invalid_pointer.
+        pointer = [str(part) for part in pointer]
+        if name == "bubble_test_ids_plan":
+            return plan_tester_ids(profile, pointer, app_version=app_version)
+        ids = args.get("ids")
+        if not isinstance(ids, list) or not ids:
+            raise ValueError("bubble_test_ids_apply requires a non-empty ids array.")
+        return apply_tester_ids(profile, pointer, ids, app_version=app_version, execute=bool(args.get("execute")))
     if name in {"bubble_savepoint_create", "bubble_savepoint_list", "bubble_savepoint_restore"}:
         args = arguments or {}
         profile = str(args.get("profile") or "").strip()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -141,16 +142,32 @@ def command_init(args: argparse.Namespace) -> int:
 
 
 def command_profile_add(args: argparse.Namespace) -> int:
+    """Create a profile, or change only the options passed on an existing one.
+
+    Rebuilding it from the options alone reset main_write_policy and tester_mode, which only
+    whoever installs the MCP sets, and stored unset fields as None over the stored values.
+    """
+
     settings = load_settings()
-    profile = BubbleProfile(
-        name=args.name,
-        app_id=args.app_id,
-        appname=args.appname or args.app_id,
-        editor_url=args.editor_url,
-        app_version=args.app_version or None,
-        app_json_path=args.app_json_path or None,
-        consolelog_json_path=args.consolelog_json_path or None,
-    )
+    existing = settings.profiles.get(args.name)
+    passed = {
+        field_name: str(value).strip()
+        for field_name in ("appname", "editor_url", "app_version", "app_json_path", "consolelog_json_path")
+        if (value := getattr(args, field_name, None)) is not None and str(value).strip()
+    }
+    if existing is None:
+        profile = BubbleProfile(
+            name=args.name,
+            app_id=args.app_id,
+            appname=passed.pop("appname", None) or args.app_id,
+            app_version=passed.pop("app_version", None) or "test",
+            **passed,
+        )
+    else:
+        updates: dict[str, object] = {"app_id": args.app_id, **passed}
+        if existing.app_id != args.app_id and "appname" not in passed:
+            updates["appname"] = args.app_id
+        profile = replace(existing, **updates)  # type: ignore[arg-type]
     save_settings(with_profile(settings, profile))
     emit_json({"ok": True, "profile": profile.name, "app_id": profile.app_id})
     return 0
@@ -1791,7 +1808,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser.add_argument("--app-id", required=True)
     add_parser.add_argument("--appname", default="")
     add_parser.add_argument("--editor-url", default=None)
-    add_parser.add_argument("--app-version", default="test")
+    add_parser.add_argument("--app-version", default=None, help="Defaults to test for a new profile.")
     add_parser.add_argument(
         "--app-json-path",
         default="",
@@ -1838,7 +1855,7 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap_parser.add_argument("--app-id", default="")
     bootstrap_parser.add_argument("--appname", default="")
     bootstrap_parser.add_argument("--editor-url", default="")
-    bootstrap_parser.add_argument("--app-version", default="test")
+    bootstrap_parser.add_argument("--app-version", default="", help="Defaults to test for a new profile.")
     bootstrap_parser.add_argument("--app-json-path", default="")
     bootstrap_parser.add_argument("--consolelog-json-path", default="")
     bootstrap_parser.add_argument("--detect-context", action="store_true")
