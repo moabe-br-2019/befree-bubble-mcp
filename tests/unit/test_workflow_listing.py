@@ -275,8 +275,9 @@ def test_partial_structural_map_write_keeps_other_entries(
 
 @pytest.mark.parametrize("context_type", ["page", "reusable"])
 @pytest.mark.parametrize("source", ["overlay", "runtime"])
+@pytest.mark.parametrize("index_id", ["ctx1", "rootId"])
 def test_delete_action_after_partial_write_preserves_other_actions(
-    tmp_path, monkeypatch, context_type, source
+    tmp_path, monkeypatch, context_type, source, index_id
 ):
     old = complete_workflow()
     cli = make_cli(
@@ -288,6 +289,7 @@ def test_delete_action_after_partial_write_preserves_other_actions(
         wire_context_id="wireCtx",
         workflow=old,
         source=source,
+        index_id=index_id,
     )
     cli._cache_workflow_event("ctx1", context_type, "wf1", old)
     before = copy.deepcopy(cli.discovery.data)

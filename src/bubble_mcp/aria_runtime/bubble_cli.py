@@ -1971,6 +1971,11 @@ class BubbleCLI:
             str(context_id or "").strip(),
             str(self._lookup_cached_context_object_id(context_type, context_id) or "").strip(),
         ]
+        context_root = self.discovery._get_context_root(context_id, context_type)
+        if isinstance(context_root, dict):
+            candidate_ids.extend(
+                str(context_root.get(field) or "").strip() for field in ("root_id", "id")
+            )
         for candidate_id in candidate_ids:
             if not candidate_id:
                 continue
