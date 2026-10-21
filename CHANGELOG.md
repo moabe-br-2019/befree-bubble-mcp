@@ -13,6 +13,9 @@
   root token. Listing returns detached snapshots, preserves replacement action/parameter/return
   maps (including empty maps), and respects workflow tombstones across older roots and cached
   events, so reads cannot restore deleted events/actions or mutate discovery/cache data.
+  Wire patches now resolve index-proven context aliases to the existing local source record
+  before replay: item/leaf writes retain their siblings, whole-map replacements still remove
+  them, and action rewrites retain the physical root token in payloads and index updates.
 - Page/reusable/workflow references now retain structural keys and internal/root ids separately.
   Partial wire overlays are deep-merged with normalized discovery data, parsed caches are versioned
   and exclude overlays, and dry-runs no longer mutate discovery. ChangePage writers emit only `%ei`

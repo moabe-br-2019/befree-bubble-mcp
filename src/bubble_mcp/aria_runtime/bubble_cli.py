@@ -1893,6 +1893,7 @@ class BubbleCLI:
                 continue
             object_id = str(path[2] or "").strip()
             resolved = self._normalize_capture_path(change.get("body"))
+            resolved = self.discovery.resolve_local_context_path(data, resolved)
             if object_id and resolved:
                 path_to_object_id[".".join(resolved)] = object_id
 
@@ -1902,6 +1903,8 @@ class BubbleCLI:
             path = self._normalize_capture_path(change.get("path_array"))
             if not path:
                 continue
+
+            path = self.discovery.resolve_local_context_path(data, path)
 
             intent = change.get("intent") if isinstance(change.get("intent"), dict) else {}
             intent_name = str(intent.get("name") or "").strip()
@@ -51793,8 +51796,9 @@ class BubbleCLI:
         success_message: str = "",
     ) -> bool:
         prefix = self._workflow_prefix(context_type)
+        context_root_token = self._resolve_context_write_root_token(context_id, context_type)
         pb = PayloadBuilder(appname=self.appname)
-        actions_path = [prefix, context_id, "%wf", wf_key, "actions"]
+        actions_path = [prefix, context_root_token, "%wf", wf_key, "actions"]
 
         for removed_id in removed_action_ids or []:
             rid = str(removed_id or "").strip()
@@ -51819,7 +51823,7 @@ class BubbleCLI:
                 continue
             pb.add_update_index(
                 ["_index", "id_to_path", action_id],
-                f"{prefix}.{context_id}.%wf.{wf_key}.actions.{idx_key}",
+                f"{prefix}.{context_root_token}.%wf.{wf_key}.actions.{idx_key}",
             )
 
         if wf_id:
