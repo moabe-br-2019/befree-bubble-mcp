@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -2318,6 +2318,14 @@ def test_cli_extension_companion_serve_passes_listener_config(monkeypatch) -> No
 
 def test_cli_browser_scheduled_deploy_flow(tmp_path, monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        "bubble_mcp.browser_automation.scheduled_deploy.execute_scheduled_deploy",
+        lambda record: {"ok": True},
+    )
+    scheduled_at = (
+        (datetime.now(timezone.utc) + timedelta(days=30))
+        .replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
     save_settings(
         BubbleMcpSettings(
             config_dir=tmp_path,
@@ -2341,7 +2349,7 @@ def test_cli_browser_scheduled_deploy_flow(tmp_path, monkeypatch, capsys) -> Non
                 "--profile",
                 "client",
                 "--scheduled-at",
-                "2026-07-09T10:30:00Z",
+                scheduled_at,
                 "--message",
                 "Main branch release",
             ]
@@ -2359,7 +2367,7 @@ def test_cli_browser_scheduled_deploy_flow(tmp_path, monkeypatch, capsys) -> Non
                 "--profile",
                 "client",
                 "--scheduled-at",
-                "2026-07-09T10:30:00Z",
+                scheduled_at,
                 "--message",
                 "Main branch release",
                 "--execute",

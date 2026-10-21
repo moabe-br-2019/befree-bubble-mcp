@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Local verification is independent of personal extension packs: each test gets a temporary
+  configuration, and catalog snapshots cover the 325 built-in tools. Scheduled-deploy CLI
+  tests use a future timestamp and a synthetic executor. Sensitive-source auditing excludes
+  directories relative to the audited root, so projects under /tmp are still inspected.
+  The Ruff correctness profile is explicit to preserve the original 0.6 gate across upgrades.
 - Workflow listing merges every context root instead of stopping at the first one: the
   mutation overlay injects raw roots (%ed for reusables, %p3 for pages) carrying ONLY the
   workflows a write touched, and that partial root used to shadow the .bubble export root
