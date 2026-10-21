@@ -10,7 +10,15 @@
   matching by event type, add_action could no longer see the existing workflow and would
   auto-create a duplicate. Reads now union the raw, discovery and module roots (raw first,
   so overlay rows still win per key); writes keep resolving a single root through the write
-  root token.
+  root token. Listing returns detached snapshots, preserves replacement action/parameter/return
+  maps (including empty maps), and respects workflow tombstones across older roots and cached
+  events, so reads cannot restore deleted events/actions or mutate discovery/cache data.
+- Page/reusable/workflow references now retain structural keys and internal/root ids separately.
+  Partial wire overlays are deep-merged with normalized discovery data, parsed caches are versioned
+  and exclude overlays, and dry-runs no longer mutate discovery. ChangePage writers emit only `%ei`
+  with a proven page object id; reusable instances emit `%ci` with the reusable root id; root
+  `issues_sub` updates use the owner object id. The plan compiler follows the same contracts and
+  fails closed when compact context cannot prove an internal id.
 - Canonical raw form of APIEventParameter expressions recovered from live editor memory
   (Playwright + appquery child-node raw()): the parameter only resolves with btype_id +
   event_id + param_id (the parameter KEY, not the internal id) + param_name together, with
@@ -50,7 +58,8 @@
   explicit crawler_index_path argument on every call. Context-detection failures are non-fatal
   when a previously detected crawler index exists.
 - create_reusable_instance now mirrors editor serialization (2026-08-24 Orana bug report #1-#3):
-  %p.custom_id uses the definition's inner .id (never the element_definitions dict key), created
+  `%p.%ci` uses the definition's inner `.id` (never the `element_definitions` dict key or the
+  normalized read alias `custom_id`), created
   elements get an element-level %nm write and a computed %p.order (max sibling order + 1) so they
   show up in the editor's Elements Tree, and a missing reusable name returns a clear structured
   error instead of a Python TypeError (`source` is now required in the schema and aliases to
