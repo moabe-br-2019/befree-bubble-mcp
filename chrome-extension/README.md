@@ -48,7 +48,7 @@ Para capturar writes diretamente em uma sessao de aprendizado de tool:
 
 ## Captura do plugin editor (discovery)
 
-Nas paginas `https://bubble.io/plugin_editor*` a extensao registra **toda** requisicao feita pelo editor (qualquer metodo), com corpo enviado e resposta, para documentar como o editor carrega e salva plugins. Fora do plugin editor nada muda.
+Nas paginas `https://bubble.io/plugin_editor*` e no dashboard da conta (`/home*`, `/account*`, onde plugins sao listados e criados) a extensao registra **toda** requisicao feita pelo editor (qualquer metodo), com corpo enviado e resposta, para documentar como o editor carrega e salva plugins. Fora do plugin editor nada muda.
 
 - So entram requisicoes para `bubble.io` e `*.bubble.io`; analytics de terceiros, assets estaticos (`.js`, `.css`, imagens, fontes) e respostas em streaming (`text/event-stream`) sao ignorados.
 - `plugin discovery export` redige segredos, mas amostras com corpo cortado vem marcadas para revisao manual antes de qualquer commit.

@@ -240,7 +240,9 @@
     try {
       const url = new URL(href);
       const host = url.hostname;
-      return (host === 'bubble.io' || host.endsWith('.bubble.io')) && url.pathname.startsWith('/plugin_editor');
+      if (host !== 'bubble.io' && !host.endsWith('.bubble.io')) return false;
+      // plugin_editor edits a plugin; the account dashboard (/home, /account) lists and creates them.
+      return /^\/(?:plugin_editor|home|account)(?:[/?#]|$)/.test(url.pathname);
     } catch (_) {
       return false;
     }

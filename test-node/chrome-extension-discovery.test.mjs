@@ -52,6 +52,10 @@ test("discovery only on plugin_editor", async () => {
   assert.equal(helpers.isPluginEditorPage("https://bubble.io/page?id=app"), false);
   assert.equal(helpers.isPluginEditorPage("https://evil.com/plugin_editor"), false);
   assert.equal(helpers.isPluginEditorPage("https://bubble.io.evil.com/plugin_editor"), false);
+  // The plugin list (where plugins are created) lives on the account dashboard.
+  assert.equal(helpers.isPluginEditorPage("https://bubble.io/home/plugins"), true);
+  assert.equal(helpers.isPluginEditorPage("https://bubble.io/account?tab=plugins"), true);
+  assert.equal(helpers.isPluginEditorPage("https://bubble.io/homepage"), false);
 });
 
 test("discovery serializes non-JSON bodies", async () => {
