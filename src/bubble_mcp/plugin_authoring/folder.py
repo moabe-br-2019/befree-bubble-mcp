@@ -298,6 +298,16 @@ def _rekey_new_children(doc: dict[str, Any], item: dict[str, Any], children: tup
                 new_id = allocate_id(doc)
                 container[new_id] = container.pop(old_id)
                 renamed[old_id] = new_id
+        # Element actions carry their own fields (and plugin actions their return values' fields
+        # never nest further); renew those too.
+        for child in container.values():
+            if isinstance(child, dict) and isinstance(child.get("fields"), dict):
+                fields = child["fields"]
+                for old_id in sorted(fields):
+                    if renew_all or old_id.startswith(NEW_PREFIX):
+                        new_id = allocate_id(doc)
+                        fields[new_id] = fields.pop(old_id)
+                        renamed[old_id] = new_id
     if renamed:
         _rewrite_refs(item, renamed)
 
