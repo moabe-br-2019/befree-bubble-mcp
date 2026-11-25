@@ -22,7 +22,8 @@ Chrome. Nothing was published. Redacted samples sit next to this file as
 | upload file | `POST /fileupload` `{appname: "meta", contents: <base64>, name, size, type, ...}` returns a CDN url |
 | mobile deps check | `POST /appeditor/validate_mobile_dep_npm` `{"mobile_dep_str"}` returns `{"invalid_packages": [...]}` |
 | API call initialize | `POST /apiservice/doapicallfromserver` `service_name: "APIPluginBuilderService"`, `call_name: "TestAPICall"` |
-| authorize app (private license) | `POST /appeditor/update_plugin_meta_object` `{"method": "set_authorized_apps", "appname", "plugin_id"}` |
+| authorize / revoke app | `POST /appeditor/update_plugin_meta_object` `{"method": "set_authorized_apps", "appname", "plugin_id"(, "remove": true)}` |
+| set price (commercial) | `POST /appeditor/update_plugin_meta_object` `{"method": "set_plugin_price", "business_model": "subscription"\|"one_time", "price", "plugin_id"}` |
 | install in app (test) | app editor `/appeditor/write`: `settings.client_safe.plugins.<plugin_id>_current = "current"` |
 | list | `POST /elasticsearch/msearch`: encrypted `{x, y, z}` body, not reproducible as-is |
 
@@ -67,7 +68,7 @@ description, link (Service URL), plugin_instructions, demo_page
 platforms_new         "web" | "mobile" | "both"
 categories            {"0": "analytics", "1": "internationalization"}   # object keyed by index, max 5
 sa_node_version       22
-license               "private" (set in Versions and license; other options not listed in this capture)
+license               "private" | "open_source" (MIT) | "commercial"   # Versions and license tab
 ```
 
 GET also returns `data_tracked`, `data_tracked_description` (null here).
@@ -197,12 +198,19 @@ captured) is still open. A writer that changes dependencies must rebuild and mus
 ## API calls (`plugin_api`)
 
 ```
-plugin_api.human: "New API"                       # the collection name
+plugin_api.human: "MCP API"                       # the collection name (rename = edit this)
+plugin_api.auth:  "private_key_url" | "private_key_header" | "basic_auth" | "oauth2_pw" |
+                  "oauth2_user" | "oauth2_custom" | "jwt" | "cert_key"   # absent = "None or self-handled"
+plugin_api.private_key / private_key_test           # private_key_header: key value / "Development key value"
+                                                    # (the "Key name" field defaulted to Authorization)
+plugin_api.shared_headers {<id>: {key, value, private}}   # "Shared headers for all calls"
+plugin_api.shared_params  {<id>: {key, value, private}}   # "Shared parameters for all calls"
 plugin_api.calls.<id>: {
   name, method ("get", ...), url ("https://.../todos/[id]"; [x] = url param), rank,
+  data_type: "JSON" | "XML" | "stream" | "image" | "number" | "text" | "file",   # absent until changed = JSON
   url_params {<id>: {key, value, private}},       # one per [x] in the url
   headers    {<id>: {key, value, private}},       # "Public"/"Private" dropdown = private flag
-  publish_as: "data" (Use as: Data | Action),
+  publish_as: "data" | "action"                   # Use as: Data | Action
   initialized, must_reinitialize, should_reinitialize, url_cant_be_private,
   full_response: "<raw response text>", response_time_ms, response_schema_truncated,
   ret_value: "api.<plugin_id>.plugin_api.<id>",
@@ -218,13 +226,24 @@ and then saves. A writer that changes a call's url or params should run the same
 leave `should_reinitialize: true`. The url params observed here used id `AAB`, which is not from
 the plugin counter. Sample: `capture-plugin-editor-api-initialize.json`.
 
-## Versions and license (read only, nothing submitted)
+## Versions and license (nothing submitted)
 
-The tab holds the test app name, the "Plugin distribution license" (setting it saves
-`meta_data.license`, `"private"` here), "Authorized apps" for a private plugin
-(`update_plugin_meta_object` `{"method": "set_authorized_apps", "appname": "mcp-test-app/",
-"plugin_id"}`; the trailing slash is what the editor sent, and the UI lists it as `mcp-test-app/`
-with a Revoke link), "Submit a new version" (publishing, out of scope, not clicked), the publishing
+The tab holds the test app name and the "Plugin distribution license" (saved as
+`meta_data.license`):
+
+- **Private** (`private`): "Authorized apps" may install it. Authorize sends
+  `update_plugin_meta_object` `{"method": "set_authorized_apps", "appname": "mcp-test-app/",
+  "plugin_id"}`, and Revoke sends the same with `"remove": true`. The trailing slash is what the
+  editor sent and how the UI lists the app.
+- **Open source (MIT)** (`open_source`): warns that once published under MIT the license cannot be
+  changed.
+- **Commercial** (`commercial`): authorized apps use it for free. "Pricing & commercial
+  distribution" offers business model Subscription, One-time payment or Both. Each price is saved
+  on its own with `update_plugin_meta_object` `{"method": "set_plugin_price", "business_model":
+  "subscription" | "one_time", "price": <whole USD>, "plugin_id"}` (monthly 2-100, one-time 3-300).
+  Prices live outside the document, and "Both" is just both prices set.
+
+The rest of the tab: "Submit a new version" (publishing, out of scope, not clicked), "Submit a new version" (publishing, out of scope, not clicked), the publishing
 history, GitHub synchronization ("Synchronize with GitHub" creates a repo, not clicked) and "Other
 plugin editors". Sample: `capture-plugin-editor-authorize-app.json`.
 
@@ -298,8 +317,8 @@ can sync to GitHub), `update_plugin_meta_object` with `sync_pv_from_s3`, and
 
 ## Not captured yet
 
-- The full list of license options; revoking an authorized app; adding another plugin editor.
-- API call auth settings (collection level) and Action-type calls.
+- Adding another plugin editor (needs a real second Bubble account; it notifies that person).
+- The extra fields of each auth type other than `private_key_header` (basic, OAuth2, JWT, cert).
 - Whether `save_plugin` rejects a stale `editor_counter` or a non-holder.
 
 ## Security note

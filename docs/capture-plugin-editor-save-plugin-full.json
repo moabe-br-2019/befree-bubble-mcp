@@ -6,9 +6,9 @@
       "kind": "discovery",
       "method": "POST",
       "payload": {
-        "capturedAt": 1795612422591,
+        "capturedAt": 1795613208001,
         "method": "POST",
-        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-6",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-3",
         "pluginId": "1795610633201x773816577862139900",
         "requestBody": {
           "id": "1795610633201x773816577862139900",
@@ -26,7 +26,7 @@
               "plugin_api_version": 4,
               "use_jquery": true
             },
-            "editor_counter": 29,
+            "editor_counter": 31,
             "html_header": {
               "params": {
                 "AAV": {
@@ -147,8 +147,10 @@
               }
             },
             "plugin_api": {
+              "auth": "private_key_header",
               "calls": {
                 "AAc": {
+                  "data_type": "JSON",
                   "full_response": {
                     "completed": false,
                     "id": 1,
@@ -166,12 +168,12 @@
                   "method": "get",
                   "must_reinitialize": false,
                   "name": "API Call",
-                  "publish_as": "data",
+                  "publish_as": "action",
                   "rank": 0,
                   "response_schema_truncated": false,
                   "response_time_ms": 260.7999999523163,
                   "ret_value": "api.1795610633201x773816577862139900.plugin_api.AAc",
-                  "should_reinitialize": false,
+                  "should_reinitialize": true,
                   "types": {
                     "plugin_api.AAc": {
                       "caption": "API Call",
@@ -222,7 +224,23 @@
                   }
                 }
               },
-              "human": "New API"
+              "human": "MCP API",
+              "private_key": "[REDACTED]",
+              "private_key_test": "[REDACTED]",
+              "shared_headers": {
+                "AAe": {
+                  "key": "Accept",
+                  "private": true,
+                  "value": "application/json"
+                }
+              },
+              "shared_params": {
+                "AAf": {
+                  "key": "lang",
+                  "private": true,
+                  "value": "pt"
+                }
+              }
             },
             "plugin_elements": {
               "AAC": {
@@ -387,10 +405,10 @@
         "url": "https://bubble.io/appeditor/save_plugin"
       },
       "plugin_id": "1795610633201x773816577862139900",
-      "received_at": "2026-11-25T13:13:42Z",
+      "received_at": "2026-11-25T13:26:48Z",
       "status": 200
     }
   ],
-  "note": "Full document with every section filled (elements web+mobile, all action types, API calls, native config, shared settings, assets, license).",
+  "note": "Full document with every section filled (elements web+mobile, all action types, API calls with collection auth, native config, shared settings, assets, license).",
   "signature": "POST bubble.io/appeditor/save_plugin"
 }
