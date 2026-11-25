@@ -1,0 +1,39 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/appeditor/create_action_s3_package",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795611231422,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-5",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "node_version": 22,
+          "package_json_string": {
+            "dependencies": {
+              "lodash": "latest"
+            }
+          },
+          "plugin_id": "1795610633201x773816577862139900"
+        },
+        "responseData": {
+          "npm_output": {
+            "output": "\nadded 1 package, and audited 2 packages in 612ms\n\nfound 0 vulnerabilities\n"
+          },
+          "success": true
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/create_action_s3_package"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T12:53:51Z",
+      "status": 200
+    }
+  ],
+  "note": null,
+  "signature": "POST bubble.io/appeditor/create_action_s3_package"
+}

@@ -1,0 +1,30 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/appeditor/get_git_status",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795610638635,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-1",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "plugin_id": "1795610633201x773816577862139900"
+        },
+        "responseData": {
+          "type": "no_repo"
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/get_git_status"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T12:43:58Z",
+      "status": 200
+    }
+  ],
+  "note": null,
+  "signature": "POST bubble.io/appeditor/get_git_status"
+}

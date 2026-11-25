@@ -1,0 +1,119 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/appeditor/update_plugin_meta_object",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795610638422,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-1",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "method": "sync_pv_from_s3",
+          "plugin_id": "1795610633201x773816577862139900"
+        },
+        "responseData": null,
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/update_plugin_meta_object"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T12:43:58Z",
+      "status": 200
+    },
+    {
+      "endpoint": "https://bubble.io/appeditor/update_plugin_meta_object",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795610743280,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-1",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "method": "sync_pv_from_s3",
+          "plugin_id": "1795610633201x773816577862139900"
+        },
+        "responseData": null,
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/update_plugin_meta_object"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T12:45:43Z",
+      "status": 200
+    },
+    {
+      "endpoint": "https://bubble.io/appeditor/update_plugin_meta_object",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795610748295,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-1",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "method": "update_git_modified_status",
+          "plugin_id": "1795610633201x773816577862139900"
+        },
+        "responseData": {
+          "1795610633201x773816577862139900": 6185197224
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/update_plugin_meta_object"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T12:45:48Z",
+      "status": 200
+    },
+    {
+      "endpoint": "https://bubble.io/appeditor/update_plugin_meta_object",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795610893383,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-2",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "method": "sync_pv_from_s3",
+          "plugin_id": "1795610633201x773816577862139900"
+        },
+        "responseData": null,
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/update_plugin_meta_object"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T12:48:13Z",
+      "status": 200
+    },
+    {
+      "endpoint": "https://bubble.io/appeditor/update_plugin_meta_object",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795610923713,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-3",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "method": "sync_pv_from_s3",
+          "plugin_id": "1795610633201x773816577862139900"
+        },
+        "responseData": null,
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/update_plugin_meta_object"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T12:48:43Z",
+      "status": 200
+    }
+  ],
+  "note": null,
+  "signature": "POST bubble.io/appeditor/update_plugin_meta_object"
+}
