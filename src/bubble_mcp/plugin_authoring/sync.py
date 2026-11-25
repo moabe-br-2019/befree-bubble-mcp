@@ -40,6 +40,7 @@ from bubble_mcp.plugin_authoring.folder import (
 from bubble_mcp.plugin_authoring.ids import decode_id
 
 PLUGINS_DIR_ENV = "BUBBLE_MCP_PLUGINS_DIR"
+SERVER_MANAGED_KEYS = ("human", "published_bv", "last_published_bv")
 _REF = re.compile(r"^custom_(?:data|field)_([A-Za-z]{3}|NEW[A-Za-z0-9_-]*)$")
 
 
@@ -154,9 +155,16 @@ def _changed_packages(remote: dict[str, Any], local: dict[str, Any]) -> list[str
 
 
 def _without_absent_nulls(remote: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
-    """GET returns null meta_data keys the save did not send; drop those for comparison."""
+    """Drop what Bubble adds on its own (null meta_data keys, server-stamped keys) before comparing."""
 
     normalized = copy.deepcopy(remote)
+    # Bubble stamps or rewrites these on save (renaming re-slugs `human`), so they never count
+    # as a difference: take the local value, or drop the key when the local document lacks it.
+    for key in SERVER_MANAGED_KEYS:
+        if key in local:
+            normalized[key] = copy.deepcopy(local[key])
+        else:
+            normalized.pop(key, None)
     meta = normalized.get("meta_data")
     local_meta = local.get("meta_data") or {}
     if isinstance(meta, dict):

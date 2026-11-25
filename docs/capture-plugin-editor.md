@@ -80,7 +80,11 @@ GET also returns `data_tracked`, `data_tracked_description` (null here).
 - The HTML header is `html_header.snippet`. Every `_*_NAME_*_` the editor finds in it becomes an entry
   in `html_header.params` (its own id) and is exposed as a key in apps' Plugins tab. A writer that
   edits the snippet must recompute `params` the same way.
-- Additional keys are `shared_keys`, with type Public or Private (`secure`).
+- Additional keys are `shared_keys`, with type Public (`client_safe`) or Private (`secure`).
+- `context.keys` is keyed by caption. A header param shows up as `"<NAME> (headers)"`, not
+  `"<NAME>"`. Header keys never reach a native mobile element: `props.context.keys` came back empty
+  there. A key that web and mobile share must be a public shared key. Apps' Plugins tab lists
+  every key twice, once for live and once with "- dev.".
 - Shared assets are `assets`: upload with `/fileupload`, then add `{name, url}` under a new id.
 - Mobile libraries (shown once a mobile item exists) are `dependencies.mobile_dep`, a JSON string.
   The editor checks it with `validate_mobile_dep_npm` while typing, and a partial version such as
@@ -135,6 +139,19 @@ states  {<id>: {name, caption, value: <type>, is_list, initialization_code {fn}}
 events  {<id>: {name, caption}},
 actions {<id>: {caption, code {fn}}}               # element actions
 ```
+
+Mobile element API, from the inline docs in the editor bundle:
+- `rn_component` is `function(props)`, written in JSX. Async arrow functions are rejected.
+- `props` holds the element's fields by name, `props.bubble` (Bubble properties),
+  `props.instance` and `props.context`.
+- `props.instance` has `publishState(name, value)`, `triggerEvent(name)`, `data`, and `show`/`hide`
+  unless the standard visible property is used.
+- `props.context` has `currentUser`, `uploadContent`, `keys`, `reportDebugger` and `libraries`.
+  `libraries.react` and `libraries["react-native"]` are always there.
+- Element actions are `function(instance, properties, context)` and reset is
+  `function(instance, context)`. They share `instance.data` with the component, so expose handlers
+  there.
+- `fetch` works on the device. Verified live with the Places API (New) REST calls.
 
 A **mobile** element (`platform_type: "mobile"`, created via New > Mobile once the plugin targets
 mobile) has no initialize/update. Its code is `code.rn_component.fn` (a React Native functional
@@ -259,6 +276,37 @@ The tab holds the test app name and the "Plugin distribution license" (saved as
 The rest of the tab: "Submit a new version" (publishing, out of scope, not clicked), "Submit a new version" (publishing, out of scope, not clicked), the publishing
 history, GitHub synchronization ("Synchronize with GitHub" creates a repo, not clicked) and "Other
 plugin editors". Sample: `capture-plugin-editor-authorize-app.json`.
+
+## Using a plugin element in an app (verified live 2026-11-25)
+
+- **Expression for an element's exposed state.** It is a `GetElement` whose message is
+  `get_<state id>`. The state id is the key under `states`, not the state's `name`:
+  `{"%x": "GetElement", "%p": {"%ei": "<element id>"}, "%n": {"%x": "Message", "%nm": "get_AAK"}}`.
+  Using the name (`debug`) or the bare id (`AAK`) shows "[not found: …]" in the editor.
+- **`instance.publishState` into a `geographic_address` state.** Accepted:
+  - a plain address string;
+  - `{address, lat, lng}`.
+
+  Bubble geocodes and normalizes both: "Avenida Paulista, 1578 - Bela Vista, São Paulo - SP,
+  Brasil" became "Av. Paulista, 1578 - Bela Vista, São Paulo - SP, 01310-200, Brazil", and
+  `formatted address` worked on both. Not accepted, the state stays empty with no error:
+  - a Google-shaped `{formatted_address, geometry: {location}}`;
+  - `{_p_address, _p_lat, _p_lng}`.
+
+  The normalization can also pick a business at that address: in one test, "Av. Paulista, 1000"
+  came back as the name of a shop. Apps that need the exact text should read a plain-text state.
+- **A plugin element placed on a page.**
+  - Its `type` and `%x` are `<plugin id>_current-<element id>` while the test version is
+    installed, for example `1795633250092x942469630727290900_current-AAM`.
+  - Field values sit under `%p` keyed by the **bare field id** (`%p.AAN`), not by
+    `<plugin id>_current-AAN`. The editor ignores prefixed keys.
+  - Captured by editing the placeholder in the editor and reading the write.
+- **Runtime layout.** Bubble element boxes have `overflow: hidden`, and later sibling elements
+  paint over earlier ones. A dropdown inside the element's canvas is clipped. Attach it to
+  `document.body` with `position: fixed` under the input.
+- **Places API (New).** `includedPrimaryTypes` rejects the legacy collection `address`
+  ("Invalid included_primary_types 'address'"). `geocode`, `establishment`, `(regions)` and
+  `(cities)` remain valid.
 
 ## Concurrent editing: the editor lock
 

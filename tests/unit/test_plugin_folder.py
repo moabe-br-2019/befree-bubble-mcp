@@ -256,3 +256,19 @@ def test_new_element_action_key_with_dash_keeps_its_code(tmp_path: Path) -> None
     added = [a for a in rebuilt["plugin_elements"]["AAC"]["actions"].values() if a.get("caption") == "go2"]
     assert len(added) == 1 and added[0]["code"]["fn"] == "function(){}"
     assert all(a.get("caption") for a in rebuilt["plugin_elements"]["AAC"]["actions"].values())
+
+
+def test_new_ids_reach_fields_of_element_actions(tmp_path: Path) -> None:
+    doc = _doc_with_code()
+    write_folder(tmp_path, doc)
+    new = tmp_path / "elements/NEW-thing"
+    new.mkdir()
+    (new / "element.json").write_text(
+        json.dumps({"display": "thing", "actions": {"NEW1": {"caption": "go", "code": {}, "fields": {"NEW2": {"name": "v"}}}}}),
+        encoding="utf-8",
+    )
+    rebuilt = read_folder(tmp_path)
+    added = next(e for e in rebuilt["plugin_elements"].values() if e.get("display") == "thing")
+    (action,) = added["actions"].values()
+    (field_id,) = action["fields"]
+    assert not field_id.startswith("NEW")
