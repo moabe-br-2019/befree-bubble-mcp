@@ -1,0 +1,36 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/fileupload",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795611864421,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-2",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "app_version": "live",
+          "appname": "meta",
+          "contents": "iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPacAAAACXBIWXMAAAABAAAAAQBPJcTWAAABMElEQVR4nO3RQQkAIADAQAUTWcX+WTTGPdwlGGzuc0ecpQN+1wCsAVgDsAZgDcAagDUAawDWAKwBWAOwBmANwBqANQBrANYArAFYA7AGYA3AGoA1AGsA1gCsAVgDsAZgDcAagDUAawDWAKwBWAOwBmANwBqANQBrANYArAFYA7AGYA3AGoA1AGsA1gCsAVgDsAZgDcAagDUAawDWAKwBWAOwBmANwBqANQBrANYArAFYA7AGYA3AGoA1AGsA1gCsAVgDsAZgDcAagDUAawDWAKwBWAOwBmANwBqANQBrANYArAFYA7AGYA3AGoA1AGsA1gCsAVgDsAZgDcAagDUAawDWAKwBWAOwBmANwBqANQBrANYArAFYA7AGYA3AGoA1AGsA1gCsAVgDsAZgDcAagD1ahwOCeeWgDAAAAABJRU5ErkJggg=%3D",
+          "lastModified": 1795611863756,
+          "lastModifiedDate": "2026-11-25T13:04:23.756Z",
+          "name": "mcp-test-logo.png",
+          "size": 382,
+          "type": "image/png",
+          "webkitRelativePath": ""
+        },
+        "responseData": "//meta-q.cdn.bubble.io/f1795611863908x994150863742548200/mcp-test-logo.png",
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/fileupload"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T13:04:24Z",
+      "status": 200
+    }
+  ],
+  "note": "Uploads a file (base64 contents) to Bubble's CDN; used for shared assets and the plugin logo.",
+  "signature": "POST bubble.io/fileupload"
+}

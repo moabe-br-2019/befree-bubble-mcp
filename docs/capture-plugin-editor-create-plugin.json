@@ -1,0 +1,108 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/workflow/start",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795611283023,
+        "method": "POST",
+        "pageUrl": "https://bubble.io/home/plugins",
+        "pluginId": null,
+        "requestBody": {
+          "app_last_change": "69809496675",
+          "calls": [
+            {
+              "client_state": {
+                "cache": {},
+                "element_instances": {
+                  "cmunO0": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cmunO0",
+                    "parent_element_id": "cmunJ0"
+                  },
+                  "cmunR0": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cmunR0",
+                    "parent_element_id": "cmunO0"
+                  },
+                  "cmunT0": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cmunT0",
+                    "parent_element_id": "cmunO0"
+                  }
+                },
+                "element_state": {
+                  "1348695171700984260__LOOKUP__ElementInstance::cmunO0": {
+                    "group_data": null
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cmunR0": {
+                    "is_visible": true,
+                    "value": "mcp_test_plugin_2",
+                    "value_that_is_valid": "mcp_test_plugin_2"
+                  }
+                },
+                "exists": {},
+                "other_data": {
+                  "Current Page Scroll Position": 0,
+                  "Current Page Width": 1458
+                }
+              },
+              "current_date_time": 1795611282701,
+              "current_wf_params": {},
+              "element_id": "cmunT0",
+              "item_id": "cmunZ0",
+              "page_id": "AFw",
+              "random_seed": 0.5740714568440826,
+              "run_id": "1795611282685x300166348781333060",
+              "server_call_id": "1795611282686x748907696896309000",
+              "uid_generator": {
+                "seed": 583145536849446800,
+                "timestamp": 1795611282685
+              }
+            }
+          ],
+          "client_breaking_revision": 5,
+          "platform": "web",
+          "should_stream": false,
+          "timezone_offset": 180,
+          "timezone_string": "America/Sao_Paulo",
+          "user_id": "<bubble-user-id>",
+          "wait_for": []
+        },
+        "responseData": {
+          "1795611282686x748907696896309000": {
+            "outcome": "success",
+            "state_changes": {
+              "cmunb0": {
+                "PreviousStep_cmunb0": {
+                  "v": "1348695171700984260__LOOKUP__1795611282685x324724326449283100"
+                },
+                "PreviousStep_cmunb0_btype": {
+                  "v": "custom.plugins"
+                }
+              }
+            },
+            "step_results": {
+              "cmunb0": {
+                "UUID_iterations": 1,
+                "random_interations": 0,
+                "return_value": "1348695171700984260__LOOKUP__1795611282685x324724326449283100"
+              }
+            }
+          },
+          "bubble_session_uid": "<bubble-user-id>",
+          "object_updates": {
+            "1795611282685x324724326449283100": 6185210106
+          }
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/workflow/start"
+      },
+      "plugin_id": null,
+      "received_at": "2026-11-25T12:54:43Z",
+      "status": 200
+    }
+  ],
+  "note": null,
+  "signature": "POST bubble.io/workflow/start"
+}

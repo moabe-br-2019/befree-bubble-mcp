@@ -1,0 +1,218 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https%3A%2F%2Fbubble.io%2Fappeditor%2Fget_plugin%3Fid=1795610633201x773816577862139900",
+      "kind": "discovery",
+      "method": "GET",
+      "payload": {
+        "capturedAt": 1795611254185,
+        "method": "GET",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-4",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": null,
+        "responseData": {
+          "dependencies": {
+            "plugin_api_version": 4,
+            "use_jquery": true
+          },
+          "editor_counter": 18,
+          "human": "mcp_test_plugin",
+          "meta_data": {
+            "categories": [],
+            "data_tracked": null,
+            "data_tracked_description": null,
+            "description": null,
+            "image": null,
+            "license": null,
+            "link": null,
+            "name": "mcp_test_plugin",
+            "platforms_new": "web",
+            "plugin_instructions": null,
+            "sa_node_version": 22
+          },
+          "plugin_actions": {
+            "AAP": {
+              "category": "plugins",
+              "code": {
+                "client": {
+                  "fn": "function(properties, context) {\n\n\n  //Load any data \n  console.log(properties.f_msg);\n\n\n  //Do the operation\n\n\n\n}"
+                },
+                "server": {
+                  "fn": "function(properties, context) {\n\n\n\n\n\n\n}"
+                }
+              },
+              "display": "client_action",
+              "fields": {
+                "AAQ": {
+                  "caption": "f_msg",
+                  "editor": "DynamicValue",
+                  "name": "f_msg",
+                  "rank": 0
+                }
+              },
+              "type": "client_side_web"
+            },
+            "AAR": {
+              "category": "plugins",
+              "code": {
+                "automatically_added_packages": {
+                  "lodash": "latest"
+                },
+                "client": {
+                  "fn": "function(properties, context) {\n\n\n  //Load any data \n\n\n\n  //Do the operation\n\n\n\n}"
+                },
+                "package": {
+                  "fn": {
+                    "dependencies": {
+                      "lodash": "latest"
+                    }
+                  }
+                },
+                "package_hash": "c68ccd8151e77ed9928c",
+                "package_status": "up_to_date",
+                "package_used": true,
+                "server": {
+                  "fn": "function(properties, context) {\n\n\n  const _ = require('lodash'); return { r_result: _.kebabCase('Hello World') };\n\n\n\n}"
+                }
+              },
+              "display": "server_action",
+              "return_value": {
+                "AAS": {
+                  "caption": "",
+                  "name": "r_result"
+                }
+              },
+              "type": "server_side"
+            }
+          },
+          "plugin_elements": {
+            "AAC": {
+              "actions": {
+                "AAO": {
+                  "caption": "a_reset",
+                  "code": {
+                    "fn": "function(instance, properties, context) {\n\n\n  //Load any data \n  instance.publishState('s_value', []);\n\n\n  //Do the operation\n\n\n\n}"
+                  }
+                }
+              },
+              "add_is_visible": true,
+              "category": "visual elements",
+              "code": {
+                "initialize": {
+                  "fn": "function(instance, context) {\n\n  instance.canvas.addClass('mcp-test');\n\n}"
+                },
+                "preview": {
+                  "fn": "function(instance, properties) {\n\n  instance.triggerEvent('e_clicked');\n\n}"
+                },
+                "reset": {
+                  "fn": "function(instance, context) {\n\n\n\n}"
+                },
+                "update": {
+                  "fn": "function(instance, properties, context) {\n\n\n\n}"
+                }
+              },
+              "default_dim": {
+                "height": 200,
+                "width": 400
+              },
+              "display": "test_element",
+              "events": {
+                "AAN": {
+                  "caption": "",
+                  "name": "e_clicked"
+                }
+              },
+              "fields": {
+                "AAD": {
+                  "caption": "p_text",
+                  "default_val": "hello",
+                  "editor": "StaticText",
+                  "name": "p_text",
+                  "rank": 0
+                },
+                "AAE": {
+                  "caption": "p_number",
+                  "editor": "StaticNumber",
+                  "name": "p_number",
+                  "rank": 1
+                },
+                "AAF": {
+                  "caption": "p_checkbox",
+                  "editor": "Checkbox",
+                  "name": "p_checkbox",
+                  "rank": 2
+                },
+                "AAG": {
+                  "caption": "p_color",
+                  "editor": "Color",
+                  "name": "p_color",
+                  "rank": 3
+                },
+                "AAH": {
+                  "caption": "p_dropdown",
+                  "editor": "Dropdown",
+                  "name": "p_dropdown",
+                  "optional": true,
+                  "options": "a,b,c",
+                  "rank": 4
+                },
+                "AAI": {
+                  "caption": "p_image",
+                  "editor": "Image",
+                  "name": "p_image",
+                  "rank": 5
+                },
+                "AAJ": {
+                  "caption": "p_dynamic",
+                  "editor": "DynamicValue",
+                  "is_list": true,
+                  "name": "p_dynamic",
+                  "rank": 6,
+                  "value": "text"
+                },
+                "AAK": {
+                  "caption": "p_apptype",
+                  "editor": "custom_type",
+                  "name": "p_apptype",
+                  "rank": 7
+                },
+                "AAL": {
+                  "caption": "p_info",
+                  "editor": "Label",
+                  "name": "p_info",
+                  "rank": 8
+                }
+              },
+              "headers": {
+                "snippet": "<style>.mcp-test{color:red}</style></style>"
+              },
+              "icon": "ion-android-checkbox-blank",
+              "platform_type": "web",
+              "states": {
+                "AAM": {
+                  "caption": "",
+                  "initialization_code": {
+                    "fn": "function(properties, context) {\n\n\n\n}"
+                  },
+                  "is_list": true,
+                  "name": "s_value",
+                  "value": "text"
+                }
+              }
+            }
+          },
+          "published_bv": 33
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https%3A%2F%2Fbubble.io%2Fappeditor%2Fget_plugin%3Fid=1795610633201x773816577862139900"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T12:54:14Z",
+      "status": 200
+    }
+  ],
+  "note": null,
+  "signature": "GET bubble.io/appeditor/get_plugin"
+}

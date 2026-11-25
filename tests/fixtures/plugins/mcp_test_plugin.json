@@ -1,0 +1,386 @@
+{
+  "assets": {
+    "AAX": {
+      "name": "mcp_logo",
+      "url": "//meta-q.cdn.bubble.io/f1795611863908x994150863742548200/mcp-test-logo.png"
+    }
+  },
+  "dependencies": {
+    "mobile_dep": {
+      "dayjs": "^1.11.0"
+    },
+    "plugin_api_version": 4,
+    "use_jquery": true
+  },
+  "editor_counter": 31,
+  "html_header": {
+    "params": {
+      "AAV": {
+        "key": "MCP_TOKEN"
+      }
+    },
+    "snippet": "<script>window.MCP_SHARED = 1; var k='_*_MCP_TOKEN_*_';</script>"
+  },
+  "human": "MCP Test Plugin",
+  "meta_data": {
+    "categories": {
+      "0": "analytics",
+      "1": "internationalization"
+    },
+    "demo_page": "https://mcp-test-app.bubbleapps.io/version-test",
+    "description": "Plugin de teste do Befree Bubble MCP.",
+    "image": "//meta-q.cdn.bubble.io/f1795611899139x933887494000085900/mcp-test-logo.png",
+    "license": "private",
+    "link": "https://example.com/mcp-test",
+    "name": "MCP Test Plugin",
+    "platforms_new": "both",
+    "plugin_instructions": "Instrucoes de teste.",
+    "sa_node_version": 22
+  },
+  "native_config": {
+    "android": {
+      "AAb": {
+        "attributes_string": "android:name=\"mcp.test.FLAG\" android:value=\"true\"",
+        "type": "meta-data"
+      }
+    },
+    "ios": {
+      "AAa": {
+        "default_value": "Valor de teste do MCP",
+        "key": "MCPTestCustomKey"
+      }
+    }
+  },
+  "plugin_actions": {
+    "AAP": {
+      "category": "plugins",
+      "code": {
+        "client": {
+          "fn": "function(properties, context) {\n\n\n  //Load any data \n  console.log(properties.f_msg);\n\n\n  //Do the operation\n\n\n\n}"
+        },
+        "server": {
+          "fn": "function(properties, context) {\n\n\n\n\n\n\n}"
+        }
+      },
+      "display": "client_action",
+      "fields": {
+        "AAQ": {
+          "caption": "f_msg",
+          "editor": "DynamicValue",
+          "name": "f_msg",
+          "rank": 0
+        }
+      },
+      "type": "client_side_web"
+    },
+    "AAR": {
+      "category": "plugins",
+      "code": {
+        "automatically_added_packages": {
+          "lodash": "latest"
+        },
+        "client": {
+          "fn": "function(properties, context) {\n\n\n  //Load any data \n\n\n\n  //Do the operation\n\n\n\n}"
+        },
+        "package": {
+          "fn": {
+            "dependencies": {
+              "lodash": "latest"
+            }
+          }
+        },
+        "package_hash": "c68ccd8151e77ed9928c",
+        "package_status": "up_to_date",
+        "package_used": true,
+        "server": {
+          "fn": "function(properties, context) {\n\n\n  const _ = require('lodash'); return { r_result: _.kebabCase('Hello World') };\n\n\n\n}"
+        }
+      },
+      "display": "server_action",
+      "return_value": {
+        "AAS": {
+          "caption": "",
+          "name": "r_result"
+        }
+      },
+      "type": "server_side"
+    },
+    "AAT": {
+      "category": "plugins",
+      "code": {
+        "client": {
+          "fn": "function(properties, context) {\n\n\n  //Load any data \n\n\n\n  //Do the operation\n\n\n\n}"
+        },
+        "server": {
+          "fn": "async function(properties, context) {\n\n\n\n\n\n\n}"
+        }
+      },
+      "display": "mobile_action",
+      "type": "client_side_mobile"
+    },
+    "AAU": {
+      "category": "plugins",
+      "code": {
+        "client": {
+          "fn": "function(properties, context) {\n\n\n  //Load any data \n\n\n\n  //Do the operation\n\n\n\n}"
+        },
+        "server": {
+          "fn": "async function(properties, context) {\n\n\n\n\n\n\n}"
+        }
+      },
+      "display": "both_action",
+      "type": "client_side_both"
+    }
+  },
+  "plugin_api": {
+    "auth": "private_key_header",
+    "calls": {
+      "AAc": {
+        "data_type": "JSON",
+        "full_response": {
+          "completed": false,
+          "id": 1,
+          "title": "delectus aut autem",
+          "userId": 1
+        },
+        "headers": {
+          "AAd": {
+            "key": "X-Mcp-Test",
+            "private": true,
+            "value": "hello"
+          }
+        },
+        "initialized": true,
+        "method": "get",
+        "must_reinitialize": false,
+        "name": "API Call",
+        "publish_as": "action",
+        "rank": 0,
+        "response_schema_truncated": false,
+        "response_time_ms": 260.7999999523163,
+        "ret_value": "api.1795610633201x773816577862139900.plugin_api.AAc",
+        "should_reinitialize": true,
+        "types": {
+          "plugin_api.AAc": {
+            "caption": "API Call",
+            "fields": {
+              "_p_completed": {
+                "caption": "completed",
+                "path": [
+                  "completed"
+                ],
+                "ret_btype": "boolean",
+                "sample_value": false
+              },
+              "_p_id": {
+                "caption": "id",
+                "path": [
+                  "id"
+                ],
+                "ret_btype": "text",
+                "sample_value": 1
+              },
+              "_p_title": {
+                "caption": "title",
+                "path": [
+                  "title"
+                ],
+                "ret_btype": "text",
+                "sample_value": "string value"
+              },
+              "_p_userId": {
+                "caption": "userId",
+                "path": [
+                  "userId"
+                ],
+                "ret_btype": "number",
+                "sample_value": 1
+              }
+            }
+          }
+        },
+        "url": "https://jsonplaceholder.typicode.com/todos/[id]",
+        "url_cant_be_private": true,
+        "url_params": {
+          "AAB": {
+            "key": "id",
+            "private": true,
+            "value": "1"
+          }
+        }
+      }
+    },
+    "human": "MCP API",
+    "private_key": "[REDACTED]",
+    "private_key_test": "[REDACTED]",
+    "shared_headers": {
+      "AAe": {
+        "key": "Accept",
+        "private": true,
+        "value": "application/json"
+      }
+    },
+    "shared_params": {
+      "AAf": {
+        "key": "lang",
+        "private": true,
+        "value": "pt"
+      }
+    }
+  },
+  "plugin_elements": {
+    "AAC": {
+      "actions": {
+        "AAO": {
+          "caption": "a_reset",
+          "code": {
+            "fn": "function(instance, properties, context) {\n\n\n  //Load any data \n  instance.publishState('s_value', []);\n\n\n  //Do the operation\n\n\n\n}"
+          }
+        }
+      },
+      "add_hover_pressed": true,
+      "add_is_visible": true,
+      "add_large_file_upload_properties": true,
+      "autobinding_value": "text",
+      "can_fit_height": true,
+      "can_fit_width": true,
+      "category": "visual elements",
+      "code": {
+        "initialize": {
+          "fn": "function(instance, context) {\n\n  instance.canvas.addClass('mcp-test');\n\n}"
+        },
+        "preview": {
+          "fn": "function(instance, properties) {\n\n  instance.triggerEvent('e_clicked');\n\n}"
+        },
+        "reset": {
+          "fn": "function(instance, context) {\n\n\n\n}"
+        },
+        "update": {
+          "fn": "function(instance, properties, context) {\n\n\n\n}"
+        }
+      },
+      "default_dim": {
+        "height": 200,
+        "width": 320
+      },
+      "display": "test_element",
+      "events": {
+        "AAN": {
+          "caption": "",
+          "name": "e_clicked"
+        }
+      },
+      "fields": {
+        "AAD": {
+          "caption": "p_text",
+          "default_val": "hello",
+          "editor": "StaticText",
+          "name": "p_text",
+          "rank": 0
+        },
+        "AAE": {
+          "caption": "p_number",
+          "editor": "StaticNumber",
+          "name": "p_number",
+          "rank": 1
+        },
+        "AAF": {
+          "caption": "p_checkbox",
+          "editor": "Checkbox",
+          "name": "p_checkbox",
+          "rank": 2
+        },
+        "AAG": {
+          "caption": "p_color",
+          "editor": "Color",
+          "name": "p_color",
+          "rank": 3
+        },
+        "AAH": {
+          "caption": "p_dropdown",
+          "editor": "Dropdown",
+          "name": "p_dropdown",
+          "optional": true,
+          "options": "a,b,c",
+          "rank": 4
+        },
+        "AAI": {
+          "caption": "p_image",
+          "editor": "Image",
+          "name": "p_image",
+          "rank": 5
+        },
+        "AAJ": {
+          "caption": "p_dynamic",
+          "editor": "DynamicValue",
+          "is_list": true,
+          "name": "p_dynamic",
+          "rank": 6,
+          "value": "_any_thing_bindable"
+        },
+        "AAK": {
+          "caption": "p_apptype",
+          "editor": "custom_type",
+          "name": "p_apptype",
+          "rank": 7
+        }
+      },
+      "headers": {
+        "snippet": "<style>.mcp-test{color:red}</style></style>"
+      },
+      "icon": "ion-android-checkbox-blank",
+      "platform_type": "web",
+      "property_applications": {
+        "Background": true,
+        "Border": true,
+        "BoxShadow": true,
+        "Font": true,
+        "MinWidth": true,
+        "Padding": true,
+        "resizable": true
+      },
+      "states": {
+        "AAM": {
+          "caption": "",
+          "initialization_code": {
+            "fn": "function(properties, context) {\n\n\n\n}"
+          },
+          "is_list": true,
+          "name": "s_value",
+          "value": "text"
+        }
+      },
+      "support_autobinding": true
+    },
+    "AAY": {
+      "add_is_visible": true,
+      "category": "input forms",
+      "code": {
+        "preview": {
+          "fn": "function(instance, properties) {\n\n\n\n}"
+        },
+        "reset": {
+          "fn": "function(instance, context) {\n\n\n\n}"
+        },
+        "rn_component": {
+          "fn": "function(props) {\n\n  return <Text>{props.properties.label}</Text>;\n\n}"
+        }
+      },
+      "default_dim": {
+        "height": 200,
+        "width": 400
+      },
+      "display": "mobile_element",
+      "has_reset_fn": true,
+      "icon": "ion-android-checkbox-blank",
+      "platform_type": "mobile"
+    }
+  },
+  "published_bv": 33,
+  "shared_keys": {
+    "AAW": {
+      "caption": "MCP_EXTRA",
+      "type": "secure"
+    }
+  }
+}

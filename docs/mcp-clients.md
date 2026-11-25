@@ -295,6 +295,11 @@ families or `write_payload` for exact Bubble editor writes.
 - `bubble_changelog_fetch`: fetches editor changelog entries with optional date, user, category, root, identifier, and path filters.
 - `bubble_branch_create`: creates a Bubble branch or sub-branch. Pass `from_app_version` for sub-branches and `execute=true` to apply it.
 - `bubble_branch_delete`: soft-deletes a Bubble branch/version. Requires `execute=true` and `confirm=true` to apply it.
+- `bubble_plugin_list`: lists the account's plugins (id, name) from the dashboard, headless. Read-only.
+- `bubble_plugin_pull`: mirrors one plugin into a local folder (code files + JSON, secrets git-ignored).
+- `bubble_plugin_push`: writes a pulled folder back; preview by default, `execute=true` checks remote changes and the editor lock, then reads back. Never publishes.
+- `bubble_plugin_create`: creates an empty plugin through the dashboard. Requires `execute=true`.
+- `bubble_plugin_delete`: deletes a plugin through the dashboard. Requires `execute=true` and `confirm=true`; no undo in the UI.
 - `bubble_performance_audit`: answers broad Bubble performance, WU, workload,
   log, usage, storage, or workflow-run questions from direct Bubble editor
   sources. Defaults log analysis to `app_version=live`.

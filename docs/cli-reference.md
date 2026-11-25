@@ -213,6 +213,28 @@ bubble-mcp plugin install \
   --execute
 ```
 
+### Authoring plugins
+
+Edit your own plugins as local files. None of these commands publishes a version.
+
+```bash
+bubble-mcp plugin list --profile plugins                       # ids and names (headless dashboard)
+bubble-mcp plugin pull --profile plugins --plugin-id <id>      # -> ~/Projects/bubble-plugins/<name>-<id tail>
+bubble-mcp plugin push --profile plugins --folder <folder>     # preview the change list
+bubble-mcp plugin push --profile plugins --folder <folder> --execute
+bubble-mcp plugin create --profile plugins --name my_plugin --execute
+bubble-mcp plugin delete --profile plugins --plugin-id <id> --execute --confirm
+```
+
+- The folder holds element and action code as `.js`/`.html`, everything else as JSON, and
+  credentials in `.bubble-plugin/secrets.json` (git-ignored).
+- To add an element or action, copy a dir to `elements/NEW-<slug>` or `actions/NEW-<slug>`; push
+  gives it (and everything inside it) fresh ids. New fields/states/events: key them `NEW`, `NEW2`, ...
+- Push refuses when the plugin changed in Bubble since the pull (`--force` overwrites) and when a
+  plugin editor tab has the plugin open.
+- `plugin list`, `create` and `delete` need `bubble-mcp session login` (a browser profile), not
+  just an imported session.
+
 Planning policy options:
 
 - `--conflict-policy`: `fail`, `rename`, `replace`, `reuse_existing`

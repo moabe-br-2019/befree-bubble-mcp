@@ -1,0 +1,85 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/appeditor/update_plugin_meta_object",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795612889627,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-6",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "appname": "mcp-test-app/",
+          "method": "set_authorized_apps",
+          "plugin_id": "1795610633201x773816577862139900",
+          "remove": true
+        },
+        "responseData": {
+          "1795610633201x773816577862139900": 6185252562
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/update_plugin_meta_object"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T13:21:29Z",
+      "status": 200
+    },
+    {
+      "endpoint": "https://bubble.io/appeditor/update_plugin_meta_object",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795612963548,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-6",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "business_model": "subscription",
+          "method": "set_plugin_price",
+          "plugin_id": "1795610633201x773816577862139900",
+          "price": 5
+        },
+        "responseData": {
+          "1795610633201x773816577862139900": 6185254509
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/update_plugin_meta_object"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T13:22:43Z",
+      "status": 200
+    },
+    {
+      "endpoint": "https://bubble.io/appeditor/update_plugin_meta_object",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795612977969,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-6",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "business_model": "one_time",
+          "method": "set_plugin_price",
+          "plugin_id": "1795610633201x773816577862139900",
+          "price": 10
+        },
+        "responseData": {
+          "1795610633201x773816577862139900": 6185255085
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/update_plugin_meta_object"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T13:22:57Z",
+      "status": 200
+    }
+  ],
+  "note": "set_authorized_apps (authorize / revoke with remove: true) and set_plugin_price (subscription, one_time).",
+  "signature": "POST bubble.io/appeditor/update_plugin_meta_object"
+}

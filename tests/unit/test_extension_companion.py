@@ -169,3 +169,63 @@ def test_extension_companion_can_feed_write_captures_to_tool_wizard(
     assert saved[0]["tool_authoring"]["classification"]["change_count"] == 1
     assert saved[1]["tool_session_id"] == session.id
     assert saved[1]["tool_authoring_skip_reason"] == "write_without_changes"
+
+
+def test_extension_companion_records_plugin_editor_discovery(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path / "config"))
+    event_log = tmp_path / "events.jsonl"
+    discovery_log = tmp_path / "discovery.jsonl"
+    server = create_extension_companion_server(
+        ExtensionCompanionConfig(
+            port=0,
+            capture_key="dev-key",
+            event_log_path=event_log,
+            discovery_log_path=discovery_log,
+        )
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = _base_url(server.server_address)
+    discovery_body = {
+        "pluginId": "1700000000000x1",
+        "url": "https://bubble.io/appeditor/write",
+        "method": "POST",
+        "status": 200,
+        "requestBody": {"a": 1},
+        "responseData": {"ok": True},
+    }
+    try:
+        _, health = _json_request(base_url, "/health")
+        assert health["discovery_log"] == str(discovery_log)
+
+        denied_status, denied = _json_request(
+            base_url, "/v1/bubble/plugin-editor/discovery-ingest", method="POST", body=discovery_body
+        )
+        assert denied_status == HTTPStatus.FORBIDDEN
+        assert denied["error"] == "capture_key_rejected"
+
+        status, body = _json_request(
+            base_url,
+            "/v1/bubble/plugin-editor/discovery-ingest",
+            method="POST",
+            headers={CAPTURE_KEY_HEADER: "dev-key"},
+            body=discovery_body,
+        )
+        assert status == HTTPStatus.OK
+        assert body["kind"] == "discovery"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    saved = json.loads(discovery_log.read_text(encoding="utf-8").splitlines()[0])
+    assert saved["kind"] == "discovery"
+    assert saved["plugin_id"] == "1700000000000x1"
+    assert saved["method"] == "POST"
+    assert saved["status"] == 200
+    assert saved["endpoint"] == "https://bubble.io/appeditor/write"
+    assert saved["payload"]["requestBody"] == {"a": 1}
+    assert not event_log.exists()

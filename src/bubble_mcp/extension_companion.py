@@ -33,6 +33,7 @@ class ExtensionCompanionConfig:
     capture_key: str = ""
     tool_session_id: str | None = None
     event_log_path: Path | None = None
+    discovery_log_path: Path | None = None
 
 
 class ExtensionCompanionHTTPServer(ThreadingHTTPServer):
@@ -59,6 +60,22 @@ def default_event_log_path() -> Path:
 
 def _event_log_path(config: ExtensionCompanionConfig) -> Path:
     return config.event_log_path or default_event_log_path()
+
+
+def default_discovery_log_path() -> Path:
+    return extension_companion_dir() / "plugin-editor-discovery.jsonl"
+
+
+def _discovery_log_path(config: ExtensionCompanionConfig) -> Path:
+    return config.discovery_log_path or default_discovery_log_path()
+
+
+DISCOVERY_INGEST_PATH = "/v1/bubble/plugin-editor/discovery-ingest"
+INGEST_PATHS = {
+    "/v1/bubble/crawler/ingest": "structure",
+    "/v1/bubble/crawler/write-ingest": "write",
+    DISCOVERY_INGEST_PATH: "discovery",
+}
 
 
 def _server_host(server: ExtensionCompanionHTTPServer) -> str:
@@ -105,6 +122,8 @@ def record_extension_companion_event(
     payload: dict[str, Any],
     config: ExtensionCompanionConfig,
 ) -> dict[str, Any]:
+    if kind == "discovery":
+        return _record_discovery_event(payload, config)
     if kind not in {"structure", "write"}:
         raise ValueError(f"Unsupported extension companion event kind: {kind}")
 
@@ -135,6 +154,29 @@ def record_extension_companion_event(
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, sort_keys=True) + "\n")
+    return event
+
+
+def _append_jsonl(path: Path, event: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, sort_keys=True) + "\n")
+
+
+def _record_discovery_event(payload: dict[str, Any], config: ExtensionCompanionConfig) -> dict[str, Any]:
+    """Append one plugin-editor discovery capture to its own log (never the app event log)."""
+
+    status = payload.get("status")
+    event = {
+        "received_at": _utc_now_iso(),
+        "kind": "discovery",
+        "plugin_id": str(payload.get("pluginId") or "").strip() or None,
+        "method": str(payload.get("method") or "").strip().upper() or None,
+        "endpoint": str(payload.get("url") or "").strip() or None,
+        "status": status if isinstance(status, int) else None,
+        "payload": payload,
+    }
+    _append_jsonl(_discovery_log_path(config), event)
     return event
 
 
@@ -184,6 +226,7 @@ class ExtensionCompanionRequestHandler(BaseHTTPRequestHandler):
                 "capture_key_required": bool(config.capture_key),
                 "tool_session_id": tool_session_id,
                 "configured_tool_session_id": config.tool_session_id,
+                "discovery_log": str(_discovery_log_path(config)),
             },
         )
 
@@ -210,7 +253,7 @@ class ExtensionCompanionRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path not in {"/v1/bubble/crawler/ingest", "/v1/bubble/crawler/write-ingest"}:
+        if path not in INGEST_PATHS:
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
         if not self._authorized():
@@ -224,7 +267,7 @@ class ExtensionCompanionRequestHandler(BaseHTTPRequestHandler):
         if payload.get("_ping") is True:
             self._send_json(HTTPStatus.OK, {"ok": True, "ping": True})
             return
-        kind = "write" if path.endswith("/write-ingest") else "structure"
+        kind = INGEST_PATHS[path]
         try:
             event = record_extension_companion_event(kind, payload, self.companion_server.config)
         except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -238,7 +281,11 @@ class ExtensionCompanionRequestHandler(BaseHTTPRequestHandler):
             {
                 "ok": True,
                 "kind": kind,
-                "event_log": str(_event_log_path(self.companion_server.config)),
+                "event_log": str(
+                    _discovery_log_path(self.companion_server.config)
+                    if kind == "discovery"
+                    else _event_log_path(self.companion_server.config)
+                ),
                 "tool_authoring": event.get("tool_authoring"),
             },
         )
@@ -261,6 +308,7 @@ def companion_status_payload(server: ExtensionCompanionHTTPServer | None) -> dic
         "tool_session_id": _resolve_tool_session_id(config),
         "configured_tool_session_id": config.tool_session_id,
         "event_log": str(_event_log_path(config)),
+        "discovery_log": str(_discovery_log_path(config)),
     }
 
 

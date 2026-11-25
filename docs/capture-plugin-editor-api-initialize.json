@@ -1,0 +1,117 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/apiservice/doapicallfromserver",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795612392478,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-3",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "app_last_change": "edit",
+          "call_location": {
+            "page_name": "plugin_editor"
+          },
+          "call_name": "TestAPICall",
+          "page_load_time": 1795612215253,
+          "prev": null,
+          "properties": {
+            "api_id": "1795610633201x773816577862139900",
+            "api_obj": {
+              "calls": {
+                "AAc": {
+                  "headers": {
+                    "AAd": {
+                      "key": "X-Mcp-Test",
+                      "private": true,
+                      "value": "hello"
+                    }
+                  },
+                  "method": "get",
+                  "name": "API Call",
+                  "publish_as": "data",
+                  "rank": 0,
+                  "should_reinitialize": true,
+                  "url": "https://jsonplaceholder.typicode.com/todos/[id]",
+                  "url_cant_be_private": true,
+                  "url_params": {
+                    "AAB": {
+                      "key": "id",
+                      "private": true,
+                      "value": "1"
+                    }
+                  }
+                }
+              },
+              "human": "New API"
+            },
+            "app_version": "live",
+            "appname": "meta",
+            "call_id": "AAc"
+          },
+          "ret_properties": true,
+          "serialized_context": {
+            "skip_property_security": true
+          },
+          "service_name": "APIPluginBuilderService",
+          "timezone_string": "America/Sao_Paulo"
+        },
+        "responseData": {
+          "properties": {
+            "api_id": "1795610633201x773816577862139900",
+            "api_obj": {
+              "calls": {
+                "AAc": {
+                  "headers": {
+                    "AAd": {
+                      "key": "X-Mcp-Test",
+                      "private": true,
+                      "value": "hello"
+                    }
+                  },
+                  "initialize_mode": true,
+                  "method": "get",
+                  "name": "API Call",
+                  "publish_as": "data",
+                  "rank": 0,
+                  "should_reinitialize": true,
+                  "url": "https://jsonplaceholder.typicode.com/todos/[id]",
+                  "url_cant_be_private": true,
+                  "url_params": {
+                    "AAB": {
+                      "key": "id",
+                      "private": true,
+                      "value": "1"
+                    }
+                  }
+                }
+              },
+              "human": "New API"
+            },
+            "app_version": "live",
+            "appname": "meta",
+            "call_id": "AAc"
+          },
+          "ret": {
+            "__bubble_tz_string_in_body": true,
+            "completed": false,
+            "id": 1,
+            "title": "delectus aut autem",
+            "userId": 1
+          }
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/apiservice/doapicallfromserver"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T13:13:12Z",
+      "status": 200
+    }
+  ],
+  "note": "API calls tab 'Initialize': service APIPluginBuilderService, call TestAPICall.",
+  "signature": "POST bubble.io/apiservice/doapicallfromserver"
+}

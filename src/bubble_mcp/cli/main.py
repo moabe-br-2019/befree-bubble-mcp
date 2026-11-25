@@ -770,6 +770,94 @@ def command_plugin_install(args: argparse.Namespace) -> int:
     return 0 if result.get("ok") else 1
 
 
+def command_plugin_list(args: argparse.Namespace) -> int:
+    from bubble_mcp.plugin_authoring.dashboard import list_plugins_for_profile
+
+    result = list_plugins_for_profile(args.profile, headless=not args.show_browser)
+    emit_json(result)
+    return 0 if result.get("ok") else 1
+
+
+def command_plugin_pull(args: argparse.Namespace) -> int:
+    from bubble_mcp.plugin_authoring.sync import pull_plugin
+
+    result = pull_plugin(
+        profile=args.profile,
+        plugin_id=args.plugin_id,
+        folder=Path(args.folder).expanduser() if args.folder else None,
+        force=args.force,
+    )
+    emit_json(result)
+    return 0 if result.get("ok") else 1
+
+
+def command_plugin_push(args: argparse.Namespace) -> int:
+    from bubble_mcp.plugin_authoring.sync import push_plugin
+
+    result = push_plugin(
+        profile=args.profile,
+        folder=Path(args.folder).expanduser(),
+        execute=args.execute,
+        force=args.force,
+    )
+    emit_json(result)
+    return 0 if result.get("ok") else 1
+
+
+def command_plugin_create(args: argparse.Namespace) -> int:
+    from bubble_mcp.plugin_authoring.dashboard import create_plugin_for_profile
+
+    result = create_plugin_for_profile(args.profile, args.name, execute=args.execute, headless=not args.show_browser)
+    emit_json(result)
+    return 0 if result.get("ok") else 1
+
+
+def command_plugin_delete(args: argparse.Namespace) -> int:
+    from bubble_mcp.plugin_authoring.dashboard import delete_plugin_for_profile
+
+    result = delete_plugin_for_profile(
+        args.profile,
+        args.plugin_id,
+        execute=args.execute,
+        confirm=args.confirm,
+        headless=not args.show_browser,
+    )
+    emit_json(result)
+    return 0 if result.get("ok") else 1
+
+
+def _discovery_log(args: argparse.Namespace) -> Path:
+    from bubble_mcp.extension_companion import default_discovery_log_path
+
+    log = Path(args.log).expanduser() if args.log else default_discovery_log_path()
+    if not log.exists():
+        raise ValueError(f"Discovery log not found: {log}. Capture plugin editor traffic with the Chrome extension first.")
+    return log
+
+
+def command_plugin_discovery_summary(args: argparse.Namespace) -> int:
+    from bubble_mcp.plugin_authoring.discovery import summarize_discovery_log
+
+    log = _discovery_log(args)
+    rows = summarize_discovery_log(log, plugin_id=args.plugin_id or None, since=args.since or None)
+    emit_json({"ok": True, "log": str(log), "endpoints": rows})
+    return 0
+
+
+def command_plugin_discovery_export(args: argparse.Namespace) -> int:
+    from bubble_mcp.plugin_authoring.discovery import export_discovery_samples
+
+    log = _discovery_log(args)
+    files = export_discovery_samples(
+        log,
+        Path(args.out).expanduser(),
+        plugin_id=args.plugin_id or None,
+        since=args.since or None,
+    )
+    emit_json({"ok": True, "log": str(log), "files": [str(path) for path in files]})
+    return 0
+
+
 def command_execute_plan(args: argparse.Namespace) -> int:
     plan = json.loads(Path(args.file).read_text(encoding="utf-8"))
     if not isinstance(plan, dict):
@@ -2305,6 +2393,78 @@ def build_parser() -> argparse.ArgumentParser:
         help="Actually post to Bubble. Without this flag the command previews the write and post-install requests.",
     )
     plugin_install_parser.set_defaults(func=command_plugin_install)
+
+    plugin_list_parser = plugin_subparsers.add_parser(
+        "list",
+        help="List the account's plugins (reads the bubble.io dashboard in a headless browser).",
+    )
+    plugin_list_parser.add_argument("--profile", required=True)
+    plugin_list_parser.add_argument("--show-browser", action="store_true")
+    plugin_list_parser.set_defaults(func=command_plugin_list)
+
+    plugin_pull_parser = plugin_subparsers.add_parser(
+        "pull",
+        help="Mirror one plugin into a local folder (code files + JSON).",
+    )
+    plugin_pull_parser.add_argument("--profile", required=True)
+    plugin_pull_parser.add_argument("--plugin-id", required=True)
+    plugin_pull_parser.add_argument("--folder", default="")
+    plugin_pull_parser.add_argument("--force", action="store_true", help="Overwrite local edits never pushed.")
+    plugin_pull_parser.set_defaults(func=command_plugin_pull)
+
+    plugin_push_parser = plugin_subparsers.add_parser(
+        "push",
+        help="Write a pulled plugin folder back to Bubble (preview unless --execute). Never publishes.",
+    )
+    plugin_push_parser.add_argument("--profile", required=True)
+    plugin_push_parser.add_argument("--folder", required=True)
+    plugin_push_parser.add_argument("--execute", action="store_true")
+    plugin_push_parser.add_argument("--force", action="store_true", help="Overwrite changes made in Bubble since the pull.")
+    plugin_push_parser.set_defaults(func=command_plugin_push)
+
+    plugin_create_parser = plugin_subparsers.add_parser(
+        "create",
+        help="Create a new empty plugin (preview unless --execute).",
+    )
+    plugin_create_parser.add_argument("--profile", required=True)
+    plugin_create_parser.add_argument("--name", required=True)
+    plugin_create_parser.add_argument("--execute", action="store_true")
+    plugin_create_parser.add_argument("--show-browser", action="store_true")
+    plugin_create_parser.set_defaults(func=command_plugin_create)
+
+    plugin_delete_parser = plugin_subparsers.add_parser(
+        "delete",
+        help="Delete one plugin (preview unless --execute --confirm). No undo in the UI.",
+    )
+    plugin_delete_parser.add_argument("--profile", required=True)
+    plugin_delete_parser.add_argument("--plugin-id", required=True)
+    plugin_delete_parser.add_argument("--execute", action="store_true")
+    plugin_delete_parser.add_argument("--confirm", action="store_true")
+    plugin_delete_parser.add_argument("--show-browser", action="store_true")
+    plugin_delete_parser.set_defaults(func=command_plugin_delete)
+
+    plugin_discovery_parser = plugin_subparsers.add_parser(
+        "discovery",
+        help="Summarize or export plugin editor requests captured by the Chrome extension.",
+    )
+    plugin_discovery_subparsers = plugin_discovery_parser.add_subparsers(
+        dest="plugin_discovery_command", required=True
+    )
+    plugin_discovery_summary_parser = plugin_discovery_subparsers.add_parser(
+        "summary",
+        help="Group captured plugin editor requests by endpoint.",
+    )
+    plugin_discovery_export_parser = plugin_discovery_subparsers.add_parser(
+        "export",
+        help="Write up to 5 redacted samples per endpoint.",
+    )
+    plugin_discovery_export_parser.add_argument("--out", required=True)
+    for discovery_parser in (plugin_discovery_summary_parser, plugin_discovery_export_parser):
+        discovery_parser.add_argument("--log", default="", help="Discovery JSONL; defaults to the companion's log.")
+        discovery_parser.add_argument("--plugin-id", default="")
+        discovery_parser.add_argument("--since", default="", help="ISO-8601 UTC, e.g. 2026-11-25T10:00:00Z.")
+    plugin_discovery_summary_parser.set_defaults(func=command_plugin_discovery_summary)
+    plugin_discovery_export_parser.set_defaults(func=command_plugin_discovery_export)
 
     branch_parser = subparsers.add_parser("branch", help="Inspect and manage Bubble editor branches.")
     branch_subparsers = branch_parser.add_subparsers(dest="branch_command", required=True)

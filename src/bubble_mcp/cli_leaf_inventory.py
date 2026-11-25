@@ -158,6 +158,17 @@ CLI_LEAF_CLASSIFICATIONS: dict[tuple[str, ...], CliLeafSpec] = {
     ("metrics", "workload-by-date"): _direct("bubble_workload_usage_by_date"),
     ("plan",): _direct("bubble_plan"),
     ("plugin", "install"): _direct("bubble_plugin_install"),
+    ("plugin", "create"): _direct("bubble_plugin_create"),
+    ("plugin", "delete"): _direct("bubble_plugin_delete"),
+    ("plugin", "list"): _direct("bubble_plugin_list"),
+    ("plugin", "pull"): _direct("bubble_plugin_pull"),
+    ("plugin", "push"): _direct("bubble_plugin_push"),
+    ("plugin", "discovery", "export"): _local(
+        "Exports redacted samples from the local plugin editor discovery log; no Bubble call."
+    ),
+    ("plugin", "discovery", "summary"): _local(
+        "Summarizes the local plugin editor discovery log; no Bubble call."
+    ),
     ("profile", "add"): _direct("bubble_profile_add"),
     ("profile", "bootstrap"): _direct("bubble_project_bootstrap"),
     ("profile", "list"): _direct("bubble_profile_list"),

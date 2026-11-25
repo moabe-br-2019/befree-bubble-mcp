@@ -95,6 +95,21 @@ FIELD_LIBRARY: dict[str, JsonSchema] = {
         "Bubble plugin registry key to install. If the source dependency is an element/action type like progressbar-ProgressBar, pass that value and the MCP will use the prefix before the dash.",
         examples=["progressbar", "progressbar-ProgressBar", "1627152028063x152738721905770500-AAs"],
     ),
+    "plugin_id": _prop(
+        "string",
+        "Bubble plugin id, as in bubble.io/plugin_editor?id=<plugin_id>. bubble_plugin_list returns them.",
+        examples=["1795610633201x773816577862139900"],
+    ),
+    "plugin_folder": _prop(
+        "string",
+        "Local folder that mirrors one plugin (written by bubble_plugin_pull). Defaults under BUBBLE_MCP_PLUGINS_DIR or ~/Projects/bubble-plugins.",
+        examples=["~/Projects/bubble-plugins/my-plugin-139900"],
+    ),
+    "plugin_name": _prop(
+        "string",
+        "Name of the Bubble plugin to create.",
+        examples=["my_new_plugin"],
+    ),
     "plugin_value": _prop(
         ["boolean", "string", "number"],
         "Value to write under settings.client_safe.plugins.<plugin_key>. Omit it: the plugin catalogue decides, giving a marketplace plugin its latest version and a Bubble-native one true. Pass it only to pin a specific version or to install a plugin the catalogue refuses.",
@@ -1971,6 +1986,38 @@ def planning_execution_tools() -> list[ToolSchema]:
                 "notify_ai_context_change",
             ],
             required=["profile", "plugin_key"],
+        ),
+        tool_schema(
+            "bubble_plugin_list",
+            "List the plugins of the logged-in Bubble account from the bubble.io dashboard.",
+            ["profile"],
+            required=["profile"],
+        ),
+        tool_schema(
+            "bubble_plugin_pull",
+            "Mirror one Bubble plugin into a local folder of code files plus JSON.",
+            ["profile", "plugin_id", "plugin_folder", "force"],
+            required=["profile", "plugin_id"],
+            field_overrides={"force": _prop("boolean", "Overwrite local edits that were never pushed.", default=False)},
+        ),
+        tool_schema(
+            "bubble_plugin_push",
+            "Write a pulled plugin folder back to Bubble. Preview by default.",
+            ["profile", "plugin_folder", "execute", "force"],
+            required=["profile", "plugin_folder"],
+            field_overrides={"force": _prop("boolean", "Push even though the plugin changed in Bubble since the last pull (overwrites those changes).", default=False)},
+        ),
+        tool_schema(
+            "bubble_plugin_create",
+            "Create a new, empty Bubble plugin in the logged-in account. Preview by default.",
+            ["profile", "plugin_name", "execute"],
+            required=["profile", "plugin_name"],
+        ),
+        tool_schema(
+            "bubble_plugin_delete",
+            "Delete one Bubble plugin from the logged-in account. Preview by default; execute needs confirm.",
+            ["profile", "plugin_id", "execute", "confirm"],
+            required=["profile", "plugin_id"],
         ),
         tool_schema(
             "bubble_execute_plan",

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Plugin authoring: `bubble_plugin_list`, `bubble_plugin_pull`, `bubble_plugin_push`,
+  `bubble_plugin_create`, `bubble_plugin_delete` tools and `bubble-mcp plugin list|pull|push|create|delete`.
+  Plugins mirror losslessly to a local folder; push checks remote changes, the editor lock and reads back.
+- Chrome extension: plugin editor discovery capture and `bubble-mcp plugin discovery summary|export`.
 - Main takes writes in an app that has no branch. Main (`test`) had been made read-only
   everywhere, which left apps on plans without branches - only `test` and `live` - with nowhere
   to write. The rule now follows the app, read from `/appeditor/get_versions` and cached for five
