@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 import unicodedata
 from pathlib import Path, PurePosixPath
@@ -53,7 +54,17 @@ PARAM_CONTAINERS = ("headers", "url_params", "body_params", "params", "shared_he
 # Id-keyed children that a copied (NEW-) item must renumber.
 ELEMENT_CHILDREN: tuple[str, ...] = ("fields", "states", "events", "actions")
 ACTION_CHILDREN: tuple[str, ...] = ("fields", "return_value")
-_REF_PATTERN = re.compile(r"^(custom_data_|custom_field_)([A-Za-z]{3})$")
+_REF_PATTERN = re.compile(r"^(custom_data_|custom_field_)([A-Za-z]{3}|NEW[A-Za-z0-9_-]*)$")
+# Names used as file or dir names (code keys, state ids, element-action ids, item ids).
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+KNOWN_ELEMENT_CODE = frozenset({"initialize", "update", "preview", "reset", "rn_component"})
+KNOWN_ACTION_CODE = frozenset({"client", "server"})
+
+
+def _safe_name(name: str, what: str) -> str:
+    if not _SAFE_NAME.match(name):
+        raise ValueError(f"Unsafe {what} {name!r}: only letters, digits, '_' and '-' can be mirrored to files.")
+    return name
 
 
 def canonical_json(obj: Any) -> str:
@@ -164,7 +175,7 @@ def _explode_element(element: dict[str, Any], base: str, files: dict[str, str]) 
         for code_key, holder in code.items():
             text = _pop_fn(holder)
             if text is not None:
-                files[f"{base}/{code_key}.js"] = text
+                files[f"{base}/{_safe_name(code_key, 'code key')}.js"] = text
     headers = element.get("headers")
     if isinstance(headers, dict) and isinstance(headers.get("snippet"), str):
         files[f"{base}/{HEADER_HTML}"] = headers.pop("snippet")
@@ -173,13 +184,13 @@ def _explode_element(element: dict[str, Any], base: str, files: dict[str, str]) 
         for state_id, state in states.items():
             text = _pop_fn(state.get("initialization_code")) if isinstance(state, dict) else None
             if text is not None:
-                files[f"{base}/states/{state_id}.init.js"] = text
+                files[f"{base}/states/{_safe_name(state_id, 'state id')}.init.js"] = text
     actions = element.get("actions")
     if isinstance(actions, dict):
         for action_id, action in actions.items():
             text = _pop_fn(action.get("code")) if isinstance(action, dict) else None
             if text is not None:
-                files[f"{base}/actions/{action_id}-{slugify(action.get('caption', ''))}.js"] = text
+                files[f"{base}/actions/{_safe_name(action_id, 'element action id')}-{slugify(action.get('caption', ''))}.js"] = text
     files[f"{base}/{ELEMENT_JSON}"] = canonical_json(element)
 
 
@@ -189,7 +200,7 @@ def _explode_action(action: dict[str, Any], base: str, files: dict[str, str]) ->
         for code_key, holder in code.items():
             text = _pop_fn(holder)
             if text is not None:
-                name = PACKAGE_JSON if code_key == "package" else f"{code_key}.js"
+                name = PACKAGE_JSON if code_key == "package" else f"{_safe_name(code_key, 'code key')}.js"
                 files[f"{base}/{name}"] = text
     files[f"{base}/{ACTION_JSON}"] = canonical_json(action)
 
@@ -214,7 +225,7 @@ def explode(doc: dict[str, Any]) -> tuple[dict[str, str], dict[str, Any]]:
             continue
         index: dict[str, str] = {}
         for item_id, item in items.items():
-            base = f"{folder}/{item_id}-{slugify(item.get(label, '') if isinstance(item, dict) else '')}"
+            base = f"{folder}/{_safe_name(item_id, 'item id')}-{slugify(item.get(label, '') if isinstance(item, dict) else '')}"
             index[item_id] = base
             explode_item(item, base, files)
         doc[doc_key] = index
@@ -239,17 +250,23 @@ def _children_with_prefix(files: dict[str, str], prefix: str) -> dict[str, str]:
 def _assemble_element(files: dict[str, str], base: str) -> dict[str, Any]:
     element: dict[str, Any] = json.loads(files[f"{base}/{ELEMENT_JSON}"])
     inside = _children_with_prefix(files, f"{base}/")
+    code_keys = set(element.get("code") or {}) | KNOWN_ELEMENT_CODE
+    action_keys = sorted(element.get("actions") or {}, key=len, reverse=True)
     for rel, text in inside.items():
         parts = PurePosixPath(rel).parts
         if len(parts) == 1 and rel.endswith(".js"):
-            _put_fn(element.setdefault("code", {}), rel[: -len(".js")], text)
+            if rel[: -len(".js")] in code_keys:
+                _put_fn(element.setdefault("code", {}), rel[: -len(".js")], text)
         elif rel == HEADER_HTML:
             element.setdefault("headers", {})["snippet"] = text
         elif len(parts) == 2 and parts[0] == "states" and rel.endswith(".init.js"):
             state = element.setdefault("states", {}).setdefault(parts[1][: -len(".init.js")], {})
             _put_fn(state, "initialization_code", text)
         elif len(parts) == 2 and parts[0] == "actions" and rel.endswith(".js"):
-            action_id = parts[1].split("-", 1)[0].removesuffix(".js")
+            # Keys may contain "-" (NEW-go), so match the longest known key before the slug.
+            action_id = next((key for key in action_keys if parts[1].startswith(f"{key}-")), None)
+            if action_id is None:
+                action_id = parts[1].split("-", 1)[0].removesuffix(".js")
             _put_fn(element.setdefault("actions", {}).setdefault(action_id, {}), "code", text)
     return element
 
@@ -257,12 +274,13 @@ def _assemble_element(files: dict[str, str], base: str) -> dict[str, Any]:
 def _assemble_action(files: dict[str, str], base: str) -> dict[str, Any]:
     action: dict[str, Any] = json.loads(files[f"{base}/{ACTION_JSON}"])
     inside = _children_with_prefix(files, f"{base}/")
+    code_keys = set(action.get("code") or {}) | KNOWN_ACTION_CODE
     for rel, text in inside.items():
         if "/" in rel:
             continue
         if rel == PACKAGE_JSON:
             _put_fn(action.setdefault("code", {}), "package", text)
-        elif rel.endswith(".js"):
+        elif rel.endswith(".js") and rel[: -len(".js")] in code_keys:
             _put_fn(action.setdefault("code", {}), rel[: -len(".js")], text)
     return action
 
@@ -366,6 +384,28 @@ def _read_json_file(path: Path, default: Any) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def write_private(path: Path, text: str) -> None:
+    """Write a file readable only by the owner from the moment it exists."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    path.chmod(0o600)
+
+
+def _inside(folder: Path, rel: str) -> Path | None:
+    target = folder / rel
+    try:
+        resolved = target.resolve()
+        resolved.relative_to(folder.resolve())
+    except (ValueError, OSError):
+        return None
+    if target.is_symlink():
+        return None
+    return target
+
+
 def _ensure_gitignore(folder: Path) -> None:
     path = folder / ".gitignore"
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
@@ -381,8 +421,8 @@ def write_folder(folder: Path, doc: dict[str, Any]) -> list[Path]:
     folder.mkdir(parents=True, exist_ok=True)
     previous = set(_read_json_file(folder / MANIFEST_FILE, []))
     for stale in sorted(previous - set(files)):
-        target = folder / stale
-        if target.is_file():
+        target = _inside(folder, str(stale))
+        if target is not None and target.is_file():
             target.unlink()
             parent = target.parent
             while parent != folder and parent.exists() and not any(parent.iterdir()):
@@ -396,22 +436,67 @@ def write_folder(folder: Path, doc: dict[str, Any]) -> list[Path]:
             handle.write(text)
         written.append(target)
     (folder / META_DIR).mkdir(exist_ok=True)
-    (folder / SECRETS_FILE).write_text(canonical_json(secrets), encoding="utf-8")
-    (folder / SECRETS_FILE).chmod(0o600)
+    write_private(folder / SECRETS_FILE, canonical_json(secrets))
     (folder / MANIFEST_FILE).write_text(canonical_json(sorted(files)), encoding="utf-8")
     _ensure_gitignore(folder)
     return written
 
 
-def collect_files(folder: Path) -> dict[str, str]:
-    files: dict[str, str] = {}
+def _is_layout_path(rel: str) -> bool:
+    parts = PurePosixPath(rel).parts
+    if rel in (PLUGIN_JSON, SHARED_HEADER):
+        return True
+    if len(parts) < 3 or parts[0] not in ("elements", "actions"):
+        return False
+    tail = parts[2:]
+    if len(tail) == 1:
+        return tail[0].endswith((".js", ".json", ".html"))
+    return parts[0] == "elements" and len(tail) == 2 and tail[0] in ("states", "actions") and tail[1].endswith(".js")
+
+
+def _walk_files(folder: Path) -> list[str]:
+    found = []
     for path in folder.rglob("*"):
         rel = path.relative_to(folder).as_posix()
-        if not path.is_file() or rel.startswith((f"{META_DIR}/", ".git/")) or rel == ".gitignore":
+        parts = PurePosixPath(rel).parts
+        if any(part.startswith(".") or part == "node_modules" for part in parts):
             continue
-        with path.open(encoding="utf-8", newline="") as handle:
-            files[rel] = handle.read()
+        if path.is_symlink() or not path.is_file():
+            continue
+        found.append(rel)
+    return sorted(found)
+
+
+def collect_files(folder: Path) -> dict[str, str]:
+    """Read the mirrored files only (dotfiles, node_modules, symlinks and other files are skipped)."""
+
+    files: dict[str, str] = {}
+    for rel in _walk_files(folder):
+        if _is_layout_path(rel):
+            with (folder / rel).open(encoding="utf-8", newline="") as handle:
+                files[rel] = handle.read()
     return files
+
+
+def unknown_files(folder: Path) -> list[str]:
+    """Files in the folder that the mirror does not use (they are never sent to Bubble)."""
+
+    used, _ = explode(read_folder(folder))
+    return [rel for rel in _walk_files(folder) if rel not in used and not rel.startswith("elements/NEW-") and not rel.startswith("actions/NEW-")]
+
+
+def secret_gaps(base: dict[str, Any], local: dict[str, Any]) -> list[str]:
+    """Secret values present in ``base`` whose holder still exists in ``local`` without them."""
+
+    gaps = []
+    for entry in _extract_secrets(copy.deepcopy(base)):
+        node: Any = local
+        *parents, last = entry["path"]
+        for part in parents:
+            node = node.get(part) if isinstance(node, dict) else None
+        if isinstance(node, dict) and last not in node:
+            gaps.append("/".join(entry["path"]))
+    return gaps
 
 
 def read_folder(folder: Path, *, new_ids: dict[str, str] | None = None) -> dict[str, Any]:

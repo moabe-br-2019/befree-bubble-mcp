@@ -186,3 +186,68 @@ def test_diff_documents_reports_paths() -> None:
     b = {"x": {"y": 2, "z": "a\nb\nc"}, "new": True}
     ops = {(c["path"], c["op"]) for c in diff_documents(a, b)}
     assert ops == {("x/y", "change"), ("x/z", "change"), ("gone", "remove"), ("new", "add")}
+
+
+def test_pull_aborts_when_folder_does_not_rebuild_the_doc(tmp_path: Path, monkeypatch: Any) -> None:
+    import bubble_mcp.plugin_authoring.sync as sync_module
+
+    client = FakeClient(_doc())
+    monkeypatch.setattr(sync_module, "read_folder", lambda folder, **kw: {"broken": True})
+    result = pull_plugin(profile="p", plugin_id=PID, folder=tmp_path / "plug", client=client, session=SESSION)
+    assert result["ok"] is False and result["reason"] == "lossy_folder"
+
+
+def test_pull_refuses_folder_of_another_plugin(tmp_path: Path) -> None:
+    client = FakeClient(_doc())
+    folder = _pull(tmp_path, client)
+    other = pull_plugin(profile="p", plugin_id="999x999", folder=folder, client=client, session=SESSION)
+    assert other["ok"] is False and other["reason"] == "different_plugin"
+
+
+def test_push_reuses_lock_holder(tmp_path: Path) -> None:
+    holders: list[str] = []
+    client = FakeClient(_doc())
+    client.acquire_lock = lambda pid, holder, session: holders.append(holder) or True  # type: ignore[method-assign]
+    folder = _pull(tmp_path, client)
+    for text in ("x1", "x2"):
+        (folder / "elements/AAC-el/update.js").write_text(text, encoding="utf-8")
+        assert push_plugin(profile="p", folder=folder, execute=True, client=client, session=SESSION)["ok"] is True
+    assert len(holders) == 2 and holders[0] == holders[1]
+
+
+def test_lock_is_taken_before_remote_check(tmp_path: Path) -> None:
+    client = FakeClient(_doc())
+    folder = _pull(tmp_path, client)
+    (folder / "elements/AAC-el/update.js").write_text("x", encoding="utf-8")
+    client.calls.clear()
+    push_plugin(profile="p", folder=folder, execute=True, client=client, session=SESSION)
+    assert client.calls.index("lock") < client.calls.index("get")
+
+
+def test_new_dir_is_moved_not_deleted_and_base_updated_even_on_readback_mismatch(tmp_path: Path) -> None:
+    client = FakeClient(_doc())
+    folder = _pull(tmp_path, client)
+    new = folder / "elements/NEW-widget"
+    new.mkdir()
+    (new / "element.json").write_text('{"display": "widget", "code": {"update": {}}}\n', encoding="utf-8")
+    (new / "update.js").write_text("function(i, p, c) {}", encoding="utf-8")
+    (new / "notes.md").write_text("mine", encoding="utf-8")
+    client.readback_override = _doc()
+    result = push_plugin(profile="p", folder=folder, execute=True, client=client, session=SESSION)
+    assert result["reason"] == "readback_mismatch"
+    assert not new.exists()
+    assert (folder / "elements/AAF-widget/notes.md").read_text(encoding="utf-8") == "mine"
+    again = push_plugin(profile="p", folder=folder, client=client, session=SESSION)
+    assert again["new_ids"] == {}
+
+
+def test_push_refuses_when_a_secret_went_missing(tmp_path: Path) -> None:
+    doc = _doc()
+    doc["plugin_api"] = {"human": "API", "private_key": "hunter2xyz"}
+    client = FakeClient(doc)
+    folder = _pull(tmp_path, client)
+    (folder / ".bubble-plugin/secrets.json").unlink()
+    (folder / "elements/AAC-el/update.js").write_text("x", encoding="utf-8")
+    result = push_plugin(profile="p", folder=folder, execute=True, client=client, session=SESSION)
+    assert result["ok"] is False and result["reason"] == "secrets_missing"
+    assert "save" not in client.calls

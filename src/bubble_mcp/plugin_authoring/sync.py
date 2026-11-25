@@ -21,7 +21,6 @@ import json
 import os
 import random
 import re
-import shutil
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -31,13 +30,16 @@ from bubble_mcp.plugin_authoring.folder import (
     canonical_json,
     find_secret_echoes,
     read_folder,
+    secret_gaps,
     slugify,
+    unknown_files,
     write_folder,
+    write_private,
 )
 from bubble_mcp.plugin_authoring.ids import decode_id
 
 PLUGINS_DIR_ENV = "BUBBLE_MCP_PLUGINS_DIR"
-_REF = re.compile(r"^custom_(?:data|field)_([A-Za-z]{3})$")
+_REF = re.compile(r"^custom_(?:data|field)_([A-Za-z]{3}|NEW[A-Za-z0-9_-]*)$")
 
 
 class PluginClient(Protocol):
@@ -79,10 +81,7 @@ def _read_base(folder: Path) -> dict[str, Any] | None:
 
 
 def _write_base(folder: Path, doc: dict[str, Any]) -> None:
-    path = folder / BASE_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(canonical_json(doc), encoding="utf-8")
-    path.chmod(0o600)
+    write_private(folder / BASE_FILE, canonical_json(doc))
 
 
 def plugin_id_of(folder: Path) -> str:
@@ -164,8 +163,37 @@ def _without_absent_nulls(remote: dict[str, Any], local: dict[str, Any]) -> dict
     return normalized
 
 
-def _holder() -> str:
-    return f"{int(time.time() * 1000)}x{random.randint(10**17, 10**18 - 1)}"
+LOCK_HOLDER_FILE = ".bubble-plugin/lock_holder"
+
+
+def _holder(folder: Path) -> str:
+    """One editor-lock holder id per folder, reused so back-to-back pushes keep the lock."""
+
+    path = folder / LOCK_HOLDER_FILE
+    if path.exists():
+        holder = path.read_text(encoding="utf-8").strip()
+        if holder:
+            return holder
+    holder = f"{int(time.time() * 1000)}x{random.randint(10**17, 10**18 - 1)}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(holder + "\n", encoding="utf-8")
+    return holder
+
+
+def _move_new_dirs(folder: Path, new_ids: dict[str, str], local: dict[str, Any]) -> dict[str, str]:
+    """Rename NEW-<slug> dirs to <id>-<slug>, keeping every file the user put inside."""
+
+    moved = {}
+    for new_dir, item_id in new_ids.items():
+        kind = new_dir.split("/", 1)[0]
+        doc_key = "plugin_elements" if kind == "elements" else "plugin_actions"
+        item = (local.get(doc_key) or {}).get(item_id) or {}
+        target = folder / kind / f"{item_id}-{slugify(str(item.get('display', '')))}"
+        source = folder / new_dir
+        if source.exists() and not target.exists():
+            source.rename(target)
+            moved[new_dir] = target.relative_to(folder).as_posix()
+    return moved
 
 
 # ── pull / push ──────────────────────────────────────────────────────────────
@@ -184,6 +212,14 @@ def pull_plugin(
     doc = client.get_plugin(plugin_id, session)
     target = Path(folder).expanduser() if folder else default_plugin_folder(doc, plugin_id)
     base = _read_base(target)
+    id_file = target / ".bubble-plugin" / "plugin_id"
+    if id_file.exists() and id_file.read_text(encoding="utf-8").strip() != plugin_id and not force:
+        return {
+            "ok": False,
+            "reason": "different_plugin",
+            "folder": str(target),
+            "next_action": "This folder mirrors another plugin. Pick another folder, or pull with force=true to retarget it.",
+        }
     if base is not None and not force and read_folder(target) != base:
         return {
             "ok": False,
@@ -194,7 +230,16 @@ def pull_plugin(
         }
     written = write_folder(target, doc)
     _write_base(target, doc)
-    (target / ".bubble-plugin" / "plugin_id").write_text(plugin_id + "\n", encoding="utf-8")
+    id_file.write_text(plugin_id + "\n", encoding="utf-8")
+    if read_folder(target) != doc:
+        # A lossy filesystem (e.g. case-insensitive: ids AAE and AAe collide) would corrupt the
+        # next push; stop here instead.
+        return {
+            "ok": False,
+            "reason": "lossy_folder",
+            "folder": str(target),
+            "next_action": "This folder cannot hold the plugin losslessly (case-insensitive filesystem?). Pull into a folder on a case-sensitive filesystem.",
+        }
     return {
         "ok": True,
         "plugin_id": plugin_id,
@@ -225,9 +270,27 @@ def push_plugin(
 
     new_ids: dict[str, str] = {}
     local = read_folder(folder, new_ids=new_ids)
-    remote = client.get_plugin(plugin_id, session)
     result: dict[str, Any] = {"plugin_id": plugin_id, "folder": str(folder), "executed": False}
 
+    gaps = secret_gaps(base, local)
+    if gaps and not force:
+        return {
+            **result,
+            "ok": False,
+            "reason": "secrets_missing",
+            "secret_paths": gaps,
+            "next_action": "Credentials from the last pull are missing (.bubble-plugin/secrets.json deleted or edited?). Pushing would erase them in Bubble; restore the file, pull again, or push with force=true.",
+        }
+
+    # Take the editor lock before reading the remote, so nothing can change it between the check and the save.
+    if execute and not client.acquire_lock(plugin_id, _holder(folder), session):
+        return {
+            **result,
+            "ok": False,
+            "reason": "editor_open",
+            "next_action": "Close (or reload) every plugin editor tab of this plugin, then push again.",
+        }
+    remote = client.get_plugin(plugin_id, session)
     if remote != base and not force:
         return {
             **result,
@@ -239,19 +302,19 @@ def push_plugin(
 
     changes = diff_documents(_without_absent_nulls(remote, local), local)
     packages = _changed_packages(remote, local)
-    result.update({"changes": changes, "would_build_packages": packages, "warnings": _dangling_refs(local), "new_ids": new_ids})
+    result.update(
+        {
+            "changes": changes,
+            "would_build_packages": packages,
+            "warnings": _dangling_refs(local),
+            "unknown_files": unknown_files(folder),
+            "new_ids": new_ids,
+        }
+    )
     if not changes:
         return {**result, "ok": True, "changed": False}
     if not execute:
         return {**result, "ok": True, "changed": True, "next_action": "Review the changes, then push with execute=true."}
-
-    if not client.acquire_lock(plugin_id, _holder(), session):
-        return {
-            **result,
-            "ok": False,
-            "reason": "editor_open",
-            "next_action": "Close (or reload) every plugin editor tab of this plugin, then push again.",
-        }
 
     for action_id in packages:
         code = local["plugin_actions"][action_id]["code"]
@@ -262,17 +325,22 @@ def push_plugin(
             code["package_status"] = "up_to_date"
 
     client.save_plugin(plugin_id, local, session)
+    # Saved: from here on the folder and base must describe what Bubble now holds, whatever
+    # happens next, or a retry would create the NEW items again.
+    result["executed"] = True
+    result["moved_dirs"] = _move_new_dirs(folder, new_ids, local)
+    write_folder(folder, local)
+    _write_base(folder, local)
+
     client.mark_git_modified(plugin_id, session)
     readback = client.get_plugin(plugin_id, session)
+    _write_base(folder, readback)
     mismatch = diff_documents(local, _without_absent_nulls(readback, local))
     if mismatch:
-        return {**result, "ok": False, "executed": True, "reason": "readback_mismatch", "readback_changes": mismatch}
+        return {**result, "ok": False, "reason": "readback_mismatch", "readback_changes": mismatch}
 
-    for new_dir in new_ids:
-        shutil.rmtree(folder / new_dir, ignore_errors=True)
     write_folder(folder, readback)
-    _write_base(folder, readback)
     next_action = "Pushed. Reload any plugin editor tab to see the changes."
     if packages:
         next_action += " npm packages were rebuilt; open the server action in the editor and confirm the deployment package shows up to date."
-    return {**result, "ok": True, "executed": True, "changed": True, "next_action": next_action}
+    return {**result, "ok": True, "changed": True, "next_action": next_action}

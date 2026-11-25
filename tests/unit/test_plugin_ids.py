@@ -36,3 +36,14 @@ def test_allocate_on_empty_plugin_matches_editor_first_id() -> None:
     doc: dict[str, object] = {"dependencies": {}, "human": "x", "meta_data": {}}
     assert allocate_id(doc) == "AAC"
     assert doc["editor_counter"] == 2
+
+
+def test_max_id_ignores_non_id_keys() -> None:
+    doc = {
+        "editor_counter": 4,
+        "plugin_api": {"calls": {"AAD": {"url": "x", "headers": {"AAE": {"key": "k", "doc": "d"}}}}},
+        "native_config": {"ios": {}},
+        "plugin_elements": {"AAC": {"fields": {"NEW": {"name": "n"}}}},
+    }
+    assert max_id_in(doc) == 4
+    assert allocate_id(doc) == "AAF"

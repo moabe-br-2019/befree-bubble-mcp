@@ -103,3 +103,15 @@ def test_delete_wrapper_dry_run_names_the_plugin(monkeypatch: pytest.MonkeyPatch
 
 def test_create_wrapper_previews_by_default() -> None:
     assert dashboard.create_plugin_for_profile("p", "new one")["executed"] is False
+
+
+def test_delete_requires_exact_name_in_modal() -> None:
+    page = FakePage([[{"id": "1x1", "name": "Foo"}]], modal_text="Are you sure you want to delete the plugin Foo Pro?")
+    with pytest.raises(dashboard.DashboardError):
+        dashboard.delete_plugin(page, "1x1", "Foo")
+
+
+def test_delete_refuses_empty_name() -> None:
+    page = FakePage([[{"id": "1x1", "name": ""}]], modal_text="Are you sure you want to delete the plugin ?")
+    with pytest.raises(dashboard.DashboardError):
+        dashboard.delete_plugin(page, "1x1", "")

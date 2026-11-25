@@ -2127,6 +2127,7 @@ def tool_annotations(name: str) -> dict[str, bool]:
     destructive = name.startswith(("delete_", "clear_", "regenerate_")) or name in {
         "bubble_branch_delete",
         "bubble_plugin_delete",
+        "bubble_plugin_push",
         "bubble_branch_merge_start",
         "bubble_branch_merge_confirm",
         "bubble_branch_merge_resolve_conflicts",

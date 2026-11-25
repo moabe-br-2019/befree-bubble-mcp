@@ -42,6 +42,8 @@ _OPEN_DELETE_JS = """(pluginId) => {
   if (!link) return 'card_not_found';
   let card = link;
   for (let i = 0; i < 8 && card; i++) {
+    const links = [...card.querySelectorAll('a[href*="plugin_editor"]')].map(a => new URL(a.href).searchParams.get('id'));
+    if (new Set(links).size > 1 || !links.includes(pluginId)) return 'ambiguous_card';
     const buttons = [...card.querySelectorAll('button')].filter(b => /^(more_horiz|more_vert|\\.\\.\\.|⋯)$/.test(b.textContent.trim()));
     if (buttons.length === 1) { buttons[0].click(); return 'menu_opened'; }
     card = card.parentElement;
@@ -141,6 +143,8 @@ def create_plugin(page: Any, name: str) -> str:
 def delete_plugin(page: Any, plugin_id: str, name: str) -> None:
     """Delete one plugin through the card menu and the "Danger zone" modal."""
 
+    if not name.strip():
+        raise DashboardError(f"Plugin {plugin_id} has no readable name; refusing to delete it blind.")
     page.get_by_placeholder("Search plugins").fill(name)
     page.wait_for_timeout(PAGE_WAIT_MS)
     opened = page.evaluate(_OPEN_DELETE_JS, plugin_id)
@@ -151,7 +155,8 @@ def delete_plugin(page: Any, plugin_id: str, name: str) -> None:
         raise DashboardError("The plugin menu has no Delete item.")
     page.wait_for_timeout(1000)
     modal = str(page.evaluate(_MODAL_TEXT_JS) or "")
-    if name not in modal:
+    # The dialog reads "...delete the plugin <name>? Apps using...": match the exact name.
+    if f"the plugin {name}?" not in modal:
         raise DashboardError(f"The delete dialog does not name {name!r}; refusing to confirm.")
     page.locator("text=Danger zone").locator("xpath=following::input[1]").fill("DELETE")
     page.get_by_role("button", name="Delete plugin").click()
@@ -198,10 +203,16 @@ def delete_plugin_for_profile(
                 "would_delete": match,
                 "next_action": "Bubble marks the plugin deleted; apps already using it keep working, new apps cannot install it, and the UI offers no undo. Run again with execute=true and confirm=true.",
             }
+        before = {p["id"] for p in list_plugins(page)}
         page.goto(DASHBOARD_URL, timeout=NAV_TIMEOUT_MS)
         page.wait_for_timeout(PAGE_WAIT_MS)
         delete_plugin(page, plugin_id, match["name"])
-        still_there = any(p["id"] == plugin_id for p in list_plugins(page))
-    if still_there:
+        page.goto(DASHBOARD_URL, timeout=NAV_TIMEOUT_MS)
+        page.wait_for_timeout(PAGE_WAIT_MS)
+        after = {p["id"] for p in list_plugins(page)}
+    if plugin_id in after:
         return {"ok": False, "executed": True, "reason": "still_listed", "plugin_id": plugin_id}
+    collateral = sorted(before - after - {plugin_id})
+    if collateral:
+        return {"ok": False, "executed": True, "reason": "other_plugins_missing", "missing": collateral}
     return {"ok": True, "executed": True, "deleted": match}

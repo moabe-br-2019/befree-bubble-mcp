@@ -208,3 +208,51 @@ def test_unflagged_old_style_headers_are_secret_and_echoes_reported() -> None:
     assert any(entry["path"][-3:] == ["headers", "0", "value"] for entry in secrets["values"])
     assert assemble(files, secrets) == doc
     assert find_secret_echoes(doc) == ["plugin_api/calls/AAG/types"]
+
+
+def test_unknown_files_and_node_modules_are_ignored(tmp_path: Path) -> None:
+    from bubble_mcp.plugin_authoring.folder import unknown_files
+
+    doc = _doc_with_code()
+    write_folder(tmp_path, doc)
+    (tmp_path / "actions/AAF-a-b-e/node_modules/x").mkdir(parents=True)
+    (tmp_path / "actions/AAF-a-b-e/node_modules/x/bin.node").write_bytes(b"\xff\xfe\x00binary")
+    (tmp_path / "elements/AAC-a-b-e/helper.js").write_text("// mine", encoding="utf-8")
+    assert read_folder(tmp_path) == doc
+    assert "elements/AAC-a-b-e/helper.js" in unknown_files(tmp_path)
+
+
+def test_manifest_cannot_delete_outside_folder(tmp_path: Path) -> None:
+    folder = tmp_path / "plug"
+    outside = tmp_path / "keep.txt"
+    outside.write_text("keep", encoding="utf-8")
+    write_folder(folder, _doc_with_code())
+    (folder / ".bubble-plugin/manifest.json").write_text('["../keep.txt"]', encoding="utf-8")
+    write_folder(folder, _doc_with_code())
+    assert outside.exists()
+
+
+def test_secrets_file_is_private_from_creation(tmp_path: Path) -> None:
+    write_folder(tmp_path, _doc_with_code())
+    assert oct((tmp_path / SECRETS_FILE).stat().st_mode & 0o777) == "0o600"
+
+
+def test_unsafe_code_keys_are_refused() -> None:
+    doc = _doc_with_code()
+    doc["plugin_elements"]["AAC"]["code"]["../evil"] = {"fn": "x"}
+    with pytest.raises(ValueError):
+        explode(doc)
+
+
+def test_new_element_action_key_with_dash_keeps_its_code(tmp_path: Path) -> None:
+    doc = _doc_with_code()
+    write_folder(tmp_path, doc)
+    element_json = tmp_path / "elements/AAC-a-b-e/element.json"
+    element = json.loads(element_json.read_text(encoding="utf-8"))
+    element["actions"]["NEW-go"] = {"caption": "go2", "code": {}}
+    element_json.write_text(json.dumps(element), encoding="utf-8")
+    (tmp_path / "elements/AAC-a-b-e/actions/NEW-go-go2.js").write_text("function(){}", encoding="utf-8")
+    rebuilt = read_folder(tmp_path)
+    added = [a for a in rebuilt["plugin_elements"]["AAC"]["actions"].values() if a.get("caption") == "go2"]
+    assert len(added) == 1 and added[0]["code"]["fn"] == "function(){}"
+    assert all(a.get("caption") for a in rebuilt["plugin_elements"]["AAC"]["actions"].values())

@@ -38,21 +38,35 @@ def decode_id(value: str) -> int | None:
     return n
 
 
+# Containers whose keys are ids. Other keys ("key", "url", "doc", "ios", ...) are plain field
+# names that merely look like three letters and must not move the counter.
+ID_CONTAINERS = frozenset(
+    {
+        "plugin_elements", "plugin_actions", "fields", "states", "events", "actions", "return_value",
+        "calls", "headers", "url_params", "body_params", "params", "shared_headers", "shared_params",
+        "shared_keys", "assets", "ios", "android",
+    }
+)
+NEW_KEY_PREFIX = "NEW"
+
+
 def max_id_in(doc: Any) -> int:
-    """Largest decoded id among all dict keys anywhere in ``doc`` (-1 when there is none)."""
+    """Largest decoded id used as a key of an id container anywhere in ``doc`` (-1 when none)."""
 
     best = -1
-    stack = [doc]
+    stack: list[tuple[str | None, Any]] = [(None, doc)]
     while stack:
-        node = stack.pop()
+        parent_key, node = stack.pop()
         if isinstance(node, dict):
             for key, value in node.items():
-                decoded = decode_id(str(key))
-                if decoded is not None and decoded > best:
-                    best = decoded
-                stack.append(value)
+                key_text = str(key)
+                if parent_key in ID_CONTAINERS and not key_text.startswith(NEW_KEY_PREFIX):
+                    decoded = decode_id(key_text)
+                    if decoded is not None and decoded > best:
+                        best = decoded
+                stack.append((key_text, value))
         elif isinstance(node, list):
-            stack.extend(node)
+            stack.extend((parent_key, item) for item in node)
     return best
 
 
