@@ -19,7 +19,7 @@ const STORAGE_KEYS = {
 };
 const MAX_EVENTS = 50;
 
-let stats = { captured: 0, sent: 0, errors: 0, writes: 0, structure: 0 };
+let stats = { captured: 0, sent: 0, errors: 0, writes: 0, structure: 0, discovery: 0 };
 
 function storageGet(keys) {
   return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
@@ -53,6 +53,10 @@ function writeIngestUrl(port) {
   return `http://127.0.0.1:${port}/v1/bubble/crawler/write-ingest`;
 }
 
+function discoveryIngestUrl(port) {
+  return `http://127.0.0.1:${port}/v1/bubble/plugin-editor/discovery-ingest`;
+}
+
 function healthUrl(port) {
   return `http://127.0.0.1:${port}/health`;
 }
@@ -64,8 +68,8 @@ function buildHeaders(captureKey) {
 }
 
 function normalizeEvent(kind, payload, result) {
-  const appId = payload?.appId || payload?.requestBody?.appname || null;
-  const endpoint = payload?.endpoint || null;
+  const appId = payload?.appId || payload?.pluginId || payload?.requestBody?.appname || null;
+  const endpoint = payload?.endpoint || payload?.url || null;
   const version = payload?.version || payload?.requestBody?.app_version || null;
   return {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -188,10 +192,15 @@ async function sendWriteIngest(payload) {
   return postLocal(writeIngestUrl, payload);
 }
 
+async function sendDiscoveryIngest(payload) {
+  return postLocal(discoveryIngestUrl, payload);
+}
+
 async function handleCaptured(kind, payload) {
   stats.captured += 1;
   if (kind === 'write') stats.writes += 1;
   if (kind === 'structure') stats.structure += 1;
+  if (kind === 'discovery') stats.discovery += 1;
 
   const enabled = await getEnabled();
   if (!enabled) {
@@ -200,9 +209,8 @@ async function handleCaptured(kind, payload) {
     return;
   }
 
-  const result = kind === 'write'
-    ? await sendWriteIngest(payload)
-    : await sendStructureIngest(payload);
+  const senders = { write: sendWriteIngest, discovery: sendDiscoveryIngest, structure: sendStructureIngest };
+  const result = await senders[kind](payload);
 
   if (result.ok) stats.sent += 1;
   else stats.errors += 1;
@@ -242,6 +250,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     handleCaptured('write', message.payload).catch((error) => {
       stats.errors += 1;
       console.warn('[Befree Bubble MCP Companion][write]', error?.message || error);
+    });
+    return false;
+  }
+
+  if (message.type === 'BUBBLE_PLUGIN_DISCOVERY_CAPTURED') {
+    handleCaptured('discovery', message.payload).catch((error) => {
+      stats.errors += 1;
+      console.warn('[Befree Bubble MCP Companion][discovery]', error?.message || error);
     });
     return false;
   }

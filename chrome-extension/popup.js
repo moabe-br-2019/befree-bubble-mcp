@@ -13,6 +13,7 @@ const statCaptured = document.getElementById('statCaptured');
 const statSent = document.getElementById('statSent');
 const statWrites = document.getElementById('statWrites');
 const statErrors = document.getElementById('statErrors');
+const statDiscovery = document.getElementById('statDiscovery');
 const eventsList = document.getElementById('eventsList');
 
 function msg(type, extra = {}) {
@@ -89,6 +90,7 @@ async function loadState() {
   statSent.textContent = stats?.sent ?? 0;
   statWrites.textContent = stats?.writes ?? 0;
   statErrors.textContent = stats?.errors ?? 0;
+  statDiscovery.textContent = stats?.discovery ?? 0;
   renderEvents(events);
 }
 

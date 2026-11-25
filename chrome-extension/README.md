@@ -46,10 +46,21 @@ Para capturar writes diretamente em uma sessao de aprendizado de tool:
 
 `tool-wizard start` marca a sessao criada como alvo ativo da extensao. O dev nao precisa informar o id na extensao nem rodar uma etapa separada de ativacao. Para recuperar uma sessao existente, rode `bubble-mcp tool-wizard activate <session.id>`. O parametro `--tool-session-id <session.id>` no companion continua disponivel como override explicito.
 
+## Captura do plugin editor (discovery)
+
+Nas paginas `https://bubble.io/plugin_editor*` a extensao registra **toda** requisicao feita pelo editor (qualquer metodo), com corpo enviado e resposta, para documentar como o editor carrega e salva plugins. Fora do plugin editor nada muda.
+
+- Requisicoes de assets estaticos (`.js`, `.css`, imagens, fontes) e para `127.0.0.1`/`localhost` sao ignoradas.
+- Respostas acima de 4 MB sao cortadas e marcadas com `responseTruncated: true`.
+- O envio vai para `POST /v1/bubble/plugin-editor/discovery-ingest` e o listener grava em `<config>/extension-companion/plugin-editor-discovery.jsonl`, separado do `events.jsonl`.
+- O popup mostra o contador em `plugin editor`.
+- Para analisar: `bubble-mcp plugin discovery summary` e `bubble-mcp plugin discovery export --out <pasta>`.
+
 ## Endpoints expostos pelo listener local
 
 - `GET /health`
 - `POST /v1/bubble/crawler/ingest`
 - `POST /v1/bubble/crawler/write-ingest`
+- `POST /v1/bubble/plugin-editor/discovery-ingest`
 
 O listener local aceita JSON e, quando a capture key estiver configurada, valida o header `X-Bubble-MCP-Capture-Key`.

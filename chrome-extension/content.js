@@ -24,6 +24,9 @@
   const MCP_MSG_TYPE = '__befree_bubble_mcp_crawl__';
   const MCP_WRITE_MSG_TYPE = '__befree_bubble_mcp_write__';
   const MCP_PAGE_CATALOG_ENDPOINT = '__befree_bubble_mcp_page_catalog__';
+  const MCP_DISCOVERY_MSG_TYPE = '__befree_bubble_mcp_plugin_discovery__';
+  const DISCOVERY_BODY_LIMIT = 4_000_000;
+  const STATIC_ASSET_PATTERN = /\.(?:js|mjs|css|map|png|jpe?g|gif|svg|webp|ico|woff2?|ttf)$/i;
 
   // Endpoints we care about.
   // load_multiple_paths always has the /appeditor/ prefix.
@@ -227,6 +230,82 @@
     };
   }
 
+  // ── Plugin editor discovery ────────────────────────────────────────────────
+  //
+  // On bubble.io/plugin_editor pages every request (any method) is recorded with
+  // its request and response so the plugin editor's load/save format can be
+  // documented. Nothing here may throw into the editor's own request.
+
+  function isPluginEditorPage(href) {
+    try {
+      const url = new URL(href);
+      const host = url.hostname;
+      return (host === 'bubble.io' || host.endsWith('.bubble.io')) && url.pathname.startsWith('/plugin_editor');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function serializeBody(body) {
+    if (body === null || body === undefined) return null;
+    if (typeof body === 'string') {
+      try { return JSON.parse(body); } catch (_) { return body; }
+    }
+    if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+      return Object.fromEntries(body.entries());
+    }
+    if (typeof FormData !== 'undefined' && body instanceof FormData) {
+      const out = {};
+      for (const [key, value] of body.entries()) out[key] = typeof value === 'string' ? value : '[binary]';
+      return out;
+    }
+    return '[binary]';
+  }
+
+  function truncateBody(text, limit = DISCOVERY_BODY_LIMIT) {
+    const raw = String(text ?? '');
+    if (raw.length > limit) return { value: raw.slice(0, limit), truncated: true };
+    try { return { value: JSON.parse(raw), truncated: false }; } catch (_) { return { value: raw, truncated: false }; }
+  }
+
+  function shouldDiscover(url, method) {
+    try {
+      if (!isPluginEditorPage(window.location.href)) return false;
+      const target = new URL(url, window.location.href);
+      if (!/^https?:$/.test(target.protocol)) return false;
+      if (target.hostname === '127.0.0.1' || target.hostname === 'localhost') return false;
+      if (method === 'GET' && STATIC_ASSET_PATTERN.test(target.pathname)) return false;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function sendDiscovery(url, method, status, rawRequestBody, responseText) {
+    try {
+      const { value, truncated } = truncateBody(responseText);
+      send(MCP_DISCOVERY_MSG_TYPE, {
+        pluginId: getCurrentAppId() || null,
+        pageUrl: window.location.href,
+        url: new URL(url, window.location.href).href,
+        method,
+        status,
+        requestBody: serializeBody(rawRequestBody),
+        responseData: value,
+        responseTruncated: truncated,
+        capturedAt: Date.now(),
+      });
+    } catch (_) {}
+  }
+
+  function xhrResponseText(xhr) {
+    try {
+      if (!xhr.responseType || xhr.responseType === 'text') return xhr.responseText;
+      if (xhr.responseType === 'json') return JSON.stringify(xhr.response);
+    } catch (_) {}
+    return '[binary]';
+  }
+
   // ── Fetch interception ─────────────────────────────────────────────────────
 
   const _origFetch = window.fetch;
@@ -238,8 +317,9 @@
     const interceptStructure = shouldIntercept(url);
     const interceptWrite = shouldInterceptWrite(url);
     const interceptPotentialMutation = !interceptWrite && shouldInterceptPotentialMutation(url, method);
+    const discover = shouldDiscover(url, method);
 
-    if (!interceptStructure && !interceptWrite && !interceptPotentialMutation) {
+    if (!interceptStructure && !interceptWrite && !interceptPotentialMutation && !discover) {
       return _origFetch.apply(this, arguments);
     }
 
@@ -255,9 +335,14 @@
 
     const response = await _origFetch.apply(this, arguments);
 
-    // Clone so we can read body without consuming the original
-    const clone = response.clone();
-    clone.json().then((data) => {
+    // Clone so we can read body without consuming the original. A failure here
+    // must never reach the editor, so the original response is always returned.
+    let clone = null;
+    try { clone = response.clone(); } catch (_) { return response; }
+    clone.text().then((text) => {
+      if (discover) sendDiscovery(url, method, response.status, init?.body ?? null, text);
+      if (!interceptStructure && !interceptWrite && !interceptPotentialMutation) return;
+      const data = JSON.parse(text);
       if (interceptStructure) {
         const meta = parseBubbleUrl(url);
         if (!meta) return;
@@ -302,6 +387,12 @@
     const interceptStructure = shouldIntercept(url);
     const interceptWrite = shouldInterceptWrite(url);
     const interceptPotentialMutation = !interceptWrite && shouldInterceptPotentialMutation(url, method);
+
+    if (shouldDiscover(url, method)) {
+      this.addEventListener('loadend', () => {
+        sendDiscovery(url, method, this.status, body ?? null, xhrResponseText(this));
+      });
+    }
 
     if (interceptStructure || interceptWrite || interceptPotentialMutation) {
       let requestBody = null;
@@ -357,6 +448,10 @@
     document.addEventListener('DOMContentLoaded', startPageCatalogObserver, { once: true });
   } else {
     startPageCatalogObserver();
+  }
+
+  if (globalThis.__BEFREE_TEST__) {
+    globalThis.__befreeDiscovery = { isPluginEditorPage, serializeBody, truncateBody };
   }
 
   // A separate (isolated-world) bridge picks this up.
