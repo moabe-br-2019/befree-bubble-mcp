@@ -80,7 +80,11 @@ GET also returns `data_tracked`, `data_tracked_description` (null here).
 - The HTML header is `html_header.snippet`. Every `_*_NAME_*_` the editor finds in it becomes an entry
   in `html_header.params` (its own id) and is exposed as a key in apps' Plugins tab. A writer that
   edits the snippet must recompute `params` the same way.
-- Additional keys are `shared_keys`, with type Public or Private (`secure`).
+- Additional keys are `shared_keys`, with type Public (`client_safe`) or Private (`secure`).
+- `context.keys` is keyed by caption. A header param shows up as `"<NAME> (headers)"`, not
+  `"<NAME>"`. Header keys never reach a native mobile element: `props.context.keys` came back empty
+  there. A key that web and mobile share must be a public shared key. Apps' Plugins tab lists
+  every key twice, once for live and once with "- dev.".
 - Shared assets are `assets`: upload with `/fileupload`, then add `{name, url}` under a new id.
 - Mobile libraries (shown once a mobile item exists) are `dependencies.mobile_dep`, a JSON string.
   The editor checks it with `validate_mobile_dep_npm` while typing, and a partial version such as
@@ -135,6 +139,19 @@ states  {<id>: {name, caption, value: <type>, is_list, initialization_code {fn}}
 events  {<id>: {name, caption}},
 actions {<id>: {caption, code {fn}}}               # element actions
 ```
+
+Mobile element API, from the inline docs in the editor bundle:
+- `rn_component` is `function(props)`, written in JSX. Async arrow functions are rejected.
+- `props` holds the element's fields by name, `props.bubble` (Bubble properties),
+  `props.instance` and `props.context`.
+- `props.instance` has `publishState(name, value)`, `triggerEvent(name)`, `data`, and `show`/`hide`
+  unless the standard visible property is used.
+- `props.context` has `currentUser`, `uploadContent`, `keys`, `reportDebugger` and `libraries`.
+  `libraries.react` and `libraries["react-native"]` are always there.
+- Element actions are `function(instance, properties, context)` and reset is
+  `function(instance, context)`. They share `instance.data` with the component, so expose handlers
+  there.
+- `fetch` works on the device. Verified live with the Places API (New) REST calls.
 
 A **mobile** element (`platform_type: "mobile"`, created via New > Mobile once the plugin targets
 mobile) has no initialize/update. Its code is `code.rn_component.fn` (a React Native functional
