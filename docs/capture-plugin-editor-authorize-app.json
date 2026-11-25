@@ -1,0 +1,32 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/appeditor/update_plugin_meta_object",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795612431211,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-6",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "appname": "mcp-test-app/",
+          "method": "set_authorized_apps",
+          "plugin_id": "1795610633201x773816577862139900"
+        },
+        "responseData": {
+          "1795610633201x773816577862139900": 6185240347
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/update_plugin_meta_object"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T13:13:51Z",
+      "status": 200
+    }
+  ],
+  "note": "Private license: authorize an app to install the plugin.",
+  "signature": "POST bubble.io/appeditor/update_plugin_meta_object"
+}

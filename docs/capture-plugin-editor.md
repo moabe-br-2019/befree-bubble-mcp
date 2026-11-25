@@ -21,6 +21,8 @@ Chrome. Nothing was published. Redacted samples sit next to this file as
 | delete plugin | `POST /workflow/start`: dashboard "Danger zone" workflow, sets `deleted: true` |
 | upload file | `POST /fileupload` `{appname: "meta", contents: <base64>, name, size, type, ...}` returns a CDN url |
 | mobile deps check | `POST /appeditor/validate_mobile_dep_npm` `{"mobile_dep_str"}` returns `{"invalid_packages": [...]}` |
+| API call initialize | `POST /apiservice/doapicallfromserver` `service_name: "APIPluginBuilderService"`, `call_name: "TestAPICall"` |
+| authorize app (private license) | `POST /appeditor/update_plugin_meta_object` `{"method": "set_authorized_apps", "appname", "plugin_id"}` |
 | install in app (test) | app editor `/appeditor/write`: `settings.client_safe.plugins.<plugin_id>_current = "current"` |
 | list | `POST /elasticsearch/msearch`: encrypted `{x, y, z}` body, not reproducible as-is |
 
@@ -37,14 +39,18 @@ carries null-valued keys the save omitted (`categories`, `description`, `image`,
 {
   "dependencies": {"plugin_api_version": 4, "use_jquery": true,
                    "mobile_dep": "{\"dayjs\": \"^1.11.0\"}"},       # extra mobile libraries (JSON text)
-  "editor_counter": 23,
-  "human": "mcp_test_plugin",            # original/internal name; NOT changed by renaming the public name
+  "editor_counter": 27,
+  "human": "MCP Test Plugin",            # mirrors meta_data.name (it caught up with the rename on a later save)
   "meta_data": MetaData,
   "published_bv": 33,
   "html_header": {"snippet": "<script>...</script>",
                   "params": {"<id>": {"key": "MCP_TOKEN"}}},   # one per _*_NAME_*_ found in the snippet
   "shared_keys": {"<id>": {"caption": "MCP_EXTRA", "type": "secure"}},  # Additional keys; Private=secure
   "assets": {"<id>": {"name": "mcp_logo", "url": "//meta-q.cdn.bubble.io/f.../file.png"}},
+  "native_config": {"ios":     {"<id>": {"key": "MCPTestCustomKey", "default_value": "..."}},
+                    "android": {"<id>": {"type": "meta-data",
+                                         "attributes_string": "android:name=\"x\" android:value=\"true\""}}},
+  "plugin_api": {"human": "New API", "calls": {"<id>": ApiCall}},
   "plugin_elements": {"<id>": Element, ...},
   "plugin_actions":  {"<id>": Action, ...}
 }
@@ -55,16 +61,16 @@ Full sample after every section below was filled: `capture-plugin-editor-save-pl
 ### General settings (`meta_data`)
 
 ```
-name                  public name (rename here; "human" keeps the original)
+name                  public name (top-level "human" follows it)
 image                 logo url, from /fileupload
 description, link (Service URL), plugin_instructions, demo_page
 platforms_new         "web" | "mobile" | "both"
 categories            {"0": "analytics", "1": "internationalization"}   # object keyed by index, max 5
 sa_node_version       22
+license               "private" (set in Versions and license; other options not listed in this capture)
 ```
 
-GET also returns `license`, `data_tracked`, `data_tracked_description` (null here). License and
-pricing live under "Versions and license", which was not captured (it is tied to publishing).
+GET also returns `data_tracked`, `data_tracked_description` (null here).
 
 ### Shared technical settings
 
@@ -77,8 +83,12 @@ pricing live under "Versions and license", which was not captured (it is tied to
 - Shared assets are `assets`: upload with `/fileupload`, then add `{name, url}` under a new id.
 - Mobile libraries (shown once a mobile item exists) are `dependencies.mobile_dep`, a JSON string.
   The editor checks it with `validate_mobile_dep_npm` while typing, and a partial version such as
-  `^1.` is reported invalid. iOS plist and Android manifest entries exist in the UI but were not
-  captured.
+  `^1.` is reported invalid.
+- Native configuration (mobile): iOS plist entries are `native_config.ios.<id> = {key,
+  default_value}`, and Android manifest entries are `native_config.android.<id> = {type,
+  attributes_string}` (it produces `<type attributes />`). The UI warns when a plist key is one
+  Bubble already manages (e.g. `NSCameraUsageDescription`, toggled per app in its Device permissions
+  section).
 
 ### Upload
 
@@ -90,8 +100,9 @@ shared assets. Sample: `capture-plugin-editor-fileupload.json`.
 ### Ids
 
 Every element, field, state, event, element action, plugin action and return value gets a key
-drawn from one plugin-wide counter, `editor_counter`, written as three letters A-Z (`AAC`, `AAD`, ...
-`AAL` = 11). Creating anything takes the next value and bumps the counter. A writer must do the same:
+drawn from one plugin-wide counter, `editor_counter`, written as three letters: `A`-`Z` then
+`a`-`z` (`AAC`, ... `AAL` = 11, ... `AAZ` = 25, `AAa` = 26, `AAb` = 27), so base 52 at least (digits
+not observed yet). Creating anything takes the next value and bumps the counter. A writer must do the same:
 use `editor_counter`, then increment it, so ids never collide with what the editor will generate
 next.
 
@@ -134,14 +145,27 @@ the outer `view`). The UI labels mobile elements MOBILE and web elements WEB.
 | Color | `Color` | |
 | Dropdown | `Dropdown` | `options: "a,b,c"` |
 | Static Image | `Image` | |
-| Dynamic value | `DynamicValue` | `value: <type>` (`text`, `number`, `date`, `user`, ...), `is_list` |
+| Dynamic value | `DynamicValue` | `value: <type>`, `is_list` |
 | App Type | `custom_type` | |
 | Information | `Label` | |
 
-`optional: true` appears only when it is checked. Dynamic value types offered: text, number,
-numeric range, yes / no, image, file, geographic address, date, date range, User, any thing, any
-thing with fields. Only `text` was captured as a wire value. The others need a capture before a
-writer uses them.
+`optional: true` appears only when it is checked. Dynamic value `value` by UI type (the same list
+is used by states, autobinding and API response fields):
+
+| UI | wire |
+|---|---|
+| text | `text` |
+| number | `number` |
+| numeric range | `number_range` |
+| yes / no | `boolean` |
+| image | `image` |
+| file | `file` |
+| geographic address | `geographic_address` |
+| date | `date` |
+| date range | `date_range` |
+| User | `user` |
+| any thing | `_any_thing` |
+| any thing with fields | `_any_thing_bindable` |
 
 ### Plugin action (`plugin_actions.<id>`)
 
@@ -169,6 +193,40 @@ it sees. Clicking "rebuild" sends `create_action_s3_package` (about 1 s, respons
 "up_to_date"` and a `package_hash`. Where the hash comes from (client side or a response not
 captured) is still open. A writer that changes dependencies must rebuild and must not mark
 `up_to_date` by itself.
+
+## API calls (`plugin_api`)
+
+```
+plugin_api.human: "New API"                       # the collection name
+plugin_api.calls.<id>: {
+  name, method ("get", ...), url ("https://.../todos/[id]"; [x] = url param), rank,
+  url_params {<id>: {key, value, private}},       # one per [x] in the url
+  headers    {<id>: {key, value, private}},       # "Public"/"Private" dropdown = private flag
+  publish_as: "data" (Use as: Data | Action),
+  initialized, must_reinitialize, should_reinitialize, url_cant_be_private,
+  full_response: "<raw response text>", response_time_ms, response_schema_truncated,
+  ret_value: "api.<plugin_id>.plugin_api.<id>",
+  types: "<JSON text>"   # {"plugin_api.<id>": {caption, fields: {"_p_<name>": {ret_btype, caption, sample_value, path}}}}
+}
+```
+
+"Initialize" sends the unsaved call to `POST /apiservice/doapicallfromserver` with
+`service_name: "APIPluginBuilderService"`, `call_name: "TestAPICall"`, `properties: {api_id:
+<plugin_id>, api_obj: <plugin_api>, call_id, appname: "meta", app_version: "live"}`. Bubble's server
+makes the request and returns the response, from which the editor builds `types` and `full_response`
+and then saves. A writer that changes a call's url or params should run the same initialize, or
+leave `should_reinitialize: true`. The url params observed here used id `AAB`, which is not from
+the plugin counter. Sample: `capture-plugin-editor-api-initialize.json`.
+
+## Versions and license (read only, nothing submitted)
+
+The tab holds the test app name, the "Plugin distribution license" (setting it saves
+`meta_data.license`, `"private"` here), "Authorized apps" for a private plugin
+(`update_plugin_meta_object` `{"method": "set_authorized_apps", "appname": "mcp-test-app/",
+"plugin_id"}`; the trailing slash is what the editor sent, and the UI lists it as `mcp-test-app/`
+with a Revoke link), "Submit a new version" (publishing, out of scope, not clicked), the publishing
+history, GitHub synchronization ("Synchronize with GitHub" creates a repo, not clicked) and "Other
+plugin editors". Sample: `capture-plugin-editor-authorize-app.json`.
 
 ## Concurrent editing: the editor lock
 
@@ -240,8 +298,8 @@ can sync to GitHub), `update_plugin_meta_object` with `sync_pv_from_s3`, and
 
 ## Not captured yet
 
-- Dynamic value types other than `text`; iOS plist / Android manifest entries.
-- API calls tab; Versions and license (publishing side).
+- The full list of license options; revoking an authorized app; adding another plugin editor.
+- API call auth settings (collection level) and Action-type calls.
 - Whether `save_plugin` rejects a stale `editor_counter` or a non-holder.
 
 ## Security note
