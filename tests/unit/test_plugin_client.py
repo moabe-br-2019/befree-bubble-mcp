@@ -87,3 +87,10 @@ def test_lock_not_held() -> None:
 def test_errors_raise(status: int, body: Any) -> None:
     with pytest.raises(PluginEditorError):
         _client(Recorder(status=status, body=body)).get_plugin(PID, SESSION)
+
+
+def test_release_lock_payload() -> None:
+    rec = Recorder(body={"held": False})
+    _client(rec).release_lock(PID, "h1", SESSION)
+    assert rec.calls[0]["url"].endswith("/appeditor/plugin_editor_lock")
+    assert rec.calls[0]["payload"] == {"holder": "h1", "op": "release", "plugin_id": PID}

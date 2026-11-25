@@ -121,6 +121,16 @@ class PluginEditorClient:
         )
         return isinstance(result, dict) and result.get("held") is True
 
+    def release_lock(self, plugin_id: str, holder: str, session: BubbleSessionData) -> Any:
+        """Give the editor lock back so editor tabs can edit again (they show read-only while it is held)."""
+
+        return self._post(
+            "/appeditor/plugin_editor_lock",
+            {"holder": holder, "op": "release", "plugin_id": plugin_id},
+            plugin_id,
+            session,
+        )
+
     def mark_git_modified(self, plugin_id: str, session: BubbleSessionData) -> Any:
         return self._post(
             "/appeditor/update_plugin_meta_object",

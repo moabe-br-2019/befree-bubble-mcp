@@ -16,6 +16,7 @@ Nothing here publishes a plugin version.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import os
@@ -47,6 +48,7 @@ class PluginClient(Protocol):
     def save_plugin(self, plugin_id: str, raw: dict[str, Any], session: Any) -> Any: ...
     def acquire_lock(self, plugin_id: str, holder: str, session: Any) -> bool: ...
     def mark_git_modified(self, plugin_id: str, session: Any) -> Any: ...
+    def release_lock(self, plugin_id: str, holder: str, session: Any) -> Any: ...
     def build_package(self, plugin_id: str, package_json_string: str, session: Any) -> dict[str, Any]: ...
 
 
@@ -282,14 +284,38 @@ def push_plugin(
             "next_action": "Credentials from the last pull are missing (.bubble-plugin/secrets.json deleted or edited?). Pushing would erase them in Bubble; restore the file, pull again, or push with force=true.",
         }
 
-    # Take the editor lock before reading the remote, so nothing can change it between the check and the save.
-    if execute and not client.acquire_lock(plugin_id, _holder(folder), session):
+    # Take the editor lock before reading the remote, so nothing can change it between the check
+    # and the save; always give it back, or every editor tab stays read-only until it expires.
+    holder = _holder(folder)
+    if execute and not client.acquire_lock(plugin_id, holder, session):
         return {
             **result,
             "ok": False,
             "reason": "editor_open",
             "next_action": "Close (or reload) every plugin editor tab of this plugin, then push again.",
         }
+    try:
+        return _push_with_lock(client, session, folder, plugin_id, base, local, new_ids, result, execute=execute, force=force)
+    finally:
+        if execute:
+            # The push result matters more than a failed release; the lock expires on its own.
+            with contextlib.suppress(Exception):
+                client.release_lock(plugin_id, holder, session)
+
+
+def _push_with_lock(
+    client: PluginClient,
+    session: Any,
+    folder: Path,
+    plugin_id: str,
+    base: dict[str, Any],
+    local: dict[str, Any],
+    new_ids: dict[str, str],
+    result: dict[str, Any],
+    *,
+    execute: bool,
+    force: bool,
+) -> dict[str, Any]:
     remote = client.get_plugin(plugin_id, session)
     if remote != base and not force:
         return {

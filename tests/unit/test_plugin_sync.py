@@ -67,6 +67,9 @@ class FakeClient:
     def mark_git_modified(self, plugin_id: str, session: Any) -> None:
         self.calls.append("git")
 
+    def release_lock(self, plugin_id: str, holder: str, session: Any) -> None:
+        self.calls.append("release")
+
     def build_package(self, plugin_id: str, package_json_string: str, session: Any) -> dict[str, Any]:
         self.calls.append("build")
         return {"success": self.build_ok}
@@ -251,3 +254,17 @@ def test_push_refuses_when_a_secret_went_missing(tmp_path: Path) -> None:
     result = push_plugin(profile="p", folder=folder, execute=True, client=client, session=SESSION)
     assert result["ok"] is False and result["reason"] == "secrets_missing"
     assert "save" not in client.calls
+
+
+def test_push_releases_the_lock_after_saving_and_after_refusing(tmp_path: Path) -> None:
+    client = FakeClient(_doc())
+    folder = _pull(tmp_path, client)
+    (folder / "elements/AAC-el/update.js").write_text("x", encoding="utf-8")
+    assert push_plugin(profile="p", folder=folder, execute=True, client=client, session=SESSION)["ok"] is True
+    assert client.calls[-1] == "release"
+    client.calls.clear()
+    client.remote["human"] = "edited in the UI"
+    (folder / "elements/AAC-el/update.js").write_text("y", encoding="utf-8")
+    refused = push_plugin(profile="p", folder=folder, execute=True, client=client, session=SESSION)
+    assert refused["reason"] == "remote_changed"
+    assert client.calls[-1] == "release"
