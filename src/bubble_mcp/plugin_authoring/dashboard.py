@@ -35,18 +35,19 @@ _CLICK_NEXT_JS = """() => {
   return true;
 }"""
 
-# Opens the "..." menu of the card whose link points at the plugin, then clicks its Delete item.
+# Opens the "..." menu of the card whose link points at the plugin. The card is the smallest
+# ancestor of the link that holds only that one plugin link; its menu is the card's only button
+# (an icon with no text). Anything else is refused rather than guessed.
 _OPEN_DELETE_JS = """(pluginId) => {
-  const link = [...document.querySelectorAll('a[href*="plugin_editor"]')]
-    .find(a => new URL(a.href).searchParams.get('id') === pluginId);
+  const idOf = a => new URL(a.href).searchParams.get('id');
+  const link = [...document.querySelectorAll('a[href*="plugin_editor"]')].find(a => idOf(a) === pluginId);
   if (!link) return 'card_not_found';
-  let card = link;
-  for (let i = 0; i < 8 && card; i++) {
-    const links = [...card.querySelectorAll('a[href*="plugin_editor"]')].map(a => new URL(a.href).searchParams.get('id'));
-    if (new Set(links).size > 1 || !links.includes(pluginId)) return 'ambiguous_card';
-    const buttons = [...card.querySelectorAll('button')].filter(b => /^(more_horiz|more_vert|\\.\\.\\.|⋯)$/.test(b.textContent.trim()));
+  for (let card = link.parentElement, i = 0; card && i < 8; card = card.parentElement, i++) {
+    const ids = new Set([...card.querySelectorAll('a[href*="plugin_editor"]')].map(idOf));
+    if (ids.size !== 1 || !ids.has(pluginId)) return 'ambiguous_card';
+    const buttons = card.querySelectorAll('button');
     if (buttons.length === 1) { buttons[0].click(); return 'menu_opened'; }
-    card = card.parentElement;
+    if (buttons.length > 1) return 'ambiguous_card';
   }
   return 'menu_not_found';
 }"""
