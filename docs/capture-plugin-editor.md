@@ -100,12 +100,20 @@ shared assets. Sample: `capture-plugin-editor-fileupload.json`.
 
 ### Ids
 
-Every element, field, state, event, element action, plugin action and return value gets a key
-drawn from one plugin-wide counter, `editor_counter`, written as three letters: `A`-`Z` then
-`a`-`z` (`AAC`, ... `AAL` = 11, ... `AAZ` = 25, `AAa` = 26, `AAb` = 27), so base 52 at least (digits
-not observed yet). Creating anything takes the next value and bumps the counter. A writer must do the same:
-use `editor_counter`, then increment it, so ids never collide with what the editor will generate
-next.
+Every element, field, state, event, element action, plugin action, API call and return value gets
+a three-letter key in base 52: `A`-`Z` then `a`-`z` (`AAC` = 2, `AAL` = 11, `AAZ` = 25, `AAa` = 26).
+Across the owner's 119 plugins no id had digits or more than 3 letters.
+
+`editor_counter` is the value of the **last id issued**, not the next one (max id == counter in
+102 of 117 plugins). A fresh plugin's first item is `AAC` with counter 2. To add an item:
+`next = max(editor_counter, largest decoded id in the doc) + 1`, use `encode(next)` and set
+`editor_counter = next`. The max over existing ids matters: 2 real plugins hold `return_value` ids
+above the counter. Implemented in `bubble_mcp.plugin_authoring.ids.allocate_id`.
+
+Uniqueness: ids are unique per plugin among elements, fields, states, events, actions and calls.
+They are **not** unique for `return_value` (4 plugins repeat one across two actions, likely copied
+actions) or for API call params (`params` ids repeat between calls, and old `headers` use keys
+`"0"`, `"1"`), so a tool must identify items by full path.
 
 Renaming changes `display` (elements, actions) or `name`/`caption` (fields, states). The key stays,
 so local files can keep ids and renames never become delete plus create.
