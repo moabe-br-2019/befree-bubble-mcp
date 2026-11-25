@@ -276,6 +276,21 @@ plugin editors". Sample: `capture-plugin-editor-authorize-app.json`.
   - a Google-shaped `{formatted_address, geometry: {location}}`;
   - `{_p_address, _p_lat, _p_lng}`.
 
+  The normalization can also pick a business at that address: in one test, "Av. Paulista, 1000"
+  came back as the name of a shop. Apps that need the exact text should read a plain-text state.
+- **A plugin element placed on a page.**
+  - Its `type` and `%x` are `<plugin id>_current-<element id>` while the test version is
+    installed, for example `1795633250092x942469630727290900_current-AAM`.
+  - Field values sit under `%p` keyed by the **bare field id** (`%p.AAN`), not by
+    `<plugin id>_current-AAN`. The editor ignores prefixed keys.
+  - Captured by editing the placeholder in the editor and reading the write.
+- **Runtime layout.** Bubble element boxes have `overflow: hidden`, and later sibling elements
+  paint over earlier ones. A dropdown inside the element's canvas is clipped. Attach it to
+  `document.body` with `position: fixed` under the input.
+- **Places API (New).** `includedPrimaryTypes` rejects the legacy collection `address`
+  ("Invalid included_primary_types 'address'"). `geocode`, `establishment`, `(regions)` and
+  `(cities)` remain valid.
+
 ## Concurrent editing: the editor lock
 
 Each editor window holds a random `holder` id and keeps calling `plugin_editor_lock` with
