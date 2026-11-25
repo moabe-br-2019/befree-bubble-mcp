@@ -18,6 +18,7 @@ Chrome. Nothing was published. Redacted samples sit next to this file as
 | edit lock | `POST /appeditor/plugin_editor_lock` `{"holder", "op": "acquire", "plugin_id"}` returns `{"held": bool}` |
 | npm build | `POST /appeditor/create_action_s3_package` `{"node_version": 22, "package_json_string", "plugin_id"}` |
 | create | `POST /workflow/start`: a workflow of Bubble's own `meta` app, not an `/appeditor` call |
+| delete plugin | `POST /workflow/start`: dashboard "Danger zone" workflow, sets `deleted: true` |
 | list | `POST /elasticsearch/msearch`: encrypted `{x, y, z}` body, not reproducible as-is |
 
 So `pull` is one GET. `push` is one POST of the full document, and every save the editor makes is a
@@ -135,6 +136,22 @@ as the value of an input element in `client_state.element_state`, and the respon
 over replaying this, or replay it with a UI fallback. Right after creation the editor saves a
 minimal document (`dependencies`, `meta_data.name`, `platforms_new`).
 
+## Delete
+
+**Inside a plugin** (field, state, event, action, element), deleting means removing the key from
+the document, and the next `save_plugin` simply omits it. Deleting field `p_info` (`AAL`) left the
+other fields untouched, `editor_counter` stayed at 18 (ids are never reused), and the remaining
+`rank`s were not renumbered (0-7 here only because the deleted field was last).
+
+**A whole plugin** is deleted from the dashboard: "⋯" > Delete, then a "Danger zone" modal that
+asks to type `DELETE`. It is another `POST /workflow/start` of Bubble's `meta` app (`element_id:
+cnWhv1`, `item_id: cnWic1`, the typed `DELETE` in `element_state`, the plugin as `group_data` of
+the list cell). The response shows it sets `deleted: true` on the `custom.plugins` thing, so it is a
+soft delete server side, but the UI offers no undo. The modal says apps already using the plugin
+keep working, and new apps can no longer install it. Sample: `capture-plugin-editor-delete-plugin.json`.
+Same fragility as create: a bulk-cleanup tool should drive this modal (Playwright), one plugin at a
+time, with an explicit list confirmed by the owner.
+
 ## List
 
 The plugin list on the dashboard comes from `POST /elasticsearch/msearch` with an encrypted
@@ -151,7 +168,6 @@ can sync to GitHub), `update_plugin_meta_object` with `sync_pv_from_s3`, and
 
 ## Not captured yet
 
-- Delete (element, field, action, and the plugin itself).
 - Client side Mobile / Both action types; Dynamic value types other than `text`.
 - Plugin-level shared header, additional keys, API calls tab.
 - Whether `save_plugin` rejects a stale `editor_counter` or a non-holder.

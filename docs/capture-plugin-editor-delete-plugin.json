@@ -1,0 +1,232 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/workflow/start",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795611584780,
+        "method": "POST",
+        "pageUrl": "https://bubble.io/home/plugins",
+        "pluginId": null,
+        "requestBody": {
+          "app_last_change": "69809496675",
+          "calls": [
+            {
+              "client_state": {
+                "cache": {
+                  "Message_\"DELETE\"_equals_\"DELETE\"_{}__text": true,
+                  "f5b253513cdd1cfe97e6c98b4306972c": "DELETE"
+                },
+                "element_instances": {
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVuW2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVua2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVub2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhm1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhu1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0",
+                    "parent_element_id": "cnVtf2"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2",
+                    "parent_element_id": "cnVtf2_group_item_1795611282685x324724326449283100_0"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVuW2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVuW2",
+                    "parent_element_id": "cnVvu2"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVua2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVua2",
+                    "parent_element_id": "cnVub2"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVub2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVub2",
+                    "parent_element_id": "cnVuW2"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1",
+                    "parent_element_id": "cnVua2"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhm1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhm1",
+                    "parent_element_id": "cnWlc1"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhu1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhu1",
+                    "parent_element_id": "cnWhm1"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhv1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhv1",
+                    "parent_element_id": "cnWhx1"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWiA1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWiA1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "cnVuW2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVuW2",
+                    "parent_element_id": "cnVvu2"
+                  },
+                  "cnVua2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVua2",
+                    "parent_element_id": "cnVub2"
+                  },
+                  "cnVub2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnVub2",
+                    "parent_element_id": "cnVuW2"
+                  },
+                  "cnVvu2": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2",
+                    "parent_element_id": "cnVtf2_group_item_1795611282685x324724326449283100_0"
+                  },
+                  "cnWhm1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhm1",
+                    "parent_element_id": "cnWlc1"
+                  },
+                  "cnWhu1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhu1",
+                    "parent_element_id": "cnWhm1"
+                  },
+                  "cnWhv1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhv1",
+                    "parent_element_id": "cnWhx1"
+                  },
+                  "cnWhx1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "cnWiA1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWiA1",
+                    "parent_element_id": "cnWhu1"
+                  },
+                  "cnWlc1": {
+                    "dehydrated": "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1",
+                    "parent_element_id": "cnVua2"
+                  }
+                },
+                "element_state": {
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0": {
+                    "cell_index": 1,
+                    "group_data": "1348695171700984260__LOOKUP__1795611282685x324724326449283100"
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWhx1": {
+                    "group_data": "1348695171700984260__LOOKUP__1795611282685x324724326449283100"
+                  },
+                  "1348695171700984260__LOOKUP__ElementInstance::cnVtf2_group_item_1795611282685x324724326449283100_0:cnVvu2:cnWlc1:cnWiA1": {
+                    "is_visible": true,
+                    "value": "DELETE",
+                    "value_that_is_valid": "DELETE"
+                  }
+                },
+                "exists": {
+                  "Message_\"DELETE\"_equals_\"DELETE\"_{}__text": true,
+                  "f5b253513cdd1cfe97e6c98b4306972c": true
+                },
+                "other_data": {
+                  "Current Page Scroll Position": 138.39999389648438,
+                  "Current Page Width": 1458
+                }
+              },
+              "current_date_time": 1795611583885,
+              "current_wf_params": {},
+              "element_id": "cnWhv1",
+              "item_id": "cnWic1",
+              "page_id": "AFw",
+              "random_seed": 0.49228027398276364,
+              "run_id": "1795611583869x739157156402972000",
+              "server_call_id": "1795611583870x818634568964964100",
+              "uid_generator": {
+                "seed": 852479644530826100,
+                "timestamp": 1795611583869
+              }
+            }
+          ],
+          "client_breaking_revision": 5,
+          "platform": "web",
+          "should_stream": false,
+          "timezone_offset": 180,
+          "timezone_string": "America/Sao_Paulo",
+          "user_id": "<bubble-user-id>",
+          "wait_for": []
+        },
+        "responseData": {
+          "1795611583870x818634568964964100": {
+            "outcome": "success",
+            "state_changes": {
+              "cnWih1": {
+                "Message_\"1348695171700984260__LOOKUP__1795611282685x324724326449283100\"_Modified Date_null_{}__custom.plugins": {
+                  "x": true
+                },
+                "Message_\"1348695171700984260__LOOKUP__1795611282685x324724326449283100\"_deleted_boolean_null_{}__custom.plugins": {
+                  "v": true
+                },
+                "PreviousStep_cnWih1": {
+                  "v": "1348695171700984260__LOOKUP__1795611282685x324724326449283100"
+                },
+                "PreviousStep_cnWih1_btype": {
+                  "v": "custom.plugins"
+                }
+              }
+            },
+            "step_results": {
+              "cnWih1": {
+                "UUID_iterations": 0,
+                "random_interations": 0,
+                "return_value": "1348695171700984260__LOOKUP__1795611282685x324724326449283100"
+              }
+            }
+          },
+          "bubble_session_uid": "<bubble-user-id>",
+          "object_updates": {
+            "1795611282685x324724326449283100": 6185218034
+          }
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/workflow/start"
+      },
+      "plugin_id": null,
+      "received_at": "2026-11-25T12:59:44Z",
+      "status": 200
+    }
+  ],
+  "note": "Deletes a plugin (dashboard Danger zone workflow).",
+  "signature": "POST bubble.io/workflow/start"
+}
