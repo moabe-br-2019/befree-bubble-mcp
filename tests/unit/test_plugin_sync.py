@@ -288,3 +288,20 @@ def test_server_added_keys_are_not_a_mismatch_or_a_change(tmp_path: Path) -> Non
     assert result["ok"] is True, result
     again = push_plugin(profile="p", folder=folder, client=client, session=SESSION)
     assert again["changed"] is False, again["changes"]
+
+
+def test_server_rewritten_human_after_rename_is_not_a_mismatch(tmp_path: Path) -> None:
+    client = FakeClient(_doc())
+    folder = _pull(tmp_path, client)
+    (folder / "elements/AAC-el/update.js").write_text("x", encoding="utf-8")
+    original_save = client.save_plugin
+
+    def save_and_reslug(plugin_id: str, raw: dict[str, Any], session: Any) -> None:
+        original_save(plugin_id, raw, session)
+        client.remote["human"] = "new-slug"
+
+    client.save_plugin = save_and_reslug  # type: ignore[method-assign]
+    result = push_plugin(profile="p", folder=folder, execute=True, client=client, session=SESSION)
+    assert result["ok"] is True, result
+    again = push_plugin(profile="p", folder=folder, client=client, session=SESSION)
+    assert again["changed"] is False, again["changes"]
