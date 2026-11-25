@@ -877,6 +877,30 @@ NATIVE_TOOL_DESCRIPTIONS: dict[str, str] = {
         "and the popup it opens together in element_ids. execute=false previews every new id and "
         "index entry; execute=true writes to a branch and reads it all back."
     ),
+    "bubble_plugin_list": (
+        "List every plugin the logged-in Bubble account owns (id and name), read from the bubble.io/home/plugins "
+        "dashboard in a headless browser on the stored browser profile. Read-only; never publishes. Use the ids with "
+        "bubble_plugin_pull."
+    ),
+    "bubble_plugin_pull": (
+        "Mirror one Bubble plugin (its whole editor document) into a local folder: element and action code as .js/.html "
+        "files, the rest as JSON, credentials in a git-ignored .bubble-plugin/secrets.json. Refuses to overwrite local "
+        "edits unless force=true. Reads only; never publishes."
+    ),
+    "bubble_plugin_push": (
+        "Write a pulled plugin folder back to Bubble with save_plugin. Preview returns the change list; execute=true "
+        "refuses when the plugin changed remotely since the pull (unless force) or an editor tab holds the edit lock, "
+        "rebuilds changed npm packages, then reads back and verifies. New items: dirs named NEW-<slug>. Never publishes."
+    ),
+    "bubble_plugin_create": (
+        "Create a new empty Bubble plugin in the logged-in account through the bubble.io dashboard (headless browser) "
+        "and return its id. Preview by default; execute=true creates it. Never publishes; pull it next to start editing."
+    ),
+    "bubble_plugin_delete": (
+        "Delete one Bubble plugin from the logged-in account through the dashboard's Danger zone dialog (headless "
+        "browser). Preview names the plugin; execute=true requires confirm=true. There is no undo in the UI; apps already "
+        "using it keep working. Never publishes."
+    ),
     "bubble_plugin_install": (
         "Preview or install one Bubble plugin in a target app using the stored editor session. Use this when transfer "
         "planning reports a missing plugin-backed element/action type such as progressbar-ProgressBar. The tool writes "
@@ -2068,6 +2092,7 @@ def legacy_description(name: str) -> str:
 def tool_annotations(name: str) -> dict[str, bool]:
     agent_read_only = {
         "bubble_agent_guide",
+        "bubble_plugin_list",
         "bubble_test_ids_plan",
         "bubble_profile_status",
         "bubble_tool_search",
@@ -2101,6 +2126,7 @@ def tool_annotations(name: str) -> dict[str, bool]:
     read_only = _is_read_only(name) or name in agent_read_only
     destructive = name.startswith(("delete_", "clear_", "regenerate_")) or name in {
         "bubble_branch_delete",
+        "bubble_plugin_delete",
         "bubble_branch_merge_start",
         "bubble_branch_merge_confirm",
         "bubble_branch_merge_resolve_conflicts",
@@ -2136,6 +2162,11 @@ def tool_annotations(name: str) -> dict[str, bool]:
             "create_from_html",
             "bubble_editor_write",
             "bubble_plugin_install",
+            "bubble_plugin_list",
+            "bubble_plugin_pull",
+            "bubble_plugin_push",
+            "bubble_plugin_create",
+            "bubble_plugin_delete",
             "bubble_execute_plan",
             "bubble_live_node_read",
             "bubble_node_edit",

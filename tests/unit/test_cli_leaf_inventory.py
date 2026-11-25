@@ -277,8 +277,8 @@ def test_modern_cli_has_complete_terminal_handler_inventory() -> None:
     leaves = modern_cli_leaves()
     paths = {leaf.command_path for leaf in leaves}
 
-    assert len(leaves) == 107
-    assert len({leaf.handler for leaf in leaves}) == 107
+    assert len(leaves) == 112
+    assert len({leaf.handler for leaf in leaves}) == 112
     assert {
         ("profile", "add"),
         ("transfer", "execute"),
@@ -410,8 +410,8 @@ def test_current_modern_cli_classification_is_complete_and_reviewable() -> None:
     records = modern_cli_leaf_classifications()
     by_path = {record.command_path: record for record in records}
 
-    assert len(records) == 107
-    assert len(CLI_LEAF_CLASSIFICATIONS) == 107
+    assert len(records) == 112
+    assert len(CLI_LEAF_CLASSIFICATIONS) == 112
     assert by_path[("profile", "list")].mcp_capabilities == ("bubble_profile_list",)
     assert by_path[("import", "html")].catalog_class == "composed_mcp"
     assert by_path[("extension", "companion", "serve")].catalog_class == "administration_only"
@@ -429,9 +429,9 @@ def test_cli_leaf_map_report_is_complete_and_deterministic() -> None:
     assert first == second
     assert first["ok"] is True
     assert first["summary"] == {
-        "leaf_count": 107,
-        "classified_count": 107,
-        "direct_mcp_count": 99,
+        "leaf_count": 112,
+        "classified_count": 112,
+        "direct_mcp_count": 104,
         "composed_mcp_count": 1,
         "administration_only_count": 4,
         "local_housekeeping_count": 3,
@@ -604,5 +604,5 @@ def test_cli_leaf_map_audit_script_runs_from_checkout() -> None:
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
     assert report["ok"] is True
-    assert report["summary"]["leaf_count"] == 107
+    assert report["summary"]["leaf_count"] == 112
     assert report["summary"]["catalog_gap_count"] == 0

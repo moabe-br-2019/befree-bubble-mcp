@@ -89,6 +89,12 @@ from bubble_mcp.execution.version_control import (
     restore_to_timestamp,
 )
 from bubble_mcp.execution.plugins import install_plugin
+from bubble_mcp.plugin_authoring.dashboard import (
+    create_plugin_for_profile,
+    delete_plugin_for_profile,
+    list_plugins_for_profile,
+)
+from bubble_mcp.plugin_authoring.sync import pull_plugin, push_plugin
 from bubble_mcp.execution.state import next_user_action, operation_snapshot
 from bubble_mcp.execution.structural import permanent_data_type_delete_targets, validate_structure
 from bubble_mcp.execution.write_verify import verify_changes
@@ -953,6 +959,11 @@ EDITOR_SESSION_TOOLS = frozenset(
         "bubble_workload_usage_by_date",
         "bubble_time_series_read",
         "bubble_plugin_install",
+        "bubble_plugin_list",
+        "bubble_plugin_pull",
+        "bubble_plugin_push",
+        "bubble_plugin_create",
+        "bubble_plugin_delete",
         "bubble_profile_cache_refresh",
     }
 )
@@ -2497,6 +2508,41 @@ def _call_tool(
                     response=duplicate_write.get("response"),
                 )
         return duplicate_result
+    if name == "bubble_plugin_list":
+        args = arguments or {}
+        return list_plugins_for_profile(str(args.get("profile") or ""))
+    if name == "bubble_plugin_pull":
+        args = arguments or {}
+        folder = str(args.get("plugin_folder") or "").strip()
+        return pull_plugin(
+            profile=str(args.get("profile") or ""),
+            plugin_id=str(args.get("plugin_id") or ""),
+            folder=Path(folder).expanduser() if folder else None,
+            force=bool(args.get("force")),
+        )
+    if name == "bubble_plugin_push":
+        args = arguments or {}
+        return push_plugin(
+            profile=str(args.get("profile") or ""),
+            folder=Path(str(args.get("plugin_folder") or "")).expanduser(),
+            execute=bool(args.get("execute")),
+            force=bool(args.get("force")),
+        )
+    if name == "bubble_plugin_create":
+        args = arguments or {}
+        return create_plugin_for_profile(
+            str(args.get("profile") or ""),
+            str(args.get("plugin_name") or ""),
+            execute=bool(args.get("execute")),
+        )
+    if name == "bubble_plugin_delete":
+        args = arguments or {}
+        return delete_plugin_for_profile(
+            str(args.get("profile") or ""),
+            str(args.get("plugin_id") or ""),
+            execute=bool(args.get("execute")),
+            confirm=bool(args.get("confirm")),
+        )
     if name == "bubble_plugin_install":
         args = arguments or {}
         profile = str(args.get("profile") or "").strip()

@@ -3111,7 +3111,7 @@ def test_sync_figma_tokens_schema_matches_import_and_option_discovery_runtime_si
     tools = {tool["name"]: tool for tool in listed_tools}
     schema = tools["sync_figma_tokens"]["inputSchema"]
 
-    assert len(listed_tools) == 356
+    assert len(listed_tools) == 360
     assert schema["required"] == ["profile", "tokens_path"]
     assert {
         "tokens_path",
@@ -5928,3 +5928,58 @@ def test_main_does_not_reconfigure_already_utf8_stdio(monkeypatch) -> None:  # t
 
     assert fake_stdin.reconfigure_calls == []
     assert fake_stdout.reconfigure_calls == []
+
+
+def test_plugin_authoring_tools_listed_and_dispatch(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("BUBBLE_MCP_CONFIG_DIR", str(tmp_path))
+    save_settings(
+        BubbleMcpSettings(
+            config_dir=tmp_path,
+            default_profile="plugins",
+            profiles={"plugins": BubbleProfile(name="plugins", app_id="mcp-test-app", appname="mcp-test-app", app_version="test")},
+        )
+    )
+    save_session(
+        "plugins",
+        BubbleSessionData(
+            app_id="mcp-test-app",
+            url="https://bubble.io/page?id=mcp-test-app",
+            method="POST",
+            headers={"cookie": "sid=secret", "x-bubble-client-version": "abc"},
+            cookies="sid=secret",
+            app_version="test",
+            captured_at="2026-11-25T00:00:00+00:00",
+            source="test",
+        ),
+    )
+    listed = handle_request({"jsonrpc": "2.0", "id": 60, "method": "tools/list"})
+    assert listed is not None
+    tools = {tool["name"]: tool for tool in listed["result"]["tools"]}
+    for name in ("bubble_plugin_list", "bubble_plugin_pull", "bubble_plugin_push", "bubble_plugin_create", "bubble_plugin_delete"):
+        assert name in tools, name
+        assert "never publishes" in tools[name]["description"].lower()
+    assert tools["bubble_plugin_list"]["annotations"]["readOnlyHint"] is True
+    assert tools["bubble_plugin_delete"]["annotations"]["destructiveHint"] is True
+    assert tools["bubble_plugin_push"]["inputSchema"]["required"] == ["profile", "plugin_folder"]
+    assert tools["bubble_plugin_pull"]["inputSchema"]["required"] == ["profile", "plugin_id"]
+
+    seen: dict[str, Any] = {}
+
+    def fake_push_plugin(**kwargs):  # type: ignore[no-untyped-def]
+        seen.update(kwargs)
+        return {"ok": True, "executed": kwargs["execute"], "changed": False}
+
+    monkeypatch.setattr("bubble_mcp.server.tools.push_plugin", fake_push_plugin)
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 61,
+            "method": "tools/call",
+            "params": {"name": "bubble_plugin_push", "arguments": {"profile": "plugins", "plugin_folder": str(tmp_path / "f")}},
+        }
+    )
+    assert response is not None
+    result = json.loads(response["result"]["content"][0]["text"])
+    assert result["ok"] is True
+    assert seen["execute"] is False and seen["force"] is False
+    assert str(seen["folder"]) == str(tmp_path / "f")
