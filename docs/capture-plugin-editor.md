@@ -260,6 +260,22 @@ The rest of the tab: "Submit a new version" (publishing, out of scope, not click
 history, GitHub synchronization ("Synchronize with GitHub" creates a repo, not clicked) and "Other
 plugin editors". Sample: `capture-plugin-editor-authorize-app.json`.
 
+## Using a plugin element in an app (verified live 2026-11-25)
+
+- **Expression for an element's exposed state.** It is a `GetElement` whose message is
+  `get_<state id>`. The state id is the key under `states`, not the state's `name`:
+  `{"%x": "GetElement", "%p": {"%ei": "<element id>"}, "%n": {"%x": "Message", "%nm": "get_AAK"}}`.
+  Using the name (`debug`) or the bare id (`AAK`) shows "[not found: …]" in the editor.
+- **`instance.publishState` into a `geographic_address` state.** Accepted:
+  - a plain address string;
+  - `{address, lat, lng}`.
+
+  Bubble geocodes and normalizes both: "Avenida Paulista, 1578 - Bela Vista, São Paulo - SP,
+  Brasil" became "Av. Paulista, 1578 - Bela Vista, São Paulo - SP, 01310-200, Brazil", and
+  `formatted address` worked on both. Not accepted, the state stays empty with no error:
+  - a Google-shaped `{formatted_address, geometry: {location}}`;
+  - `{_p_address, _p_lat, _p_lng}`.
+
 ## Concurrent editing: the editor lock
 
 Each editor window holds a random `holder` id and keeps calling `plugin_editor_lock` with
