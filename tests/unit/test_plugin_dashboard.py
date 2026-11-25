@@ -32,6 +32,9 @@ class FakePage:
         self.url = "https://bubble.io/home/plugins"
 
     def evaluate(self, script: str, arg: Any = None) -> Any:
+        overrides = getattr(self, "evaluate_overrides", {})
+        if script in overrides:
+            return overrides[script]
         if script == dashboard._READ_PAGE_JS:
             return {"items": self.pages[self.index], "hasNext": self.index < len(self.pages) - 1}
         if script == dashboard._CLICK_NEXT_JS:
@@ -115,3 +118,10 @@ def test_delete_refuses_empty_name() -> None:
     page = FakePage([[{"id": "1x1", "name": ""}]], modal_text="Are you sure you want to delete the plugin ?")
     with pytest.raises(dashboard.DashboardError):
         dashboard.delete_plugin(page, "1x1", "")
+
+
+def test_delete_reports_disabled_menu_item() -> None:
+    page = FakePage([[{"id": "1x1", "name": "locked"}]], modal_text="")
+    page.evaluate_overrides = {dashboard._CLICK_DELETE_ITEM_JS: "disabled"}
+    with pytest.raises(dashboard.DeleteDisabled):
+        dashboard.delete_plugin(page, "1x1", "locked")

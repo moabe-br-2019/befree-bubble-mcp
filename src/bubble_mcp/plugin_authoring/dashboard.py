@@ -55,6 +55,7 @@ _OPEN_DELETE_JS = """(pluginId) => {
 _CLICK_DELETE_ITEM_JS = """() => {
   const item = [...document.querySelectorAll('button')].find(b => b.textContent.trim().toLowerCase() === 'delete');
   if (!item) return false;
+  if (item.disabled || item.getAttribute('aria-disabled') === 'true') return 'disabled';
   item.click();
   return true;
 }"""
@@ -69,6 +70,10 @@ _MODAL_TEXT_JS = """() => {
 
 class DashboardError(RuntimeError):
     """The dashboard did not behave as captured (layout change, not logged in, ...)."""
+
+
+class DeleteDisabled(DashboardError):
+    """Bubble greys out Delete for this plugin (seen live on some private plugins)."""
 
 
 @contextlib.contextmanager
@@ -152,7 +157,10 @@ def delete_plugin(page: Any, plugin_id: str, name: str) -> None:
     if opened != "menu_opened":
         raise DashboardError(f"Cannot open the menu of plugin {plugin_id}: {opened}")
     page.wait_for_timeout(500)
-    if not page.evaluate(_CLICK_DELETE_ITEM_JS):
+    clicked = page.evaluate(_CLICK_DELETE_ITEM_JS)
+    if clicked == "disabled":
+        raise DeleteDisabled(f"Bubble does not allow deleting plugin {name!r} (its Delete item is disabled).")
+    if not clicked:
         raise DashboardError("The plugin menu has no Delete item.")
     page.wait_for_timeout(1000)
     modal = str(page.evaluate(_MODAL_TEXT_JS) or "")
@@ -207,7 +215,10 @@ def delete_plugin_for_profile(
         before = {p["id"] for p in list_plugins(page)}
         page.goto(DASHBOARD_URL, timeout=NAV_TIMEOUT_MS)
         page.wait_for_timeout(PAGE_WAIT_MS)
-        delete_plugin(page, plugin_id, match["name"])
+        try:
+            delete_plugin(page, plugin_id, match["name"])
+        except DeleteDisabled as exc:
+            return {"ok": False, "executed": False, "reason": "delete_disabled", "plugin_id": plugin_id, "message": str(exc)}
         page.goto(DASHBOARD_URL, timeout=NAV_TIMEOUT_MS)
         page.wait_for_timeout(PAGE_WAIT_MS)
         after = {p["id"] for p in list_plugins(page)}
