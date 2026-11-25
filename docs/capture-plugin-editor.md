@@ -15,7 +15,7 @@ Chrome. Nothing was published. Redacted samples sit next to this file as
 | load | `GET /appeditor/get_plugin?id=<plugin_id>` returns the document |
 | save | `POST /appeditor/save_plugin` `{"id": <plugin_id>, "raw": <the whole document>}` returns `null` |
 | after save | `POST /appeditor/update_plugin_meta_object` `{"method": "update_git_modified_status", "plugin_id"}` |
-| edit lock | `POST /appeditor/plugin_editor_lock` `{"holder", "op": "acquire", "plugin_id"}` returns `{"held": bool}` |
+| edit lock | `POST /appeditor/plugin_editor_lock` `{"holder", "op": "acquire"\|"release", "plugin_id"}` returns `{"held": bool}` |
 | npm build | `POST /appeditor/create_action_s3_package` `{"node_version": 22, "package_json_string", "plugin_id"}` |
 | create | `POST /workflow/start`: a workflow of Bubble's own `meta` app, not an `/appeditor` call |
 | delete plugin | `POST /workflow/start`: dashboard "Danger zone" workflow, sets `deleted: true` |
@@ -203,6 +203,11 @@ it sees. Clicking "rebuild" sends `create_action_s3_package` (about 1 s, respons
 captured) is still open. A writer that changes dependencies must rebuild and must not mark
 `up_to_date` by itself.
 
+Verified live (2026-11-25): after `create_action_s3_package` succeeded for a changed
+`package.json`, saving the action with `package_status: "up_to_date"` and the **old**
+`package_hash` made the editor show "Deployment package is up to date." The hash is not checked
+against the package text by the editor UI. `bubble_plugin_push` does exactly this.
+
 ## API calls (`plugin_api`)
 
 ```
@@ -265,7 +270,13 @@ window will not be saved". Once the first window closed, the second acquired the
 For `push`: acquire the lock with a fresh holder before `save_plugin`, and refuse if `held` is
 false, because someone has the editor open. This covers the spec's stale-tab concern with Bubble's
 own mechanism. Whether `save_plugin` itself rejects a non-holder was not tested, so do not rely on
-it. A release op (if any) was not observed.
+it.
+
+Verified live: `op: "release"` with the same holder frees the lock (answers `{"held": false}`).
+Without it, an editor tab opened after a push stayed **read-only** until reloaded after the
+release. Closing an editor tab frees its lock at once (a push right after succeeded).
+`bubble_plugin_push` keeps one holder per folder (`.bubble-plugin/lock_holder`), refuses with
+`editor_open` while a tab holds the lock, and always releases after it acquired.
 
 ## Create
 
@@ -293,6 +304,18 @@ soft delete server side, but the UI offers no undo. The modal says apps already 
 keep working, and new apps can no longer install it. Sample: `capture-plugin-editor-delete-plugin.json`.
 Same fragility as create: a bulk-cleanup tool should drive this modal (Playwright), one plugin at a
 time, with an explicit list confirmed by the owner.
+
+## Dashboard (create, delete, list) as driven by the tools
+
+Verified live with `bubble_plugin_create` / `bubble_plugin_delete` / `bubble_plugin_list`
+(headless Playwright on the stored browser profile):
+
+- The list shows 24 cards per page with an `arrow_forward` button ("1 of 5" for 119 plugins).
+- A card shows the plugin's **original** name (`human` at creation), not a later public name.
+- A card's "..." menu is the card's only `<button>`, with no text (icon). The menu items' text is
+  `content_copy`, `delete`, ...
+- The delete dialog reads "Are you sure you want to delete the plugin <name>? ...", and needs
+  `DELETE` typed.
 
 ## List
 

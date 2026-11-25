@@ -256,12 +256,12 @@ Tests:
 
 Needs a stored session on this machine. The owner runs `! .venv/bin/bubble-mcp session login --profile plugins --app-id mcp-test-app` and completes the login and 2FA in the browser that opens.
 
-- [ ] `plugin pull --plugin-id 1795610633201x773816577862139900` → the folder is created; `git init` and commit inside it.
-- [ ] Edit `elements/AAC-test_element/update.js`, then run `plugin push` (dry-run). The diff shows that file only.
-- [ ] `plugin push --execute`. Then open the plugin editor and confirm the code is there and the page is not read-only.
-- [ ] Keep an editor tab open and run `plugin push --execute` again with a change → `editor_open` refusal.
-- [ ] Change the server action's `package.json` (add a dependency), push with execute, then check the editor's deployment-package status. Record the outcome in the capture doc's npm section and settle the npm ruling.
-- [ ] `plugin list` → 119 or more entries.
-- [ ] Ask the owner before each irreversible step: `plugin create --name mcp_test_plugin_3 --execute`, then `plugin delete --plugin-id <new> --execute --confirm`.
-- [ ] Pull 3 of the owner's real plugins (read-only) into a tmp dir and run `plugin push` dry-run on each → `changed: false`. This proves the round trip on live data.
-- [ ] Commit the doc updates: `docs: record live verification of plugin tools`.
+- [x] `plugin pull --plugin-id 1795610633201x773816577862139900` → the folder is created; `git init` and commit inside it.
+- [x] Edit `elements/AAC-test_element/update.js`, then run `plugin push` (dry-run). The diff shows that file only.
+- [x] `plugin push --execute`. Then open the plugin editor and confirm the code is there and the page is not read-only.
+- [x] Keep an editor tab open and run `plugin push --execute` again with a change → `editor_open` refusal.
+- [x] Change the server action's `package.json` (add a dependency), push with execute, then check the editor's deployment-package status. Record the outcome in the capture doc's npm section and settle the npm ruling.
+- [x] `plugin list` → 119 or more entries.
+- [x] Ask the owner before each irreversible step: `plugin create --name mcp_test_plugin_3 --execute`, then `plugin delete --plugin-id <new> --execute --confirm`.
+- [x] Pull 3 of the owner's real plugins (read-only) into a tmp dir and run `plugin push` dry-run on each → `changed: false`. This proves the round trip on live data.
+- [x] Commit the doc updates: `docs: record live verification of plugin tools`.
