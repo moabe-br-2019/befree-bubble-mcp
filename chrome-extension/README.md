@@ -50,7 +50,8 @@ Para capturar writes diretamente em uma sessao de aprendizado de tool:
 
 Nas paginas `https://bubble.io/plugin_editor*` a extensao registra **toda** requisicao feita pelo editor (qualquer metodo), com corpo enviado e resposta, para documentar como o editor carrega e salva plugins. Fora do plugin editor nada muda.
 
-- Requisicoes de assets estaticos (`.js`, `.css`, imagens, fontes) e para `127.0.0.1`/`localhost` sao ignoradas.
+- So entram requisicoes para `bubble.io` e `*.bubble.io`; analytics de terceiros, assets estaticos (`.js`, `.css`, imagens, fontes) e respostas em streaming (`text/event-stream`) sao ignorados.
+- `plugin discovery export` redige segredos, mas amostras com corpo cortado vem marcadas para revisao manual antes de qualquer commit.
 - Respostas acima de 4 MB sao cortadas e marcadas com `responseTruncated: true`.
 - O envio vai para `POST /v1/bubble/plugin-editor/discovery-ingest` e o listener grava em `<config>/extension-companion/plugin-editor-discovery.jsonl`, separado do `events.jsonl`.
 - O popup mostra o contador em `plugin editor`.

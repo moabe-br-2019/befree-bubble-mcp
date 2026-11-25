@@ -125,3 +125,35 @@ test("bridge and background route discovery captures", async () => {
   assert.match(background, /\/v1\/bubble\/plugin-editor\/discovery-ingest/);
   assert.match(background, /postLocal\(discoveryIngestUrl, payload\)/);
 });
+
+test("discovery ignores third-party hosts on the plugin editor", async () => {
+  const { context, posted } = await loadContentScript(
+    "https://bubble.io/plugin_editor?id=x",
+    async () => new Response("{}", { status: 200 }),
+  );
+  await context.fetch("https://api.segment.io/v1/batch", { method: "POST", body: "{}" });
+  await context.fetch("https://bubble.io.evil.com/x", { method: "POST", body: "{}" });
+  await context.fetch("https://meta.bubble.io/x", { method: "POST", body: "{}" });
+  await flush();
+  const urls = posted.filter((message) => message.type === DISCOVERY_MSG).map((message) => message.payload.url);
+  assert.deepEqual(urls, ["https://meta.bubble.io/x"]);
+});
+
+test("discovery skips streaming responses without reading them", async () => {
+  const streaming = new Response("data: 1\n\n", {
+    status: 200,
+    headers: { "content-type": "text/event-stream; charset=utf-8" },
+  });
+  let cloned = false;
+  const originalClone = streaming.clone.bind(streaming);
+  streaming.clone = () => { cloned = true; return originalClone(); };
+  const { context, posted } = await loadContentScript(
+    "https://bubble.io/plugin_editor?id=x",
+    async () => streaming,
+  );
+  const returned = await context.fetch("https://bubble.io/ai/stream", { method: "POST", body: "{}" });
+  await flush();
+  assert.equal(returned, streaming);
+  assert.equal(cloned, false);
+  assert.equal(posted.filter((message) => message.type === DISCOVERY_MSG).length, 0);
+});

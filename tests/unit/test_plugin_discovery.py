@@ -70,19 +70,20 @@ def _fixture_log(tmp_path: Path) -> Path:
 def test_endpoint_signature_replaces_ids_and_drops_query() -> None:
     assert (
         endpoint_signature("post", "https://bubble.io/appeditor/load_single_path/1700000000000x123/test/abc?x=1")
-        == "POST /appeditor/load_single_path/{id}/test/abc"
+        == "POST bubble.io/appeditor/load_single_path/{id}/test/abc"
     )
-    assert endpoint_signature("GET", "https://bubble.io/x/0123456789abcdef0123/y") == "GET /x/{id}/y"
-    assert endpoint_signature("GET", "https://bubble.io/x/1234567") == "GET /x/{id}"
-    assert endpoint_signature("GET", "https://bubble.io/x/12345") == "GET /x/12345"
+    assert endpoint_signature("GET", "https://bubble.io/x/0123456789abcdef0123/y") == "GET bubble.io/x/{id}/y"
+    assert endpoint_signature("GET", "https://bubble.io/x/1234567") == "GET bubble.io/x/{id}"
+    assert endpoint_signature("GET", "https://bubble.io/x/12345") == "GET bubble.io/x/12345"
+    assert endpoint_signature("POST", "https://api.segment.io/v1/batch") == "POST api.segment.io/v1/batch"
 
 
 def test_summarize_groups_by_signature(tmp_path: Path) -> None:
     rows = summarize_discovery_log(_fixture_log(tmp_path))
     by_signature = {row["signature"]: row for row in rows}
 
-    assert set(by_signature) == {"POST /appeditor/write", "GET /appeditor/get_raw_plugin"}
-    write = by_signature["POST /appeditor/write"]
+    assert set(by_signature) == {"POST bubble.io/appeditor/write", "GET bubble.io/appeditor/get_raw_plugin"}
+    write = by_signature["POST bubble.io/appeditor/write"]
     assert write["count"] == 2
     assert write["statuses"] == [200, 400]
     assert write["first_seen"] == "2026-11-25T10:00:00Z"
@@ -95,10 +96,10 @@ def test_summarize_filters_by_plugin_and_since(tmp_path: Path) -> None:
     log = _fixture_log(tmp_path)
 
     only_first = summarize_discovery_log(log, plugin_id="1700000000000x1")
-    assert [row["signature"] for row in only_first] == ["POST /appeditor/write"]
+    assert [row["signature"] for row in only_first] == ["POST bubble.io/appeditor/write"]
 
     late = summarize_discovery_log(log, since="2026-11-25T10:30:00Z")
-    assert [(row["signature"], row["count"]) for row in late] == [("POST /appeditor/write", 1)]
+    assert [(row["signature"], row["count"]) for row in late] == [("POST bubble.io/appeditor/write", 1)]
 
 
 def test_summarize_skips_malformed_lines(tmp_path: Path) -> None:
@@ -119,7 +120,7 @@ def test_export_redacts_and_caps_samples(tmp_path: Path) -> None:
 
     assert len(written) == 1
     samples = json.loads(written[0].read_text(encoding="utf-8"))
-    assert samples["signature"] == "POST /appeditor/write"
+    assert samples["signature"] == "POST bubble.io/appeditor/write"
     assert len(samples["events"]) == 5
     body = samples["events"][0]["payload"]["requestBody"]
     assert body["cookie"] == "[REDACTED]"
@@ -133,8 +134,8 @@ def test_cli_discovery_summary_and_export(tmp_path: Path, capsys) -> None:  # ty
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert {row["signature"] for row in payload["endpoints"]} == {
-        "POST /appeditor/write",
-        "GET /appeditor/get_raw_plugin",
+        "POST bubble.io/appeditor/write",
+        "GET bubble.io/appeditor/get_raw_plugin",
     }
 
     out_dir = tmp_path / "export"
@@ -143,3 +144,35 @@ def test_cli_discovery_summary_and_export(tmp_path: Path, capsys) -> None:  # ty
     assert exported["ok"] is True
     assert len(exported["files"]) == 2
     assert all(Path(item).exists() for item in exported["files"])
+
+
+def test_export_redacts_string_bodies_and_key_value_pairs(tmp_path: Path) -> None:
+    log = _write_log(
+        tmp_path / "discovery.jsonl",
+        [
+            _event(
+                "POST",
+                "https://bubble.io/appeditor/save",
+                request_body='{"password": "hunter2", "code": "keep"}',
+                response={"headers": [{"key": "X-API-Key", "value": "abc123"}, {"key": "Accept", "value": "json"}]},
+            ),
+            _event("POST", "https://bubble.io/appeditor/form", request_body="user=a&password=hunter2"),
+        ],
+    )
+    written = export_discovery_samples(log, tmp_path / "out")
+    text = "".join(path.read_text(encoding="utf-8") for path in written)
+    assert "hunter2" not in text
+    assert "abc123" not in text
+    assert '"keep"' in text
+    assert '"json"' in text
+
+
+def test_export_marks_truncated_samples(tmp_path: Path) -> None:
+    event = _event("GET", "https://bubble.io/appeditor/big", response='{"a": "cut')
+    payload = event["payload"]
+    assert isinstance(payload, dict)
+    payload["responseTruncated"] = True
+    log = _write_log(tmp_path / "discovery.jsonl", [event])
+    samples = json.loads(export_discovery_samples(log, tmp_path / "out")[0].read_text(encoding="utf-8"))
+    assert samples["contains_truncated"] is True
+    assert "do not commit" in samples["note"]

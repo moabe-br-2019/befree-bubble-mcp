@@ -273,7 +273,8 @@
       if (!isPluginEditorPage(window.location.href)) return false;
       const target = new URL(url, window.location.href);
       if (!/^https?:$/.test(target.protocol)) return false;
-      if (target.hostname === '127.0.0.1' || target.hostname === 'localhost') return false;
+      // Only Bubble's own hosts: analytics/session-replay traffic is noise and may carry user data.
+      if (target.hostname !== 'bubble.io' && !target.hostname.endsWith('.bubble.io')) return false;
       if (method === 'GET' && STATIC_ASSET_PATTERN.test(target.pathname)) return false;
       return true;
     } catch (_) {
@@ -317,7 +318,7 @@
     const interceptStructure = shouldIntercept(url);
     const interceptWrite = shouldInterceptWrite(url);
     const interceptPotentialMutation = !interceptWrite && shouldInterceptPotentialMutation(url, method);
-    const discover = shouldDiscover(url, method);
+    let discover = shouldDiscover(url, method);
 
     if (!interceptStructure && !interceptWrite && !interceptPotentialMutation && !discover) {
       return _origFetch.apply(this, arguments);
@@ -334,6 +335,12 @@
     } catch (_) {}
 
     const response = await _origFetch.apply(this, arguments);
+
+    // Streaming responses (SSE over fetch) never finish; reading a clone would buffer forever.
+    try {
+      if (discover && /text\/event-stream/i.test(response.headers?.get?.('content-type') || '')) discover = false;
+    } catch (_) {}
+    if (!discover && !interceptStructure && !interceptWrite && !interceptPotentialMutation) return response;
 
     // Clone so we can read body without consuming the original. A failure here
     // must never reach the editor, so the original response is always returned.

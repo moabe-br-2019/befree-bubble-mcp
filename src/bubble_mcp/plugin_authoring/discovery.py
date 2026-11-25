@@ -13,9 +13,9 @@ import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse
 
-from bubble_mcp.core.redaction import redact_sensitive
+from bubble_mcp.core.redaction import SENSITIVE_KEY_PATTERN, redact_sensitive, redact_string
 
 MAX_SAMPLES_PER_SIGNATURE = 5
 
@@ -31,11 +31,12 @@ def _is_id_segment(segment: str) -> bool:
 
 
 def endpoint_signature(method: str, url: str) -> str:
-    """Return ``"METHOD /path"`` with id-like path segments replaced by ``{id}``."""
+    """Return ``"METHOD host/path"`` with id-like path segments replaced by ``{id}``."""
 
-    path = urlparse(url).path or "/"
+    parsed = urlparse(url)
+    path = parsed.path or "/"
     segments = ["{id}" if _is_id_segment(part) else part for part in path.split("/")]
-    return f"{str(method or '').upper()} {'/'.join(segments)}"
+    return f"{str(method or '').upper()} {parsed.hostname or ''}{'/'.join(segments)}"
 
 
 def _iter_events(
@@ -119,6 +120,51 @@ def _slug(signature: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", signature.lower().replace("{id}", "id")).strip("-") or "root"
 
 
+_URLENCODED_PATTERN = re.compile(r"^[^\s=&]+=[^\s]*(&[^\s=&]+=[^\s]*)*$")
+_PAIR_NAME_KEYS = ("key", "name", "header", "param")
+REDACTED = "[REDACTED]"
+TRUNCATED_NOTE = (
+    "Contains truncated bodies kept as raw text; redaction cannot see inside cut JSON. "
+    "Review by hand and do not commit these samples as-is."
+)
+
+
+def _redact_string_body(value: str) -> Any:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, (dict, list)):
+        return _redact_deep(parsed)
+    if _URLENCODED_PATTERN.match(value):
+        pairs = parse_qsl(value, keep_blank_values=True)
+        return urlencode(
+            [(key, REDACTED if SENSITIVE_KEY_PATTERN.search(key) else val) for key, val in pairs]
+        )
+    return redact_string(value)
+
+
+def _redact_deep(value: Any) -> Any:
+    """Redact secrets in JSON-in-strings, urlencoded strings and ``{key: X, value: Y}`` pairs."""
+
+    if isinstance(value, str):
+        return _redact_string_body(value)
+    if isinstance(value, list):
+        return [_redact_deep(item) for item in value]
+    if isinstance(value, dict):
+        out = {key: _redact_deep(item) for key, item in value.items()}
+        pair_name = next((str(out[key]) for key in _PAIR_NAME_KEYS if isinstance(out.get(key), str)), None)
+        if pair_name and "value" in out and SENSITIVE_KEY_PATTERN.search(pair_name):
+            out["value"] = REDACTED
+        return redact_sensitive(out)
+    return value
+
+
+def _is_truncated(event: dict[str, Any]) -> bool:
+    payload = event.get("payload")
+    return isinstance(payload, dict) and payload.get("responseTruncated") is True
+
+
 def export_discovery_samples(
     path: Path,
     out_dir: Path,
@@ -132,14 +178,25 @@ def export_discovery_samples(
     for event in _iter_events(path, plugin_id=plugin_id, since=since):
         bucket = samples.setdefault(_signature_of(event), [])
         if len(bucket) < MAX_SAMPLES_PER_SIGNATURE:
-            bucket.append(redact_sensitive(event))
+            bucket.append(_redact_deep(event))
 
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for signature, events in samples.items():
+        truncated = any(_is_truncated(event) for event in events)
         target = out_dir / f"{_slug(signature)}.json"
         target.write_text(
-            json.dumps({"signature": signature, "events": events}, indent=2, sort_keys=True) + "\n",
+            json.dumps(
+                {
+                    "signature": signature,
+                    "contains_truncated": truncated,
+                    "note": TRUNCATED_NOTE if truncated else None,
+                    "events": events,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
             encoding="utf-8",
         )
         written.append(target)
