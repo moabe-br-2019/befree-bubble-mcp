@@ -19,6 +19,9 @@ Chrome. Nothing was published. Redacted samples sit next to this file as
 | npm build | `POST /appeditor/create_action_s3_package` `{"node_version": 22, "package_json_string", "plugin_id"}` |
 | create | `POST /workflow/start`: a workflow of Bubble's own `meta` app, not an `/appeditor` call |
 | delete plugin | `POST /workflow/start`: dashboard "Danger zone" workflow, sets `deleted: true` |
+| upload file | `POST /fileupload` `{appname: "meta", contents: <base64>, name, size, type, ...}` returns a CDN url |
+| mobile deps check | `POST /appeditor/validate_mobile_dep_npm` `{"mobile_dep_str"}` returns `{"invalid_packages": [...]}` |
+| install in app (test) | app editor `/appeditor/write`: `settings.client_safe.plugins.<plugin_id>_current = "current"` |
 | list | `POST /elasticsearch/msearch`: encrypted `{x, y, z}` body, not reproducible as-is |
 
 So `pull` is one GET. `push` is one POST of the full document, and every save the editor makes is a
@@ -32,15 +35,57 @@ carries null-valued keys the save omitted (`categories`, `description`, `image`,
 
 ```
 {
-  "dependencies": {"plugin_api_version": 4, "use_jquery": true},
-  "editor_counter": 18,
-  "human": "mcp_test_plugin",
-  "meta_data": {"name": "...", "platforms_new": "web", ...},
+  "dependencies": {"plugin_api_version": 4, "use_jquery": true,
+                   "mobile_dep": "{\"dayjs\": \"^1.11.0\"}"},       # extra mobile libraries (JSON text)
+  "editor_counter": 23,
+  "human": "mcp_test_plugin",            # original/internal name; NOT changed by renaming the public name
+  "meta_data": MetaData,
   "published_bv": 33,
+  "html_header": {"snippet": "<script>...</script>",
+                  "params": {"<id>": {"key": "MCP_TOKEN"}}},   # one per _*_NAME_*_ found in the snippet
+  "shared_keys": {"<id>": {"caption": "MCP_EXTRA", "type": "secure"}},  # Additional keys; Private=secure
+  "assets": {"<id>": {"name": "mcp_logo", "url": "//meta-q.cdn.bubble.io/f.../file.png"}},
   "plugin_elements": {"<id>": Element, ...},
   "plugin_actions":  {"<id>": Action, ...}
 }
 ```
+
+Full sample after every section below was filled: `capture-plugin-editor-save-plugin-full.json`.
+
+### General settings (`meta_data`)
+
+```
+name                  public name (rename here; "human" keeps the original)
+image                 logo url, from /fileupload
+description, link (Service URL), plugin_instructions, demo_page
+platforms_new         "web" | "mobile" | "both"
+categories            {"0": "analytics", "1": "internationalization"}   # object keyed by index, max 5
+sa_node_version       22
+```
+
+GET also returns `license`, `data_tracked`, `data_tracked_description` (null here). License and
+pricing live under "Versions and license", which was not captured (it is tied to publishing).
+
+### Shared technical settings
+
+- Bubble plugin API version and "Include jQuery 3" are `dependencies.plugin_api_version` /
+  `use_jquery`.
+- The HTML header is `html_header.snippet`. Every `_*_NAME_*_` the editor finds in it becomes an entry
+  in `html_header.params` (its own id) and is exposed as a key in apps' Plugins tab. A writer that
+  edits the snippet must recompute `params` the same way.
+- Additional keys are `shared_keys`, with type Public or Private (`secure`).
+- Shared assets are `assets`: upload with `/fileupload`, then add `{name, url}` under a new id.
+- Mobile libraries (shown once a mobile item exists) are `dependencies.mobile_dep`, a JSON string.
+  The editor checks it with `validate_mobile_dep_npm` while typing, and a partial version such as
+  `^1.` is reported invalid. iOS plist and Android manifest entries exist in the UI but were not
+  captured.
+
+### Upload
+
+`POST /fileupload` with JSON `{"app_version": "live", "appname": "meta", "contents": <base64>,
+"name", "size", "type", "lastModified", "lastModifiedDate", "webkitRelativePath": ""}` returns the
+protocol-relative CDN url as a JSON string. The same call serves the logo (`meta_data.image`) and
+shared assets. Sample: `capture-plugin-editor-fileupload.json`.
 
 ### Ids
 
@@ -56,8 +101,13 @@ so local files can keep ids and renames never become delete plus create.
 ### Element (`plugin_elements.<id>`)
 
 ```
-display, category ("visual elements"), icon, platform_type ("web"), add_is_visible,
+display, category ("visual elements" | "input forms"), icon, platform_type ("web" | "mobile"),
 default_dim {height, width},
+# Bubble properties (General tab), keys present only when checked:
+property_applications {resizable, MinWidth (= "Responsive"), Background, Border, BoxShadow,
+                       Font, Padding: true},
+can_fit_width, can_fit_height, add_hover_pressed, add_is_visible (standard visible),
+add_large_file_upload_properties, support_autobinding, autobinding_value: <type>, (is_list),
 headers {snippet: "<html>"},                       # element header
 code {initialize|update|preview|reset: {fn: "function(...) {...}"}},
 fields  {<id>: Field},
@@ -65,6 +115,12 @@ states  {<id>: {name, caption, value: <type>, is_list, initialization_code {fn}}
 events  {<id>: {name, caption}},
 actions {<id>: {caption, code {fn}}}               # element actions
 ```
+
+A **mobile** element (`platform_type: "mobile"`, created via New > Mobile once the plugin targets
+mobile) has no initialize/update. Its code is `code.rn_component.fn` (a React Native functional
+component in JSX, `function(props) {...}`) plus `code.preview` and, when "Add a reset function" is
+checked, `has_reset_fn: true` with `code.reset`. Its Bubble properties are the same set (applied to
+the outer `view`). The UI labels mobile elements MOBILE and web elements WEB.
 
 ### Field (element fields and action fields)
 
@@ -101,8 +157,9 @@ code {
 }
 ```
 
-The action type dropdown offers Client side - Web / Mobile / Both and Server side. Only
-`client_side_web` and `server_side` were captured.
+Action types: Client side - Web `client_side_web`, Client side - Mobile `client_side_mobile`, Client
+side - Both `client_side_both`, Server side `server_side`. Client actions of every kind keep both
+`code.client` and `code.server` stubs.
 
 ### npm
 
@@ -160,6 +217,21 @@ without implementing that encryption. Options for `bubble_plugin_list`: read the
 (Playwright), or keep a local registry of pulled plugin ids. `GET /appeditor/get_plugin_count?id=`
 returns how many apps use a plugin (0 here).
 
+## Install in an app (test)
+
+The plugin editor's "Test app" box (any app name, then "Open test app") opens the app editor at
+`bubble.io/page?id=<app>&test_plugin=<plugin_id>...` and the app editor writes through the normal
+`/appeditor/write` (`intent: ChangeAppSetting`):
+
+```
+path_array: ["settings", "client_safe", "plugins", "<plugin_id>_current"]   body: "current"
+```
+
+This is the unpublished, in-editor version. `bubble_plugin_install` already writes
+`settings.client_safe.plugins.<key>`, so installing the test version is that tool with key
+`<plugin_id>_current` and value `"current"`. Installing a published version uses the version
+string, see `capture-plugin-install.md`. Sample: `capture-plugin-editor-test-app-install.json`.
+
 ## Other calls on editor load
 
 `get_plugin_editors` (collaborators, `[]`), `get_git_status` (`{"type": "no_repo"}`, since plugins
@@ -168,8 +240,8 @@ can sync to GitHub), `update_plugin_meta_object` with `sync_pv_from_s3`, and
 
 ## Not captured yet
 
-- Client side Mobile / Both action types; Dynamic value types other than `text`.
-- Plugin-level shared header, additional keys, API calls tab.
+- Dynamic value types other than `text`; iOS plist / Android manifest entries.
+- API calls tab; Versions and license (publishing side).
 - Whether `save_plugin` rejects a stale `editor_counter` or a non-holder.
 
 ## Security note

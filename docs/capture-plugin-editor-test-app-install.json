@@ -1,0 +1,74 @@
+{
+  "events": [
+    {
+      "app_id": "mcp-test-app",
+      "endpoint": "https://bubble.io/appeditor/write",
+      "kind": "write",
+      "payload": {
+        "appId": "mcp-test-app",
+        "capturedAt": 1795611951611,
+        "endpoint": "https://bubble.io/appeditor/write",
+        "method": "POST",
+        "refreshOnly": false,
+        "requestBody": {
+          "app_version": "test",
+          "appname": "mcp-test-app",
+          "changes": [
+            {
+              "body": "current",
+              "changelog_data": [
+                {
+                  "after_value": null,
+                  "before_value": null,
+                  "change_path": "settings.client_safe.plugins.1795610633201x773816577862139900_current.",
+                  "display_name": "Removed plugin (1795610633201x773816577862139900_current)",
+                  "inner_node_count": 1,
+                  "inner_nodes_info": [
+                    {
+                      "change_path": "settings.client_safe.plugins.1795610633201x773816577862139900_current.",
+                      "display_name": "Removed plugin (1795610633201x773816577862139900_current)",
+                      "type": "Plugin"
+                    }
+                  ],
+                  "operation": "added",
+                  "type": "Plugin"
+                }
+              ],
+              "intent": {
+                "id": 1,
+                "name": "ChangeAppSetting",
+                "source_appname": ""
+              },
+              "path_array": [
+                "settings",
+                "client_safe",
+                "plugins",
+                "1795610633201x773816577862139900_current"
+              ],
+              "session_id": "1795611947364x50",
+              "version_control_api_version": 7
+            },
+            {
+              "type": "id_counter",
+              "value": 17359875
+            }
+          ],
+          "v": 1
+        },
+        "responseData": {
+          "id_counter": "17359875",
+          "last_change": "69813514349",
+          "last_change_date": "1795611951483"
+        },
+        "version": "test"
+      },
+      "received_at": "2026-11-25T13:05:51Z",
+      "tool_authoring": null,
+      "tool_authoring_skip_reason": null,
+      "tool_session_id": null,
+      "version": "test"
+    }
+  ],
+  "note": "Plugin editor 'Open test app' installs the plugin's current (unpublished) version into the app.",
+  "signature": "POST bubble.io/appeditor/write"
+}

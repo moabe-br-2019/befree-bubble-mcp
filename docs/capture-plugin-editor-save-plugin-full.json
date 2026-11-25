@@ -1,0 +1,303 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/appeditor/save_plugin",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795612054863,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-4",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "id": "1795610633201x773816577862139900",
+          "raw": {
+            "assets": {
+              "AAX": {
+                "name": "mcp_logo",
+                "url": "//meta-q.cdn.bubble.io/f1795611863908x994150863742548200/mcp-test-logo.png"
+              }
+            },
+            "dependencies": {
+              "mobile_dep": {
+                "dayjs": "^1.11.0"
+              },
+              "plugin_api_version": 4,
+              "use_jquery": true
+            },
+            "editor_counter": 24,
+            "html_header": {
+              "params": {
+                "AAV": {
+                  "key": "MCP_TOKEN"
+                }
+              },
+              "snippet": "<script>window.MCP_SHARED = 1; var k='_*_MCP_TOKEN_*_';</script>"
+            },
+            "human": "mcp_test_plugin",
+            "meta_data": {
+              "categories": {
+                "0": "analytics",
+                "1": "internationalization"
+              },
+              "demo_page": "https://mcp-test-app.bubbleapps.io/version-test",
+              "description": "Plugin de teste do Befree Bubble MCP.",
+              "image": "//meta-q.cdn.bubble.io/f1795611899139x933887494000085900/mcp-test-logo.png",
+              "link": "https://example.com/mcp-test",
+              "name": "MCP Test Plugin",
+              "platforms_new": "both",
+              "plugin_instructions": "Instrucoes de teste.",
+              "sa_node_version": 22
+            },
+            "plugin_actions": {
+              "AAP": {
+                "category": "plugins",
+                "code": {
+                  "client": {
+                    "fn": "function(properties, context) {\n\n\n  //Load any data \n  console.log(properties.f_msg);\n\n\n  //Do the operation\n\n\n\n}"
+                  },
+                  "server": {
+                    "fn": "function(properties, context) {\n\n\n\n\n\n\n}"
+                  }
+                },
+                "display": "client_action",
+                "fields": {
+                  "AAQ": {
+                    "caption": "f_msg",
+                    "editor": "DynamicValue",
+                    "name": "f_msg",
+                    "rank": 0
+                  }
+                },
+                "type": "client_side_web"
+              },
+              "AAR": {
+                "category": "plugins",
+                "code": {
+                  "automatically_added_packages": {
+                    "lodash": "latest"
+                  },
+                  "client": {
+                    "fn": "function(properties, context) {\n\n\n  //Load any data \n\n\n\n  //Do the operation\n\n\n\n}"
+                  },
+                  "package": {
+                    "fn": {
+                      "dependencies": {
+                        "lodash": "latest"
+                      }
+                    }
+                  },
+                  "package_hash": "c68ccd8151e77ed9928c",
+                  "package_status": "up_to_date",
+                  "package_used": true,
+                  "server": {
+                    "fn": "function(properties, context) {\n\n\n  const _ = require('lodash'); return { r_result: _.kebabCase('Hello World') };\n\n\n\n}"
+                  }
+                },
+                "display": "server_action",
+                "return_value": {
+                  "AAS": {
+                    "caption": "",
+                    "name": "r_result"
+                  }
+                },
+                "type": "server_side"
+              },
+              "AAT": {
+                "category": "plugins",
+                "code": {
+                  "client": {
+                    "fn": "function(properties, context) {\n\n\n  //Load any data \n\n\n\n  //Do the operation\n\n\n\n}"
+                  },
+                  "server": {
+                    "fn": "async function(properties, context) {\n\n\n\n\n\n\n}"
+                  }
+                },
+                "display": "mobile_action",
+                "type": "client_side_mobile"
+              },
+              "AAU": {
+                "category": "plugins",
+                "code": {
+                  "client": {
+                    "fn": "function(properties, context) {\n\n\n  //Load any data \n\n\n\n  //Do the operation\n\n\n\n}"
+                  },
+                  "server": {
+                    "fn": "async function(properties, context) {\n\n\n\n\n\n\n}"
+                  }
+                },
+                "display": "both_action",
+                "type": "client_side_both"
+              }
+            },
+            "plugin_elements": {
+              "AAC": {
+                "actions": {
+                  "AAO": {
+                    "caption": "a_reset",
+                    "code": {
+                      "fn": "function(instance, properties, context) {\n\n\n  //Load any data \n  instance.publishState('s_value', []);\n\n\n  //Do the operation\n\n\n\n}"
+                    }
+                  }
+                },
+                "add_hover_pressed": true,
+                "add_is_visible": true,
+                "add_large_file_upload_properties": true,
+                "autobinding_value": "text",
+                "can_fit_height": true,
+                "can_fit_width": true,
+                "category": "visual elements",
+                "code": {
+                  "initialize": {
+                    "fn": "function(instance, context) {\n\n  instance.canvas.addClass('mcp-test');\n\n}"
+                  },
+                  "preview": {
+                    "fn": "function(instance, properties) {\n\n  instance.triggerEvent('e_clicked');\n\n}"
+                  },
+                  "reset": {
+                    "fn": "function(instance, context) {\n\n\n\n}"
+                  },
+                  "update": {
+                    "fn": "function(instance, properties, context) {\n\n\n\n}"
+                  }
+                },
+                "default_dim": {
+                  "height": 200,
+                  "width": 320
+                },
+                "display": "test_element",
+                "events": {
+                  "AAN": {
+                    "caption": "",
+                    "name": "e_clicked"
+                  }
+                },
+                "fields": {
+                  "AAD": {
+                    "caption": "p_text",
+                    "default_val": "hello",
+                    "editor": "StaticText",
+                    "name": "p_text",
+                    "rank": 0
+                  },
+                  "AAE": {
+                    "caption": "p_number",
+                    "editor": "StaticNumber",
+                    "name": "p_number",
+                    "rank": 1
+                  },
+                  "AAF": {
+                    "caption": "p_checkbox",
+                    "editor": "Checkbox",
+                    "name": "p_checkbox",
+                    "rank": 2
+                  },
+                  "AAG": {
+                    "caption": "p_color",
+                    "editor": "Color",
+                    "name": "p_color",
+                    "rank": 3
+                  },
+                  "AAH": {
+                    "caption": "p_dropdown",
+                    "editor": "Dropdown",
+                    "name": "p_dropdown",
+                    "optional": true,
+                    "options": "a,b,c",
+                    "rank": 4
+                  },
+                  "AAI": {
+                    "caption": "p_image",
+                    "editor": "Image",
+                    "name": "p_image",
+                    "rank": 5
+                  },
+                  "AAJ": {
+                    "caption": "p_dynamic",
+                    "editor": "DynamicValue",
+                    "is_list": true,
+                    "name": "p_dynamic",
+                    "rank": 6,
+                    "value": "text"
+                  },
+                  "AAK": {
+                    "caption": "p_apptype",
+                    "editor": "custom_type",
+                    "name": "p_apptype",
+                    "rank": 7
+                  }
+                },
+                "headers": {
+                  "snippet": "<style>.mcp-test{color:red}</style></style>"
+                },
+                "icon": "ion-android-checkbox-blank",
+                "platform_type": "web",
+                "property_applications": {
+                  "Background": true,
+                  "Border": true,
+                  "BoxShadow": true,
+                  "Font": true,
+                  "MinWidth": true,
+                  "Padding": true,
+                  "resizable": true
+                },
+                "states": {
+                  "AAM": {
+                    "caption": "",
+                    "initialization_code": {
+                      "fn": "function(properties, context) {\n\n\n\n}"
+                    },
+                    "is_list": true,
+                    "name": "s_value",
+                    "value": "text"
+                  }
+                },
+                "support_autobinding": true
+              },
+              "AAY": {
+                "add_is_visible": true,
+                "category": "input forms",
+                "code": {
+                  "preview": {
+                    "fn": "function(instance, properties) {\n\n\n\n}"
+                  },
+                  "reset": {
+                    "fn": "function(instance, context) {\n\n\n\n}"
+                  },
+                  "rn_component": {
+                    "fn": "function(props) {\n\n  return <Text>{props.properties.label}</Text>;\n\n}"
+                  }
+                },
+                "default_dim": {
+                  "height": 200,
+                  "width": 400
+                },
+                "display": "mobile_element",
+                "has_reset_fn": true,
+                "icon": "ion-android-checkbox-blank",
+                "platform_type": "mobile"
+              }
+            },
+            "published_bv": 33,
+            "shared_keys": {
+              "AAW": {
+                "caption": "MCP_EXTRA",
+                "type": "secure"
+              }
+            }
+          }
+        },
+        "responseData": null,
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/save_plugin"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T13:07:34Z",
+      "status": 200
+    }
+  ],
+  "note": "Full document after shared settings, assets, general settings, mobile/both actions, mobile element and bubble properties.",
+  "signature": "POST bubble.io/appeditor/save_plugin"
+}

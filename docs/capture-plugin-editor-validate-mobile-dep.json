@@ -1,0 +1,32 @@
+{
+  "contains_truncated": false,
+  "events": [
+    {
+      "endpoint": "https://bubble.io/appeditor/validate_mobile_dep_npm",
+      "kind": "discovery",
+      "method": "POST",
+      "payload": {
+        "capturedAt": 1795611819782,
+        "method": "POST",
+        "pageUrl": "https%3A%2F%2Fbubble.io%2Fplugin_editor%3Fid=1795610633201x773816577862139900&tab=tabs-2",
+        "pluginId": "1795610633201x773816577862139900",
+        "requestBody": {
+          "mobile_dep_str": {
+            "dayjs": "^1.11"
+          }
+        },
+        "responseData": {
+          "invalid_packages": []
+        },
+        "responseTruncated": false,
+        "status": 200,
+        "url": "https://bubble.io/appeditor/validate_mobile_dep_npm"
+      },
+      "plugin_id": "1795610633201x773816577862139900",
+      "received_at": "2026-11-25T13:03:39Z",
+      "status": 200
+    }
+  ],
+  "note": null,
+  "signature": "POST bubble.io/appeditor/validate_mobile_dep_npm"
+}
